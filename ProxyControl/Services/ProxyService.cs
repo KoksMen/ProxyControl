@@ -1,10 +1,11 @@
-﻿using ProxyControl.Models;
+﻿using Microsoft.Win32;
+using ProxyControl.Models;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Titanium.Web.Proxy;
@@ -18,14 +19,12 @@ namespace ProxyControl.Services
         private readonly ProxyServer _proxyServer;
         private AppConfig _config;
         private List<ProxyItem> _availableProxies;
-
-        // Кэш для FakeDNS: Hostname -> FakeIP
-        private ConcurrentDictionary<string, IPAddress> _fakeDnsCache = new ConcurrentDictionary<string, IPAddress>();
+        private ExplicitProxyEndPoint _endPoint;
 
         public ProxyService()
         {
             _proxyServer = new ProxyServer();
-            _proxyServer.CertificateManager.EnsureRootCertificate(); // Генерирует сертификат для HTTPS
+            _proxyServer.CertificateManager.EnsureRootCertificate();
             _proxyServer.BeforeRequest += OnRequest;
         }
 
@@ -37,164 +36,139 @@ namespace ProxyControl.Services
 
         public void Start()
         {
-            var explicitEndPoint = new ExplicitProxyEndPoint(IPAddress.Any, 8000, true);
-            _proxyServer.AddEndPoint(explicitEndPoint);
-            _proxyServer.Start();
-            _proxyServer.SetAsSystemHttpProxy(explicitEndPoint); // Устанавливаем как системный прокси
-            _proxyServer.SetAsSystemHttpsProxy(explicitEndPoint);
+            if (_proxyServer.ProxyEndPoints.Count == 0)
+            {
+                _endPoint = new ExplicitProxyEndPoint(IPAddress.Any, 8000, true);
+                _proxyServer.AddEndPoint(_endPoint);
+            }
+
+            if (!_proxyServer.ProxyRunning)
+                _proxyServer.Start();
+
+            _proxyServer.SetAsSystemHttpProxy(_endPoint);
+            _proxyServer.SetAsSystemHttpsProxy(_endPoint);
         }
 
         public void Stop()
         {
-            _proxyServer.Stop();
-            _proxyServer.RestoreOriginalProxySettings();
+            try
+            {
+                _proxyServer.Stop();
+                _proxyServer.RestoreOriginalProxySettings();
+            }
+            catch { }
+            SystemProxyHelper.RestoreSystemProxy();
+        }
+
+        public void EnforceSystemProxy()
+        {
+            if (!_proxyServer.ProxyRunning) return;
+
+            try
+            {
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings", false))
+                {
+                    int? enabled = key?.GetValue("ProxyEnable") as int?;
+
+                    if (enabled == null || enabled == 0)
+                    {
+                        _proxyServer.SetAsSystemHttpProxy(_endPoint);
+                        _proxyServer.SetAsSystemHttpsProxy(_endPoint);
+                        Debug.WriteLine("System Proxy was disabled by OS. Re-applied by ProxyManager.");
+                    }
+                }
+            }
+            catch { }
         }
 
         private async Task OnRequest(object sender, SessionEventArgs e)
         {
-            string hostname = e.HttpClient.Request.RequestUri.Host;
-            string processName = GetProcessName(e.HttpClient.ProcessId.Value);
-
-            // 4) FakeDNS функционал (простая реализация: подмена DNS резолвинга если нужно)
-            if (_config.FakeDnsEnabled)
+            if (_config == null || _availableProxies == null) return;
+            try
             {
-                // В реальном FakeDNS мы бы возвращали фейковый IP. 
-                // Titanium позволяет переопределить IP для хоста.
-                // Здесь мы просто логируем или можем подменить IP назначения, если бы у нас была база маппинга.
-            }
+                string hostname = e.HttpClient.Request.RequestUri.Host;
 
-            ProxyItem targetProxy = null;
+                int pid = 0;
+                try { pid = e.HttpClient.ProcessId.Value; } catch { }
+                string processName = pid > 0 ? GetProcessName(pid) : "Unknown";
 
-            if (_config.CurrentMode == RuleMode.BlackList)
-            {
-                targetProxy = ResolveBlackList(processName, hostname);
-            }
-            else
-            {
-                targetProxy = ResolveWhiteList(processName, hostname);
-            }
+                ProxyItem? targetProxy = _config.CurrentMode == RuleMode.BlackList
+                    ? ResolveBlackList(processName, hostname)
+                    : ResolveWhiteList(processName, hostname);
 
-            if (targetProxy != null)
-            {
-                var externalProxy = new ExternalProxy()
+                if (targetProxy != null && !string.IsNullOrEmpty(targetProxy.IpAddress) && targetProxy.Port > 0)
                 {
-                    HostName = targetProxy.IpAddress,
-                    Port = targetProxy.Port,
-                    UserName = targetProxy.Username,
-                    Password = targetProxy.Password
-                };
-
-                // Направляем трафик через выбранный внешний прокси
-                //e.CustomUpStreamHttpProxy = externalProxy;
-                //e.CustomUpStreamHttpsProxy = externalProxy;
+                    var externalProxy = new ExternalProxy()
+                    {
+                        HostName = targetProxy.IpAddress,
+                        Port = targetProxy.Port,
+                        UserName = targetProxy.Username,
+                        Password = targetProxy.Password
+                    };
+                    e.CustomUpStreamProxy = externalProxy;
+                }
             }
-            // Если targetProxy == null, трафик идет напрямую (DIRECT)
+            catch { }
         }
 
-        private ProxyItem ResolveBlackList(string app, string host)
+        private ProxyItem? ResolveBlackList(string app, string host)
         {
-            // В BlackList режиме должен быть выбран один главный прокси
-            var proxy = _availableProxies.FirstOrDefault(p => p.Id == _config.BlackListSelectedProxyId && p.IsEnabled);
-            if (proxy == null) return null; // Если прокси не выбран, идем напрямую
+            var mainProxy = _availableProxies.FirstOrDefault(p => p.Id == _config.BlackListSelectedProxyId && p.IsEnabled);
+            if (mainProxy == null) return null;
 
-            switch (_config.BlackListRuleType)
+            foreach (var rule in _config.BlackListRules)
             {
-                case BlackListType.ProxyAll:
-                    return proxy;
+                if (!rule.IsEnabled) continue;
+                if (rule.ProxyId != null && rule.ProxyId != mainProxy.Id) continue;
+                if (IsRuleMatch(rule, app, host)) return null;
+            }
+            return mainProxy;
+        }
 
-                case BlackListType.ProxyAllExceptApps:
-                    if (_config.BlackListExcludedApps.Contains(app)) return null;
-                    return proxy;
+        private ProxyItem? ResolveWhiteList(string app, string host)
+        {
+            foreach (var rule in _config.WhiteListRules)
+            {
+                if (!rule.IsEnabled) continue;
+                if (rule.ProxyId == null) continue;
 
-                case BlackListType.ProxyAllExceptSites:
-                    if (IsHostMatch(host, _config.BlackListExcludedSites)) return null;
-                    return proxy;
+                var associatedProxy = _availableProxies.FirstOrDefault(p => p.Id == rule.ProxyId && p.IsEnabled);
+                if (associatedProxy == null) continue;
 
-                case BlackListType.ProxyAllExceptAppsAndSites:
-                    if (_config.BlackListExcludedApps.Contains(app)) return null;
-                    if (IsHostMatch(host, _config.BlackListExcludedSites)) return null;
-                    return proxy;
+                if (IsRuleMatch(rule, app, host)) return associatedProxy;
             }
             return null;
         }
 
-        private ProxyItem ResolveWhiteList(string app, string host)
+        private bool IsRuleMatch(TrafficRule rule, string app, string host)
         {
-            // В WhiteList проходим по всем активным прокси и ищем правило, которое подходит
-            // Мультипроксирование: первое совпавшее правило выигрывает
-            foreach (var rule in _config.WhiteListRules)
-            {
-                var proxy = _availableProxies.FirstOrDefault(p => p.Id == rule.ProxyId && p.IsEnabled);
-                if (proxy == null) continue;
-
-                bool match = false;
-                switch (rule.Type)
-                {
-                    case WhiteListType.ProxyAllAppsAllSites:
-                        match = true;
-                        break;
-                    case WhiteListType.ProxyAllAppsSelectedSites:
-                        if (IsHostMatch(host, rule.TargetHosts)) match = true;
-                        break;
-                    case WhiteListType.ProxySelectedAppsAllSites:
-                        if (rule.TargetApps.Contains(app)) match = true;
-                        break;
-                    case WhiteListType.ProxySelectedAppsSelectedSites:
-                        if (rule.TargetApps.Contains(app) && IsHostMatch(host, rule.TargetHosts)) match = true;
-                        break;
-                }
-
-                if (match) return proxy;
-            }
-            return null; // Если ни одно правило не подошло - Direct
+            bool appMatches = rule.TargetApps.Any(t => t == "*" || string.Equals(t, app, StringComparison.OrdinalIgnoreCase));
+            if (!appMatches) return false;
+            return rule.TargetHosts.Any(t => t == "*" || host.Contains(t, StringComparison.OrdinalIgnoreCase));
         }
 
-        // Хелпер для получения имени процесса по ID
         private string GetProcessName(int pid)
         {
-            try
-            {
-                var process = Process.GetProcessById(pid);
-                return process.ProcessName + ".exe";
-            }
-            catch
-            {
-                return "Unknown";
-            }
+            try { return Process.GetProcessById(pid).ProcessName + ".exe"; } catch { return "Unknown"; }
         }
 
-        // Хелпер для проверки домена (включая поддомены)
-        private bool IsHostMatch(string requestHost, List<string> patterns)
-        {
-            foreach (var pattern in patterns)
-            {
-                if (requestHost.Contains(pattern)) return true; // Упрощенная проверка
-            }
-            return false;
-        }
-
-        // 5) Проверка прокси
         public async Task<bool> CheckProxy(ProxyItem proxy)
         {
+            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return false;
             try
             {
-                var myProxy = new WebProxy(proxy.IpAddress, proxy.Port);
+                var handler = new HttpClientHandler { Proxy = new WebProxy(proxy.IpAddress, proxy.Port), UseProxy = true };
                 if (!string.IsNullOrEmpty(proxy.Username))
-                    myProxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
+                    handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
 
-                var request = (HttpWebRequest)WebRequest.Create("http://google.com");
-                request.Proxy = myProxy;
-                request.Timeout = 5000;
-
-                using (var response = (HttpWebResponse)await request.GetResponseAsync())
+                using (var client = new HttpClient(handler))
                 {
-                    return response.StatusCode == HttpStatusCode.OK;
+                    client.Timeout = TimeSpan.FromSeconds(5);
+                    var response = await client.GetAsync("http://www.google.com/generate_204");
+                    return response.IsSuccessStatusCode;
                 }
             }
-            catch
-            {
-                return false;
-            }
+            catch { return false; }
         }
     }
 }

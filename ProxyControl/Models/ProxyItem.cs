@@ -10,13 +10,37 @@ namespace ProxyControl.Models
 {
     public class ProxyItem : INotifyPropertyChanged
     {
-        public string Id { get; set; } = System.Guid.NewGuid().ToString();
-        public string IpAddress { get; set; }
-        public int Port { get; set; }
-        public string Username { get; set; }
-        public string Password { get; set; }
+        public Guid Id { get; set; } = Guid.NewGuid();
 
-        private bool _isEnabled;
+        private string _ipAddress = "";
+        public string IpAddress
+        {
+            get => _ipAddress;
+            set { _ipAddress = value; OnPropertyChanged(); }
+        }
+
+        private int _port = 8080;
+        public int Port
+        {
+            get => _port;
+            set { _port = value; OnPropertyChanged(); }
+        }
+
+        private string _username = "";
+        public string Username
+        {
+            get => _username;
+            set { _username = value; OnPropertyChanged(); }
+        }
+
+        private string _password = "";
+        public string Password
+        {
+            get => _password;
+            set { _password = value; OnPropertyChanged(); }
+        }
+
+        private bool _isEnabled = true;
         public bool IsEnabled
         {
             get => _isEnabled;
@@ -30,12 +54,8 @@ namespace ProxyControl.Models
             set { _status = value; OnPropertyChanged(); }
         }
 
-        public event PropertyChangedEventHandler PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string name = null)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-        }
-
-        public override string ToString() => $"{IpAddress}:{Port}";
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

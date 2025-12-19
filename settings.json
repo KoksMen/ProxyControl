@@ -1,0 +1,10 @@
+{
+  "IsAutoStart": false,
+  "Proxies": [],
+  "Config": {
+    "CurrentMode": 1,
+    "BlackListSelectedProxyId": null,
+    "BlackListRules": [],
+    "WhiteListRules": []
+  }
+}

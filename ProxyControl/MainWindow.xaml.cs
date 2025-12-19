@@ -23,10 +23,21 @@ namespace ProxyControl
     /// </summary>
     public partial class MainWindow : Window
     {
+        public static bool AllowClose { get; set; } = false;
+
         public MainWindow()
         {
             InitializeComponent();
         }
 
+        protected override void OnClosing(CancelEventArgs e)
+        {
+            if (!AllowClose)
+            {
+                e.Cancel = true;
+                Hide();
+            }
+            else base.OnClosing(e);
+        }
     }
 }
