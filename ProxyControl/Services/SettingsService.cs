@@ -19,12 +19,7 @@ namespace ProxyControl.Services
         public SettingsService()
         {
             string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProxyManagerApp");
-
-            if (!Directory.Exists(folder))
-            {
-                Directory.CreateDirectory(folder);
-            }
-
+            if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
             _filePath = Path.Combine(folder, "settings.json");
         }
 
@@ -58,15 +53,8 @@ namespace ProxyControl.Services
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
                 using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, true))
                 {
-                    if (enable)
-                    {
-                        key.SetValue(AppName, $"\"{exePath}\" --autostart");
-                    }
-                    else
-                    {
-                        if (key.GetValue(AppName) != null)
-                            key.DeleteValue(AppName, false);
-                    }
+                    if (enable) key.SetValue(AppName, $"\"{exePath}\" --autostart");
+                    else { if (key.GetValue(AppName) != null) key.DeleteValue(AppName, false); }
                 }
             }
             catch { }
@@ -74,13 +62,7 @@ namespace ProxyControl.Services
 
         public bool IsAutoStartEnabled()
         {
-            try
-            {
-                using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false))
-                {
-                    return key?.GetValue(AppName) != null;
-                }
-            }
+            try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false)) return key?.GetValue(AppName) != null; }
             catch { return false; }
         }
     }

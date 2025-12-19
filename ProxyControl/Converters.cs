@@ -12,39 +12,76 @@ namespace ProxyControl
 {
     public class InverseBooleanConverter : IValueConverter
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is bool b ? !b : true;
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => value is bool b ? !b : false;
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => value is bool b ? !b : true;
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => value is bool b ? !b : false;
     }
+
     public class BooleanToVisibilityConverter : IValueConverter
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => (value is bool b && b) ? Visibility.Visible : Visibility.Collapsed;
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => (value is bool b && b) ? Visibility.Visible : Visibility.Collapsed;
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is Visibility v) return v == Visibility.Visible;
+            return false;
+        }
     }
+
     public class InverseBooleanToVisibilityConverter : IValueConverter
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => (value is bool b && b) ? Visibility.Collapsed : Visibility.Visible;
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => (value is bool b && b) ? Visibility.Collapsed : Visibility.Visible;
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is Visibility v) return v != Visibility.Visible;
+            return true;
+        }
     }
+
     public class NullToBooleanConverter : IValueConverter
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value != null;
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => value != null;
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => Binding.DoNothing;
     }
+
     public class ListToStringConverter : IValueConverter
     {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value is List<string> list ? string.Join("; ", list) : "";
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+            => value is List<string> list ? string.Join("; ", list) : "";
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is string text)
+            {
+                return text.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                           .Select(s => s.Trim())
+                           .Where(s => !string.IsNullOrEmpty(s))
+                           .ToList();
+            }
+            return new List<string>();
+        }
     }
+
     public class StatusColorConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             string status = (value as string ?? "").ToLower();
-            if (status.Contains("online")) return new SolidColorBrush(Color.FromRgb(144, 238, 144));
-            if (status.Contains("offline")) return new SolidColorBrush(Color.FromRgb(255, 100, 100));
+            if (status.Contains("online")) return new SolidColorBrush(Color.FromRgb(144, 238, 144)); 
+            if (status.Contains("offline")) return new SolidColorBrush(Color.FromRgb(255, 100, 100)); 
             if (status.Contains("checking")) return new SolidColorBrush(Colors.Orange);
             return new SolidColorBrush(Colors.Gray);
         }
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotImplementedException();
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => Binding.DoNothing;
     }
 }

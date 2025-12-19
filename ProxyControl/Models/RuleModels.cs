@@ -16,22 +16,34 @@ namespace ProxyControl.Models
 
     public class TrafficRule : INotifyPropertyChanged
     {
-        private bool _isEnabled = true;
+        private bool _isEnabled;
+        private string? _proxyId;
+        private List<string> _targetApps = new List<string>();
+        private List<string> _targetHosts = new List<string>();
+
         public bool IsEnabled
         {
             get => _isEnabled;
             set { _isEnabled = value; OnPropertyChanged(); }
         }
 
-        private Guid? _proxyId;
-        public Guid? ProxyId
+        public string? ProxyId
         {
             get => _proxyId;
             set { _proxyId = value; OnPropertyChanged(); }
         }
 
-        public List<string> TargetApps { get; set; } = new List<string>();
-        public List<string> TargetHosts { get; set; } = new List<string>();
+        public List<string> TargetApps
+        {
+            get => _targetApps;
+            set { _targetApps = value; OnPropertyChanged(); }
+        }
+
+        public List<string> TargetHosts
+        {
+            get => _targetHosts;
+            set { _targetHosts = value; OnPropertyChanged(); }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)

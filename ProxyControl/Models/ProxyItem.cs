@@ -4,50 +4,54 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace ProxyControl.Models
 {
     public class ProxyItem : INotifyPropertyChanged
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
-
+        private string _id = Guid.NewGuid().ToString();
+        private bool _isEnabled;
         private string _ipAddress = "";
-        public string IpAddress
-        {
-            get => _ipAddress;
-            set { _ipAddress = value; OnPropertyChanged(); }
-        }
+        private int _port;
+        private string? _username;
+        private string? _password;
+        private string _status = "Unknown";
 
-        private int _port = 8080;
-        public int Port
-        {
-            get => _port;
-            set { _port = value; OnPropertyChanged(); }
-        }
+        public string Id { get => _id; set => _id = value; }
 
-        private string _username = "";
-        public string Username
-        {
-            get => _username;
-            set { _username = value; OnPropertyChanged(); }
-        }
-
-        private string _password = "";
-        public string Password
-        {
-            get => _password;
-            set { _password = value; OnPropertyChanged(); }
-        }
-
-        private bool _isEnabled = true;
         public bool IsEnabled
         {
             get => _isEnabled;
             set { _isEnabled = value; OnPropertyChanged(); }
         }
 
-        private string _status = "Unknown";
+        public string IpAddress
+        {
+            get => _ipAddress;
+            set { _ipAddress = value; OnPropertyChanged(); }
+        }
+
+        public int Port
+        {
+            get => _port;
+            set { _port = value; OnPropertyChanged(); }
+        }
+
+        public string? Username
+        {
+            get => _username;
+            set { _username = value; OnPropertyChanged(); }
+        }
+
+        public string? Password
+        {
+            get => _password;
+            set { _password = value; OnPropertyChanged(); }
+        }
+
+        [JsonIgnore]
         public string Status
         {
             get => _status;

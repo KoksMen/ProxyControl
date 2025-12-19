@@ -17,14 +17,21 @@ namespace ProxyControl.Services
     public class ProxyService
     {
         private readonly ProxyServer _proxyServer;
+        private readonly ProcessMonitorService _processMonitor;
+
         private AppConfig _config;
         private List<ProxyItem> _availableProxies;
         private ExplicitProxyEndPoint _endPoint;
 
         public ProxyService()
         {
+            _processMonitor = new ProcessMonitorService();
             _proxyServer = new ProxyServer();
             _proxyServer.CertificateManager.EnsureRootCertificate();
+
+            _proxyServer.EnableConnectionPool = true;
+            _proxyServer.ForwardToUpstreamGateway = true;
+
             _proxyServer.BeforeRequest += OnRequest;
         }
 
@@ -36,6 +43,8 @@ namespace ProxyControl.Services
 
         public void Start()
         {
+            _processMonitor.Start();
+
             if (_proxyServer.ProxyEndPoints.Count == 0)
             {
                 _endPoint = new ExplicitProxyEndPoint(IPAddress.Any, 8000, true);
@@ -51,6 +60,7 @@ namespace ProxyControl.Services
 
         public void Stop()
         {
+            _processMonitor.Stop();
             try
             {
                 _proxyServer.Stop();
@@ -63,18 +73,15 @@ namespace ProxyControl.Services
         public void EnforceSystemProxy()
         {
             if (!_proxyServer.ProxyRunning) return;
-
             try
             {
                 using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings", false))
                 {
                     int? enabled = key?.GetValue("ProxyEnable") as int?;
-
                     if (enabled == null || enabled == 0)
                     {
                         _proxyServer.SetAsSystemHttpProxy(_endPoint);
                         _proxyServer.SetAsSystemHttpsProxy(_endPoint);
-                        Debug.WriteLine("System Proxy was disabled by OS. Re-applied by ProxyManager.");
                     }
                 }
             }
@@ -84,13 +91,39 @@ namespace ProxyControl.Services
         private async Task OnRequest(object sender, SessionEventArgs e)
         {
             if (_config == null || _availableProxies == null) return;
+
             try
             {
-                string hostname = e.HttpClient.Request.RequestUri.Host;
 
-                int pid = 0;
-                try { pid = e.HttpClient.ProcessId.Value; } catch { }
-                string processName = pid > 0 ? GetProcessName(pid) : "Unknown";
+                string processName = "Unknown";
+
+                var sessionCache = e.HttpClient.UserData as Dictionary<string, object>;
+
+                if (sessionCache == null)
+                {
+                    sessionCache = new Dictionary<string, object>();
+                    e.HttpClient.UserData = sessionCache;
+                }
+
+                if (sessionCache.ContainsKey("ProcessName"))
+                {
+                    processName = sessionCache["ProcessName"] as string ?? "Unknown";
+                }
+                else
+                {
+                    int pid = 0;
+                    try
+                    {
+                        pid = e.HttpClient.ProcessId.Value;
+                    }
+                    catch { }
+
+                    processName = _processMonitor.GetProcessName(pid);
+
+                    sessionCache["ProcessName"] = processName;
+                }
+
+                string hostname = e.HttpClient.Request.RequestUri.Host;
 
                 ProxyItem? targetProxy = _config.CurrentMode == RuleMode.BlackList
                     ? ResolveBlackList(processName, hostname)
@@ -98,14 +131,13 @@ namespace ProxyControl.Services
 
                 if (targetProxy != null && !string.IsNullOrEmpty(targetProxy.IpAddress) && targetProxy.Port > 0)
                 {
-                    var externalProxy = new ExternalProxy()
+                    e.CustomUpStreamProxy = new ExternalProxy()
                     {
                         HostName = targetProxy.IpAddress,
                         Port = targetProxy.Port,
                         UserName = targetProxy.Username,
                         Password = targetProxy.Password
                     };
-                    e.CustomUpStreamProxy = externalProxy;
                 }
             }
             catch { }
@@ -113,7 +145,7 @@ namespace ProxyControl.Services
 
         private ProxyItem? ResolveBlackList(string app, string host)
         {
-            var mainProxy = _availableProxies.FirstOrDefault(p => p.Id == _config.BlackListSelectedProxyId && p.IsEnabled);
+            var mainProxy = _availableProxies.FirstOrDefault(p => p.Id == _config.BlackListSelectedProxyId.ToString() && p.IsEnabled);
             if (mainProxy == null) return null;
 
             foreach (var rule in _config.BlackListRules)
@@ -142,14 +174,29 @@ namespace ProxyControl.Services
 
         private bool IsRuleMatch(TrafficRule rule, string app, string host)
         {
-            bool appMatches = rule.TargetApps.Any(t => t == "*" || string.Equals(t, app, StringComparison.OrdinalIgnoreCase));
-            if (!appMatches) return false;
-            return rule.TargetHosts.Any(t => t == "*" || host.Contains(t, StringComparison.OrdinalIgnoreCase));
-        }
+            if (rule.TargetApps.Count > 0)
+            {
+                bool match = false;
+                for (int i = 0; i < rule.TargetApps.Count; i++)
+                {
+                    string t = rule.TargetApps[i];
+                    if (t.Length == 1 && t[0] == '*') { match = true; break; }
+                    if (string.Equals(t, app, StringComparison.OrdinalIgnoreCase)) { match = true; break; }
+                }
+                if (!match) return false;
+            }
 
-        private string GetProcessName(int pid)
-        {
-            try { return Process.GetProcessById(pid).ProcessName + ".exe"; } catch { return "Unknown"; }
+            if (rule.TargetHosts.Count > 0)
+            {
+                for (int i = 0; i < rule.TargetHosts.Count; i++)
+                {
+                    string t = rule.TargetHosts[i];
+                    if (t.Length == 1 && t[0] == '*') return true;
+                    if (host.Contains(t, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                return false;
+            }
+            return false;
         }
 
         public async Task<bool> CheckProxy(ProxyItem proxy)
