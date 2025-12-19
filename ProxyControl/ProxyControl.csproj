@@ -6,10 +6,38 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+	<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+	<Version>1.0.0</Version>
+	<ApplicationIcon>proxy.ico</ApplicationIcon>
+	<Company>KoksMen</Company>
+	<Authors>KoksMen</Authors>
+	<Title>Proxy Control</Title>
+	<Product>Proxy Control</Product>
+	<PackageId>Proxy Control</PackageId>
+	<Copyright>Koks Men</Copyright>
+	<PackageIcon>unnamed.png</PackageIcon>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="proxy.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\..\..\Downloads\unnamed.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </Resource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
     <PackageReference Include="Titanium.Web.Proxy" Version="3.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="proxy.ico">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
   </ItemGroup>
 
 </Project>
