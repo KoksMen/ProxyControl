@@ -39,36 +39,69 @@ namespace ProxyControl.ViewModels
 
         public ObservableCollection<ProxyItem> Proxies { get; set; } = new ObservableCollection<ProxyItem>();
         public ObservableCollection<TrafficRule> RulesList { get; set; } = new ObservableCollection<TrafficRule>();
+        public ObservableCollection<ConnectionLog> Logs { get; set; } = new ObservableCollection<ConnectionLog>();
 
         public string ToggleProxyMenuText => IsProxyRunning ? "Turn Proxy OFF" : "Turn Proxy ON";
         public string AppVersion => "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
+
+        public string NewRuleApps { get; set; } = "*";
+        public string NewRuleHosts { get; set; } = "*";
+        public string NewRuleGroup { get; set; } = "General";
+        public RuleAction NewRuleAction { get; set; } = RuleAction.Proxy;
+        public ProxyItem? NewRuleSelectedProxy { get; set; }
 
         private bool _isProxyRunning = true;
         public bool IsProxyRunning
         {
             get => _isProxyRunning;
-            set { _isProxyRunning = value; OnPropertyChanged(); OnPropertyChanged(nameof(ToggleProxyMenuText)); }
+            set
+            {
+                _isProxyRunning = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ToggleProxyMenuText));
+            }
         }
 
         private bool _isAutoStart;
         public bool IsAutoStart
         {
             get => _isAutoStart;
-            set { _isAutoStart = value; if (!_suppressSave) _settingsService.SetAutoStart(value); SaveSettings(); OnPropertyChanged(); }
+            set
+            {
+                _isAutoStart = value;
+                if (!_suppressSave)
+                    _settingsService.SetAutoStart(value);
+                SaveSettings();
+                OnPropertyChanged();
+            }
         }
 
         private ProxyItem? _selectedProxy;
         public ProxyItem? SelectedProxy
         {
             get => _selectedProxy;
-            set { _selectedProxy = value; OnPropertyChanged(); ApplyConfig(); }
+            set
+            {
+                _selectedProxy = value;
+                OnPropertyChanged();
+                ApplyConfig();
+            }
         }
 
         public bool IsBlackListMode
         {
             get => _config.CurrentMode == RuleMode.BlackList;
-            set { _config.CurrentMode = value ? RuleMode.BlackList : RuleMode.WhiteList; ReloadRulesForCurrentMode(); OnPropertyChanged(); ApplyConfig(); SaveSettings(); }
+            set
+            {
+                _config.CurrentMode = value ? RuleMode.BlackList : RuleMode.WhiteList;
+                ReloadRulesForCurrentMode();
+                OnPropertyChanged();
+                ApplyConfig();
+                SaveSettings();
+            }
         }
+
+        public Array ActionTypes => Enum.GetValues(typeof(RuleAction));
 
         public ProxyItem? SelectedBlackListMainProxy
         {
@@ -78,16 +111,18 @@ namespace ProxyControl.ViewModels
                 if (value == null && _config.BlackListSelectedProxyId == null) return;
                 _config.BlackListSelectedProxyId = new Guid(value?.Id);
                 OnPropertyChanged();
-                ReloadRulesForCurrentMode(); ApplyConfig(); SaveSettings();
+                ReloadRulesForCurrentMode();
+                ApplyConfig();
+                SaveSettings();
             }
         }
 
         private TrafficRule? _selectedRule;
-        public TrafficRule? SelectedRule { get => _selectedRule; set { _selectedRule = value; OnPropertyChanged(); } }
-
-        public string NewRuleApps { get; set; } = "*";
-        public string NewRuleHosts { get; set; } = "*";
-        public ProxyItem? NewRuleSelectedProxy { get; set; }
+        public TrafficRule? SelectedRule
+        {
+            get => _selectedRule;
+            set { _selectedRule = value; OnPropertyChanged(); }
+        }
 
         public ICommand AddProxyCommand { get; }
         public ICommand PasteProxyCommand { get; }
@@ -102,6 +137,7 @@ namespace ProxyControl.ViewModels
         public ICommand ImportConfigCommand { get; }
         public ICommand ExportConfigCommand { get; }
         public ICommand CheckUpdateCommand { get; }
+        public ICommand ClearLogsCommand { get; }
 
         public MainViewModel()
         {
@@ -109,6 +145,8 @@ namespace ProxyControl.ViewModels
             _settingsService = new SettingsService();
             _updateService = new GithubUpdateService();
             _config = new AppConfig();
+
+            _proxyService.OnConnectionLog += OnLogReceived;
 
             Proxies.CollectionChanged += OnCollectionChanged;
             RulesList.CollectionChanged += OnCollectionChanged;
@@ -120,12 +158,22 @@ namespace ProxyControl.ViewModels
             CheckProxyCommand = new RelayCommand(_ => CheckSelectedProxy());
             AddRuleCommand = new RelayCommand(_ => AddRule());
             RemoveRuleCommand = new RelayCommand(_ => RemoveRule());
-            ShowWindowCommand = new RelayCommand(_ => { Application.Current.MainWindow.Show(); Application.Current.MainWindow.WindowState = WindowState.Normal; Application.Current.MainWindow.Activate(); });
-            ExitAppCommand = new RelayCommand(_ => { MainWindow.AllowClose = true; Application.Current.Shutdown(); });
+            ShowWindowCommand = new RelayCommand(_ =>
+            {
+                Application.Current.MainWindow.Show();
+                Application.Current.MainWindow.WindowState = WindowState.Normal;
+                Application.Current.MainWindow.Activate();
+            });
+            ExitAppCommand = new RelayCommand(_ =>
+            {
+                MainWindow.AllowClose = true;
+                Application.Current.Shutdown();
+            });
             ToggleProxyCommand = new RelayCommand(_ => ToggleService());
             ImportConfigCommand = new RelayCommand(_ => ImportConfig());
             ExportConfigCommand = new RelayCommand(_ => ExportConfig());
             CheckUpdateCommand = new RelayCommand(async _ => await _updateService.CheckAndInstallUpdate());
+            ClearLogsCommand = new RelayCommand(_ => Logs.Clear());
 
             LoadSettings();
             _proxyService.Start();
@@ -134,50 +182,52 @@ namespace ProxyControl.ViewModels
             StartEnforcementLoop();
         }
 
-        private void StartEnforcementLoop()
+        private void OnLogReceived(ConnectionLog log)
         {
-            _enforceCts?.Cancel(); _enforceCts = new CancellationTokenSource();
-            Task.Run(async () => { while (!_enforceCts.Token.IsCancellationRequested) { await Task.Delay(5000); if (IsProxyRunning) _proxyService.EnforceSystemProxy(); } }, _enforceCts.Token);
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                Logs.Insert(0, log);
+                if (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1);
+            });
         }
 
+        private void StartEnforcementLoop()
+        {
+            _enforceCts?.Cancel();
+            _enforceCts = new CancellationTokenSource();
+            Task.Run(async () =>
+            {
+                while (!_enforceCts.Token.IsCancellationRequested)
+                {
+                    await Task.Delay(5000);
+                    if (IsProxyRunning)
+                    {
+                        _proxyService.EnforceSystemProxy();
+                    }
+                }
+            }, _enforceCts.Token);
+        }
 
         private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             var triggers = new HashSet<string>
             {
-                nameof(TrafficRule.IsEnabled),
-                nameof(TrafficRule.ProxyId),
-                nameof(TrafficRule.TargetApps),  
-                nameof(TrafficRule.TargetHosts), 
-                nameof(ProxyItem.IsEnabled),
-                nameof(ProxyItem.IpAddress),
-                nameof(ProxyItem.Port),
-                nameof(ProxyItem.Username),
-                nameof(ProxyItem.Password)
+                nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps),
+                nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName),
+                nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port),
+                nameof(ProxyItem.Username), nameof(ProxyItem.Password)
             };
-
             if (triggers.Contains(e.PropertyName))
-            {
                 SaveSettings();
-            }
         }
 
         private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
             if (_suppressSave) return;
-
             if (e.NewItems != null)
-            {
-                foreach (INotifyPropertyChanged item in e.NewItems)
-                    item.PropertyChanged += OnItemPropertyChanged;
-            }
-
+                foreach (INotifyPropertyChanged item in e.NewItems) item.PropertyChanged += OnItemPropertyChanged;
             if (e.OldItems != null)
-            {
-                foreach (INotifyPropertyChanged item in e.OldItems)
-                    item.PropertyChanged -= OnItemPropertyChanged;
-            }
-
+                foreach (INotifyPropertyChanged item in e.OldItems) item.PropertyChanged -= OnItemPropertyChanged;
             SaveSettings();
         }
 
@@ -187,42 +237,23 @@ namespace ProxyControl.ViewModels
             item.PropertyChanged += OnItemPropertyChanged;
         }
 
-        private async void ImportConfig()
+        private void SaveSettings()
         {
-            var dialog = new OpenFileDialog { Filter = "JSON Files (*.json)|*.json" };
-            if (dialog.ShowDialog() == true)
+            if (_suppressSave) return;
+            var data = new AppSettings
             {
-                try
-                {
-                    _suppressSave = true;
-                    var data = _settingsService.Load(dialog.FileName);
-                    _config = data.Config ?? new AppConfig();
-
-                    Proxies.Clear();
-                    if (data.Proxies != null)
-                        foreach (var p in data.Proxies) { SubscribeToItem(p); Proxies.Add(p); }
-
-                    OnPropertyChanged(nameof(SelectedBlackListMainProxy));
-                    ReloadRulesForCurrentMode();
-
-                    _suppressSave = false;
-                    ApplyConfig();
-                    SaveSettings();
-
-                    MessageBox.Show("Configuration imported! Checking...");
-                    await CheckAllProxies();
-                }
-                catch { _suppressSave = false; MessageBox.Show("Failed to import."); }
-            }
+                IsAutoStart = IsAutoStart,
+                Proxies = Proxies.ToList(),
+                Config = _config
+            };
+            _settingsService.Save(data);
+            ApplyConfig();
         }
 
-        private void ExportConfig()
+        private void ApplyConfig()
         {
-            var dialog = new SaveFileDialog { Filter = "JSON Files (*.json)|*.json", FileName = "proxy_config.json" };
-            if (dialog.ShowDialog() == true) { var data = new AppSettings { IsAutoStart = IsAutoStart, Proxies = Proxies.ToList(), Config = _config }; _settingsService.Save(data, dialog.FileName); }
+            _proxyService.UpdateConfig(_config, Proxies.ToList());
         }
-
-        private void ToggleService() { if (IsProxyRunning) { _proxyService.Stop(); IsProxyRunning = false; } else { _proxyService.Start(); ApplyConfig(); IsProxyRunning = true; } }
 
         private void AddProxy()
         {
@@ -233,45 +264,147 @@ namespace ProxyControl.ViewModels
 
         private async void PasteProxy()
         {
-            if (!Clipboard.ContainsText()) return;
-            var lines = Clipboard.GetText().Trim().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            bool added = false;
-            foreach (var line in lines)
+            if (Clipboard.ContainsText())
             {
-                var parts = line.Trim().Split(':');
-                if (parts.Length >= 2 && int.TryParse(parts[1], out int port))
+                var lines = Clipboard.GetText().Trim().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                bool added = false;
+                foreach (var line in lines)
                 {
-                    var p = new ProxyItem { IpAddress = parts[0], Port = port, IsEnabled = true, Status = "Pasted" };
-                    if (parts.Length >= 4) { p.Username = parts[2]; p.Password = parts[3]; }
-                    Proxies.Add(p);
-                    _ = CheckSingleProxy(p);
-                    if (!added) { SelectedProxy = p; added = true; }
+                    var parts = line.Trim().Split(':');
+                    if (parts.Length >= 2 && int.TryParse(parts[1], out int port))
+                    {
+                        var p = new ProxyItem
+                        {
+                            IpAddress = parts[0],
+                            Port = port,
+                            IsEnabled = true,
+                            Status = "Pasted"
+                        };
+                        if (parts.Length >= 4)
+                        {
+                            p.Username = parts[2];
+                            p.Password = parts[3];
+                        }
+                        Proxies.Add(p);
+                        _ = CheckSingleProxy(p);
+                        if (!added)
+                        {
+                            SelectedProxy = p;
+                            added = true;
+                        }
+                    }
                 }
             }
         }
 
         private void RemoveProxy()
         {
-            if (SelectedProxy == null) return;
-            var proxyId = SelectedProxy.Id;
-            int bl = _config.BlackListRules.Count(r => r.ProxyId == proxyId);
-            int wl = _config.WhiteListRules.Count(r => r.ProxyId == proxyId);
-            bool isMain = _config.BlackListSelectedProxyId.ToString() == proxyId;
-            if (bl + wl > 0 || isMain)
+            if (SelectedProxy != null)
             {
-                if (MessageBox.Show($"Proxy used in dependencies. Delete?", "Confirm", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
-                _config.WhiteListRules.RemoveAll(r => r.ProxyId == proxyId);
-                _config.BlackListRules.RemoveAll(r => r.ProxyId == proxyId);
-                if (isMain) { _config.BlackListSelectedProxyId = null; OnPropertyChanged(nameof(SelectedBlackListMainProxy)); }
-                ReloadRulesForCurrentMode();
+                Proxies.Remove(SelectedProxy);
+                SelectedProxy = null;
             }
-            Proxies.Remove(SelectedProxy);
-            SelectedProxy = null;
         }
 
-        private async void CheckSelectedProxy() { if (SelectedProxy != null) await CheckSingleProxy(SelectedProxy); }
-        private async Task<bool> CheckSingleProxy(ProxyItem p) { p.Status = "Checking..."; bool res = await Task.Run(() => _proxyService.CheckProxy(p)); p.Status = res ? "Online" : "Offline"; return res; }
-        private async Task CheckAllProxies() { var tasks = new List<Task>(); foreach (var p in Proxies) tasks.Add(CheckSingleProxy(p)); await Task.WhenAll(tasks); }
+        private async Task CheckSingleProxy(ProxyItem p)
+        {
+            p.Status = "Checking...";
+            bool res = await Task.Run(() => _proxyService.CheckProxy(p));
+            p.Status = res ? "Online" : "Offline";
+        }
+
+        private async void CheckSelectedProxy()
+        {
+            if (SelectedProxy != null)
+                await CheckSingleProxy(SelectedProxy);
+        }
+
+        private void AddRule()
+        {
+            var apps = NewRuleApps.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+            var hosts = NewRuleHosts.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+
+            if (!apps.Any()) apps.Add("*");
+            if (!hosts.Any()) hosts.Add("*");
+
+            var rule = new TrafficRule
+            {
+                TargetApps = apps,
+                TargetHosts = hosts,
+                IsEnabled = true,
+                Action = NewRuleAction,
+                GroupName = string.IsNullOrWhiteSpace(NewRuleGroup) ? "General" : NewRuleGroup
+            };
+
+            if (NewRuleAction == RuleAction.Proxy)
+            {
+                if (IsBlackListMode)
+                {
+                    if (SelectedBlackListMainProxy != null) rule.ProxyId = SelectedBlackListMainProxy.Id;
+                }
+                else
+                {
+                    if (NewRuleSelectedProxy != null) rule.ProxyId = NewRuleSelectedProxy.Id;
+                }
+            }
+
+            if (IsBlackListMode)
+            {
+                _config.BlackListRules.Add(rule);
+            }
+            else
+            {
+                _config.WhiteListRules.Add(rule);
+            }
+
+            SubscribeToItem(rule);
+            RulesList.Add(rule);
+        }
+
+        private void RemoveRule()
+        {
+            if (SelectedRule != null)
+            {
+                if (IsBlackListMode)
+                    _config.BlackListRules.Remove(SelectedRule);
+                else
+                    _config.WhiteListRules.Remove(SelectedRule);
+                RulesList.Remove(SelectedRule);
+            }
+        }
+
+        private void ReloadRulesForCurrentMode()
+        {
+            _suppressSave = true;
+            RulesList.Clear();
+            if (IsBlackListMode)
+            {
+                foreach (var r in _config.BlackListRules)
+                {
+                    SubscribeToItem(r);
+                    RulesList.Add(r);
+                }
+            }
+            else
+            {
+                foreach (var r in _config.WhiteListRules)
+                {
+                    SubscribeToItem(r);
+                    RulesList.Add(r);
+                }
+            }
+            _suppressSave = false;
+            OnPropertyChanged(nameof(IsBlackListMode));
+        }
+
+        private void ToggleService()
+        {
+            IsProxyRunning = !IsProxyRunning;
+            if (IsProxyRunning) _proxyService.Start(); else _proxyService.Stop();
+        }
+
+        private void ImportConfig() { }
+        private void ExportConfig() { }
 
         private void LoadSettings()
         {
@@ -283,76 +416,25 @@ namespace ProxyControl.ViewModels
                 IsAutoStart = _settingsService.IsAutoStartEnabled();
                 Proxies.Clear();
                 if (data.Proxies != null)
-                    foreach (var p in data.Proxies) { SubscribeToItem(p); Proxies.Add(p); }
-                OnPropertyChanged(nameof(SelectedBlackListMainProxy)); ReloadRulesForCurrentMode();
-            }
-            finally { _suppressSave = false; }
-        }
-
-        private void SaveSettings()
-        {
-            if (_suppressSave) return;
-            var data = new AppSettings { IsAutoStart = IsAutoStart, Proxies = Proxies.ToList(), Config = _config };
-            _settingsService.Save(data);
-            ApplyConfig();
-        }
-
-        private void AddRule()
-        {
-            var apps = NewRuleApps.Split(';').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList();
-            var hosts = NewRuleHosts.Split(';').Select(s => s.Trim()).Where(s => !string.IsNullOrEmpty(s)).ToList();
-            if (!apps.Any()) apps.Add("*"); if (!hosts.Any()) hosts.Add("*");
-            var rule = new TrafficRule { TargetApps = apps, TargetHosts = hosts, IsEnabled = true };
-
-            if (IsBlackListMode)
-            {
-                if (SelectedBlackListMainProxy == null) { MessageBox.Show("Select Default Proxy!"); return; }
-                rule.ProxyId = SelectedBlackListMainProxy.Id;
-                _config.BlackListRules.Add(rule);
-                SubscribeToItem(rule);
-                RulesList.Add(rule);
-            }
-            else
-            {
-                if (NewRuleSelectedProxy == null) { MessageBox.Show("Select Proxy!"); return; }
-                rule.ProxyId = NewRuleSelectedProxy.Id;
-                _config.WhiteListRules.Add(rule);
-                SubscribeToItem(rule);
-                RulesList.Add(rule);
-            }
-        }
-
-        private void RemoveRule()
-        {
-            if (SelectedRule == null) return;
-            if (IsBlackListMode) _config.BlackListRules.Remove(SelectedRule); else _config.WhiteListRules.Remove(SelectedRule);
-            RulesList.Remove(SelectedRule);
-        }
-
-        private void ReloadRulesForCurrentMode()
-        {
-            _suppressSave = true;
-            RulesList.Clear();
-            if (IsBlackListMode)
-            {
-                if (_config.BlackListSelectedProxyId != null)
                 {
-                    var f = _config.BlackListRules.Where(r => r.ProxyId == _config.BlackListSelectedProxyId.ToString());
-                    foreach (var r in f) { SubscribeToItem(r); RulesList.Add(r); }
+                    foreach (var p in data.Proxies)
+                    {
+                        SubscribeToItem(p);
+                        Proxies.Add(p);
+                    }
                 }
+                OnPropertyChanged(nameof(SelectedBlackListMainProxy));
+                ReloadRulesForCurrentMode();
             }
-            else
+            finally
             {
-                foreach (var r in _config.WhiteListRules) { SubscribeToItem(r); RulesList.Add(r); }
+                _suppressSave = false;
             }
-            _suppressSave = false;
-            OnPropertyChanged(nameof(IsBlackListMode));
         }
-
-        private void ApplyConfig() => _proxyService.UpdateConfig(_config, Proxies.ToList());
 
         public event PropertyChangedEventHandler? PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
 

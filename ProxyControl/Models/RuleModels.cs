@@ -1,23 +1,30 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ProxyControl.Models
 {
     public enum RuleMode
     {
-        BlackList,
-        WhiteList
+        BlackList, // Весь трафик через прокси, правила — исключения (Direct) или Блокировка
+        WhiteList  // Весь трафик напрямую, правила — через прокси или Блокировка
+    }
+
+    public enum RuleAction
+    {
+        Default, // Поведение зависит от режима (Blacklist/Whitelist)
+        Proxy,   // Принудительно через прокси
+        Direct,  // Принудительно напрямую
+        Block    // Блокировать соединение
     }
 
     public class TrafficRule : INotifyPropertyChanged
     {
         private bool _isEnabled;
         private string? _proxyId;
+        private string _groupName = "General";
+        private RuleAction _action = RuleAction.Default;
         private List<string> _targetApps = new List<string>();
         private List<string> _targetHosts = new List<string>();
 
@@ -25,6 +32,18 @@ namespace ProxyControl.Models
         {
             get => _isEnabled;
             set { _isEnabled = value; OnPropertyChanged(); }
+        }
+
+        public string GroupName
+        {
+            get => _groupName;
+            set { _groupName = value; OnPropertyChanged(); }
+        }
+
+        public RuleAction Action
+        {
+            get => _action;
+            set { _action = value; OnPropertyChanged(); }
         }
 
         public string? ProxyId
@@ -48,6 +67,15 @@ namespace ProxyControl.Models
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    public class ConnectionLog
+    {
+        public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
+        public string ProcessName { get; set; } = "";
+        public string Host { get; set; } = "";
+        public string Result { get; set; } = ""; // Blocked, Direct, ProxyIP
+        public string Color { get; set; } = "White"; // Цвет для UI
     }
 
     public class AppConfig
