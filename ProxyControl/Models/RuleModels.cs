@@ -4,20 +4,21 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using System.Windows.Media; // Для ImageSource
 
 namespace ProxyControl.Models
 {
     public enum RuleMode
     {
         BlackList,
-        WhiteList  
+        WhiteList
     }
 
     public enum RuleAction
     {
-        Proxy,   
-        Direct,  
-        Block    
+        Proxy,
+        Direct,
+        Block
     }
 
     public class TrafficRule : INotifyPropertyChanged
@@ -28,6 +29,7 @@ namespace ProxyControl.Models
         private RuleAction _action = RuleAction.Proxy;
         private List<string> _targetApps = new List<string>();
         private List<string> _targetHosts = new List<string>();
+        private ImageSource? _appIcon; // Иконка приложения
 
         public bool IsEnabled
         {
@@ -71,6 +73,13 @@ namespace ProxyControl.Models
         }
 
         [JsonIgnore]
+        public ImageSource? AppIcon
+        {
+            get => _appIcon;
+            set { _appIcon = value; OnPropertyChanged(); }
+        }
+
+        [JsonIgnore]
         public string AppKey => TargetApps != null && TargetApps.Any() ? TargetApps.First() : "*";
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -82,9 +91,11 @@ namespace ProxyControl.Models
     {
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
+        public ImageSource? AppIcon { get; set; } // Иконка процесса
         public string Host { get; set; } = "";
         public string Result { get; set; } = "";
         public string Color { get; set; } = "White";
+        public string? CountryFlagUrl { get; set; } // Флаг страны прокси
     }
 
     public class AppConfig

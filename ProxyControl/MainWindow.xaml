@@ -109,7 +109,18 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <tb:TaskbarIcon IconSource="proxy.ico" ToolTipText="Proxy Control"/>
+            <tb:TaskbarIcon IconSource="proxy.ico" ToolTipText="Proxy Control" 
+                            DoubleClickCommand="{Binding ShowWindowCommand}"
+                            MenuActivation="LeftOrRightClick">
+                <tb:TaskbarIcon.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="Open" Command="{Binding ShowWindowCommand}" />
+                        <MenuItem Header="{Binding ToggleProxyMenuText}" Command="{Binding ToggleProxyCommand}" />
+                        <Separator />
+                        <MenuItem Header="Exit" Command="{Binding ExitAppCommand}" />
+                    </ContextMenu>
+                </tb:TaskbarIcon.ContextMenu>
+            </tb:TaskbarIcon>
 
             <Border Grid.Column="0" Background="#252526" BorderBrush="#3E3E42" BorderThickness="0,0,1,0">
                 <Grid Margin="10">
@@ -308,6 +319,15 @@
 
                                     <DataGrid.Columns>
                                         <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
+
+                                        <DataGridTemplateColumn Header="Icon" Width="40">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Image Source="{Binding AppIcon}" Width="16" Height="16"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+
                                         <DataGridTextColumn Header="Group" Binding="{Binding GroupName}" Width="100"/>
                                         <DataGridTextColumn Header="Apps" Binding="{Binding TargetApps, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
                                         <DataGridTextColumn Header="Hosts" Binding="{Binding TargetHosts, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
@@ -397,12 +417,26 @@
                         <DataGrid Grid.Row="1" ItemsSource="{Binding Logs}" AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" Foreground="White" BorderThickness="0" GridLinesVisibility="None">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="80"/>
+
+                                <DataGridTemplateColumn Header="App" Width="40">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Image Source="{Binding AppIcon}" Width="16" Height="16"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+
                                 <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150"/>
                                 <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
+
                                 <DataGridTemplateColumn Header="Result" Width="150">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding Result}" Foreground="{Binding Color}" FontWeight="Bold"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Image Source="{Binding CountryFlagUrl}" Width="20" Height="15" Margin="0,0,5,0" RenderOptions.BitmapScalingMode="HighQuality"
+                                                       Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                <TextBlock Text="{Binding Result}" Foreground="{Binding Color}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                            </StackPanel>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>

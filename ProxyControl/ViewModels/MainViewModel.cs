@@ -1,6 +1,7 @@
 ﻿using Microsoft.Win32;
 using ProxyControl.Models;
 using ProxyControl.Services;
+using ProxyControl.Helpers; // Хелпер иконок
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -159,6 +160,8 @@ namespace ProxyControl.ViewModels
         public ICommand CheckProxyCommand { get; }
         public ICommand AddRuleCommand { get; }
         public ICommand RemoveRuleCommand { get; }
+
+        // Команда показа окна
         public ICommand ShowWindowCommand { get; }
         public ICommand ExitAppCommand { get; }
         public ICommand ToggleProxyCommand { get; }
@@ -191,17 +194,26 @@ namespace ProxyControl.ViewModels
             CheckProxyCommand = new RelayCommand(_ => CheckSelectedProxy());
             AddRuleCommand = new RelayCommand(_ => AddRule());
             RemoveRuleCommand = new RelayCommand(_ => RemoveRule());
+
+            // ИСПРАВЛЕНИЕ ДЛЯ ТРЕЯ: Принудительное разворачивание и активация
             ShowWindowCommand = new RelayCommand(_ =>
             {
-                Application.Current.MainWindow.Show();
-                Application.Current.MainWindow.WindowState = WindowState.Normal;
-                Application.Current.MainWindow.Activate();
+                var win = Application.Current.MainWindow;
+                if (win != null)
+                {
+                    win.Show(); // Если был Hidden
+                    if (win.WindowState == WindowState.Minimized)
+                        win.WindowState = WindowState.Normal;
+                    win.Activate(); // На передний план
+                }
             });
+
             ExitAppCommand = new RelayCommand(_ =>
             {
                 MainWindow.AllowClose = true;
                 Application.Current.Shutdown();
             });
+
             ToggleProxyCommand = new RelayCommand(_ => ToggleService());
             ImportConfigCommand = new RelayCommand(_ => ImportConfig());
             ExportConfigCommand = new RelayCommand(_ => ExportConfig());
@@ -454,6 +466,9 @@ namespace ProxyControl.ViewModels
 
             foreach (var app in appsList)
             {
+                // Попытка найти иконку при добавлении
+                var icon = IconHelper.GetIconByProcessName(app);
+
                 foreach (var host in hostsList)
                 {
                     bool isDuplicate = RulesList.Any(r =>
@@ -471,7 +486,8 @@ namespace ProxyControl.ViewModels
                         IsEnabled = true,
                         Action = NewRuleAction,
                         GroupName = group,
-                        ProxyId = proxyIdToUse
+                        ProxyId = proxyIdToUse,
+                        AppIcon = icon // Сохраняем найденную иконку
                     };
 
                     if (IsBlackListMode)
@@ -507,6 +523,12 @@ namespace ProxyControl.ViewModels
             {
                 foreach (var r in _config.BlackListRules)
                 {
+                    // Подгружаем иконки при загрузке правил, если они не были сохранены (ImageSource не сериализуется напрямую, так что лучше искать снова)
+                    if (r.TargetApps.Any())
+                    {
+                        r.AppIcon = IconHelper.GetIconByProcessName(r.TargetApps.First());
+                    }
+
                     SubscribeToItem(r);
                     RulesList.Add(r);
                 }
@@ -515,6 +537,10 @@ namespace ProxyControl.ViewModels
             {
                 foreach (var r in _config.WhiteListRules)
                 {
+                    if (r.TargetApps.Any())
+                    {
+                        r.AppIcon = IconHelper.GetIconByProcessName(r.TargetApps.First());
+                    }
                     SubscribeToItem(r);
                     RulesList.Add(r);
                 }
