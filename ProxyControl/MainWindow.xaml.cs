@@ -1,28 +1,13 @@
-﻿using System.Collections.ObjectModel;
+﻿using ProxyControl.ViewModels;
+using System;
 using System.ComponentModel;
-using System.Net;
-using System.Net.Http;
-using System.Net.NetworkInformation;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.Json;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace ProxyControl
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
+        // Статическое поле для управления реальным закрытием
         public static bool AllowClose { get; set; } = false;
 
         public MainWindow()
@@ -30,14 +15,29 @@ namespace ProxyControl
             InitializeComponent();
         }
 
+        // Перехватываем событие закрытия окна
         protected override void OnClosing(CancelEventArgs e)
         {
+            // Если флаг не установлен (пользователь нажал крестик), отменяем закрытие и скрываем окно
             if (!AllowClose)
             {
                 e.Cancel = true;
-                Hide();
+                this.Hide();
             }
-            else base.OnClosing(e);
+            else
+            {
+                base.OnClosing(e);
+            }
+        }
+
+        protected override void OnStateChanged(EventArgs e)
+        {
+            // Если окно свернули, скрываем его, чтобы оно ушло в трей (если используется TaskbarIcon)
+            if (WindowState == WindowState.Minimized)
+            {
+                this.Hide();
+            }
+            base.OnStateChanged(e);
         }
     }
 }

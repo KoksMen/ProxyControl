@@ -1,30 +1,25 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
 namespace ProxyControl.Models
 {
     public class ProxyItem : INotifyPropertyChanged
     {
         private string _id = Guid.NewGuid().ToString();
-        private bool _isEnabled;
-        private string _ipAddress = "";
+        private string _ipAddress;
         private int _port;
-        private string? _username;
-        private string? _password;
-        private string _status = "Unknown";
+        private string _username;
+        private string _password;
+        private bool _isEnabled;
+        private string _status = "Idle";
+        private string _countryCode;
 
-        public string Id { get => _id; set => _id = value; }
-
-        public bool IsEnabled
+        public string Id
         {
-            get => _isEnabled;
-            set { _isEnabled = value; OnPropertyChanged(); }
+            get => _id;
+            set { _id = value; OnPropertyChanged(); }
         }
 
         public string IpAddress
@@ -39,16 +34,22 @@ namespace ProxyControl.Models
             set { _port = value; OnPropertyChanged(); }
         }
 
-        public string? Username
+        public string Username
         {
             get => _username;
             set { _username = value; OnPropertyChanged(); }
         }
 
-        public string? Password
+        public string Password
         {
             get => _password;
             set { _password = value; OnPropertyChanged(); }
+        }
+
+        public bool IsEnabled
+        {
+            get => _isEnabled;
+            set { _isEnabled = value; OnPropertyChanged(); }
         }
 
         [JsonIgnore]
@@ -56,6 +57,27 @@ namespace ProxyControl.Models
         {
             get => _status;
             set { _status = value; OnPropertyChanged(); }
+        }
+
+        public string CountryCode
+        {
+            get => _countryCode;
+            set
+            {
+                _countryCode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(FlagUrl));
+            }
+        }
+
+        [JsonIgnore]
+        public string? FlagUrl
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(CountryCode)) return null;
+                return $"https://flagcdn.com/w40/{CountryCode.ToLower()}.png";
+            }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

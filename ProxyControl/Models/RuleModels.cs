@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
+using System.Text.Json.Serialization;
+using System.Windows.Media; // Для ImageSource
 
 namespace ProxyControl.Models
 {
@@ -14,17 +14,39 @@ namespace ProxyControl.Models
         WhiteList
     }
 
+    public enum RuleAction
+    {
+        Proxy,
+        Direct,
+        Block
+    }
+
     public class TrafficRule : INotifyPropertyChanged
     {
         private bool _isEnabled;
         private string? _proxyId;
+        private string _groupName = "General";
+        private RuleAction _action = RuleAction.Proxy;
         private List<string> _targetApps = new List<string>();
         private List<string> _targetHosts = new List<string>();
+        private ImageSource? _appIcon; // Иконка приложения
 
         public bool IsEnabled
         {
             get => _isEnabled;
             set { _isEnabled = value; OnPropertyChanged(); }
+        }
+
+        public string GroupName
+        {
+            get => _groupName;
+            set { _groupName = value; OnPropertyChanged(); }
+        }
+
+        public RuleAction Action
+        {
+            get => _action;
+            set { _action = value; OnPropertyChanged(); }
         }
 
         public string? ProxyId
@@ -36,7 +58,12 @@ namespace ProxyControl.Models
         public List<string> TargetApps
         {
             get => _targetApps;
-            set { _targetApps = value; OnPropertyChanged(); }
+            set
+            {
+                _targetApps = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(AppKey));
+            }
         }
 
         public List<string> TargetHosts
@@ -45,9 +72,30 @@ namespace ProxyControl.Models
             set { _targetHosts = value; OnPropertyChanged(); }
         }
 
+        [JsonIgnore]
+        public ImageSource? AppIcon
+        {
+            get => _appIcon;
+            set { _appIcon = value; OnPropertyChanged(); }
+        }
+
+        [JsonIgnore]
+        public string AppKey => TargetApps != null && TargetApps.Any() ? TargetApps.First() : "*";
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    public class ConnectionLog
+    {
+        public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
+        public string ProcessName { get; set; } = "";
+        public ImageSource? AppIcon { get; set; } // Иконка процесса
+        public string Host { get; set; } = "";
+        public string Result { get; set; } = "";
+        public string Color { get; set; } = "White";
+        public string? CountryFlagUrl { get; set; } // Флаг страны прокси
     }
 
     public class AppConfig
