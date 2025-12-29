@@ -53,8 +53,9 @@ namespace ProxyControl.Services
                 IsEnabled = p.IsEnabled
             }).ToList();
 
-            _localBlackList = config.BlackListRules?.Where(r => r.IsEnabled).ToList() ?? new List<TrafficRule>();
-            _localWhiteList = config.WhiteListRules?.Where(r => r.IsEnabled).ToList() ?? new List<TrafficRule>();
+            // Обновляем списки правил
+            _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
+            _localWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
 
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
@@ -310,6 +311,8 @@ namespace ProxyControl.Services
 
                 foreach (var rule in _localBlackList)
                 {
+                    if (!rule.IsEnabled) continue; // Добавлена проверка на включение
+
                     if (IsRuleMatch(rule, app, host))
                     {
                         if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
@@ -319,7 +322,7 @@ namespace ProxyControl.Services
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
                             if (p != null) return (RuleAction.Proxy, p);
                         }
-                        // Default behavior for Blacklist matched rule without specific action is Exception (Direct)
+                        // Default behavior fallback
                         return (RuleAction.Direct, null);
                     }
                 }
@@ -331,6 +334,8 @@ namespace ProxyControl.Services
             {
                 foreach (var rule in _localWhiteList)
                 {
+                    if (!rule.IsEnabled) continue; // Добавлена проверка на включение
+
                     if (IsRuleMatch(rule, app, host))
                     {
                         if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
@@ -340,7 +345,7 @@ namespace ProxyControl.Services
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
                             if (p != null) return (RuleAction.Proxy, p);
                         }
-                        // If only Default/Proxy action set but no specific proxy ID, and matched whitelist -> try main proxy or failover
+                        // Если указан Proxy, но ID не найден, пробуем главный прокси
                         var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                     }

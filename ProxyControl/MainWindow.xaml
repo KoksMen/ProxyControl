@@ -24,19 +24,31 @@
         <local:ListToStringConverter x:Key="ListToStr"/>
         <local:NullToBooleanConverter x:Key="NullToBool"/>
 
-        <CollectionViewSource x:Key="GroupedRules" Source="{Binding RulesList}">
-            <CollectionViewSource.GroupDescriptions>
-                <PropertyGroupDescription PropertyName="GroupName"/>
-            </CollectionViewSource.GroupDescriptions>
-        </CollectionViewSource>
+        <Style TargetType="MenuItem">
+            <Setter Property="Foreground" Value="Black"/>
+            <Setter Property="Background" Value="#F0F0F0"/>
+            <Style.Triggers>
+                <Trigger Property="Role" Value="TopLevelHeader">
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                </Trigger>
+                <Trigger Property="Role" Value="TopLevelItem">
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
 
         <Style TargetType="DataGridColumnHeader">
             <Setter Property="Background" Value="#333"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="MinHeight" Value="30"/>
             <Setter Property="BorderThickness" Value="0,0,1,1"/>
             <Setter Property="BorderBrush" Value="#555"/>
         </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="#2D2D30"/>
             <Setter Property="Foreground" Value="White"/>
@@ -236,6 +248,7 @@
                             <Grid Margin="10">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
@@ -251,7 +264,16 @@
                                     </StackPanel>
                                 </StackPanel>
 
-                                <DataGrid Grid.Row="1" ItemsSource="{Binding Source={StaticResource GroupedRules}}" SelectedItem="{Binding SelectedRule}"
+                                <Grid Grid.Row="1" Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#AAA"/>
+                                    <TextBox Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Background="#333" BorderThickness="0" Padding="5"/>
+                                </Grid>
+
+                                <DataGrid Grid.Row="2" ItemsSource="{Binding RulesView}" SelectedItem="{Binding SelectedRule}"
                                           AutoGenerateColumns="False" CanUserAddRows="False"
                                           Background="#2D2D30" RowBackground="#2D2D30" Foreground="White" BorderThickness="0"
                                           GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#444">
@@ -287,11 +309,11 @@
                                     </DataGrid.GroupStyle>
 
                                     <DataGrid.Columns>
-                                        <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled}" Width="30"/>
-                                        <DataGridTextColumn Header="Group" Binding="{Binding GroupName}" Width="80"/>
-                                        <DataGridTextColumn Header="Apps" Binding="{Binding TargetApps, Converter={StaticResource ListToStr}}" Width="*"/>
-                                        <DataGridTextColumn Header="Hosts" Binding="{Binding TargetHosts, Converter={StaticResource ListToStr}}" Width="*"/>
-                                        <DataGridTemplateColumn Header="Action" Width="100">
+                                        <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
+                                        <DataGridTextColumn Header="Group" Binding="{Binding GroupName}" Width="100"/>
+                                        <DataGridTextColumn Header="Apps" Binding="{Binding TargetApps, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
+                                        <DataGridTextColumn Header="Hosts" Binding="{Binding TargetHosts, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
+                                        <DataGridTemplateColumn Header="Action" Width="110" MinWidth="100">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <ComboBox ItemsSource="{Binding DataContext.ActionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -299,26 +321,40 @@
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
-                                        <DataGridTemplateColumn Header="Proxy Route" Width="140">
+                                        <DataGridTemplateColumn Header="Proxy Route" Width="150" MinWidth="140">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
                                                     <ComboBox ItemsSource="{Binding DataContext.Proxies, RelativeSource={RelativeSource AncestorType=Window}}"
                                                               DisplayMemberPath="IpAddress"
                                                               SelectedValue="{Binding ProxyId, UpdateSourceTrigger=PropertyChanged}"
-                                                              SelectedValuePath="Id"
-                                                              IsEnabled="{Binding Action}"/>
+                                                              SelectedValuePath="Id">
+                                                        <ComboBox.Style>
+                                                            <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Action}" Value="Block">
+                                                                        <Setter Property="Visibility" Value="Hidden"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding Action}" Value="Direct">
+                                                                        <Setter Property="Visibility" Value="Hidden"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </ComboBox.Style>
+                                                    </ComboBox>
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
                                     </DataGrid.Columns>
                                 </DataGrid>
 
-                                <Grid Grid.Row="2" Margin="0,10,0,0">
+                                <Grid Grid.Row="3" Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="80"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="100"/>
+                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Margin="2">
@@ -338,7 +374,12 @@
                                         <ComboBox ItemsSource="{Binding ActionTypes}" SelectedItem="{Binding NewRuleAction}"/>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <StackPanel Grid.Column="4" Margin="2" Width="120" Visibility="{Binding IsNewRuleProxyRequired, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Select Proxy" FontSize="9" Foreground="#777"/>
+                                        <ComboBox ItemsSource="{Binding Proxies}" SelectedItem="{Binding NewRuleSelectedProxy}" DisplayMemberPath="IpAddress"/>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Bottom">
                                         <Button Content="Add" Command="{Binding AddRuleCommand}" Style="{StaticResource AccentBtn}" Width="50"/>
                                         <Button Content="Del" Command="{Binding RemoveRuleCommand}" Background="#A03333" Width="40" Margin="5,0,0,0"/>
                                     </StackPanel>

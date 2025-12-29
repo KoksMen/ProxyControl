@@ -13,7 +13,7 @@ namespace ProxyControl.Models
 
     public enum RuleAction
     {
-        Default, // Поведение зависит от режима (Blacklist/Whitelist)
+        // Default удалено
         Proxy,   // Принудительно через прокси
         Direct,  // Принудительно напрямую
         Block    // Блокировать соединение
@@ -24,7 +24,7 @@ namespace ProxyControl.Models
         private bool _isEnabled;
         private string? _proxyId;
         private string _groupName = "General";
-        private RuleAction _action = RuleAction.Default;
+        private RuleAction _action = RuleAction.Proxy; // Изменено с Default на Proxy
         private List<string> _targetApps = new List<string>();
         private List<string> _targetHosts = new List<string>();
 

@@ -4,18 +4,7 @@ using ProxyControl.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Input;
-using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Collections.Specialized; 
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
@@ -23,6 +12,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 
 namespace ProxyControl.ViewModels
@@ -41,14 +31,55 @@ namespace ProxyControl.ViewModels
         public ObservableCollection<TrafficRule> RulesList { get; set; } = new ObservableCollection<TrafficRule>();
         public ObservableCollection<ConnectionLog> Logs { get; set; } = new ObservableCollection<ConnectionLog>();
 
+        // Свойство для привязки DataGrid, поддерживающее группировку и фильтрацию
+        public ICollectionView RulesView { get; private set; }
+
         public string ToggleProxyMenuText => IsProxyRunning ? "Turn Proxy OFF" : "Turn Proxy ON";
         public string AppVersion => "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
-        public string NewRuleApps { get; set; } = "*";
-        public string NewRuleHosts { get; set; } = "*";
-        public string NewRuleGroup { get; set; } = "General";
-        public RuleAction NewRuleAction { get; set; } = RuleAction.Proxy;
-        public ProxyItem? NewRuleSelectedProxy { get; set; }
+        // --- New Rule Properties ---
+        private string _newRuleApps = "*";
+        public string NewRuleApps { get => _newRuleApps; set { _newRuleApps = value; OnPropertyChanged(); } }
+
+        private string _newRuleHosts = "*";
+        public string NewRuleHosts { get => _newRuleHosts; set { _newRuleHosts = value; OnPropertyChanged(); } }
+
+        private string _newRuleGroup = "General";
+        public string NewRuleGroup { get => _newRuleGroup; set { _newRuleGroup = value; OnPropertyChanged(); } }
+
+        private RuleAction _newRuleAction = RuleAction.Proxy;
+        public RuleAction NewRuleAction
+        {
+            get => _newRuleAction;
+            set
+            {
+                _newRuleAction = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsNewRuleProxyRequired));
+            }
+        }
+
+        private ProxyItem? _newRuleSelectedProxy;
+        public ProxyItem? NewRuleSelectedProxy
+        {
+            get => _newRuleSelectedProxy;
+            set { _newRuleSelectedProxy = value; OnPropertyChanged(); }
+        }
+
+        public bool IsNewRuleProxyRequired => NewRuleAction == RuleAction.Proxy;
+
+        // --- Search ---
+        private string _searchText = "";
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                _searchText = value;
+                OnPropertyChanged();
+                RulesView.Refresh(); // Обновляем фильтр при вводе текста
+            }
+        }
 
         private bool _isProxyRunning = true;
         public bool IsProxyRunning
@@ -151,6 +182,11 @@ namespace ProxyControl.ViewModels
             Proxies.CollectionChanged += OnCollectionChanged;
             RulesList.CollectionChanged += OnCollectionChanged;
 
+            // Инициализация представления для правил (Группировка + Фильтрация)
+            RulesView = CollectionViewSource.GetDefaultView(RulesList);
+            RulesView.GroupDescriptions.Add(new PropertyGroupDescription("GroupName"));
+            RulesView.Filter = FilterRules;
+
             AddProxyCommand = new RelayCommand(_ => AddProxy());
             PasteProxyCommand = new RelayCommand(_ => PasteProxy());
             RemoveProxyCommand = new RelayCommand(_ => RemoveProxy());
@@ -180,6 +216,20 @@ namespace ProxyControl.ViewModels
             ApplyConfig();
             IsProxyRunning = true;
             StartEnforcementLoop();
+        }
+
+        private bool FilterRules(object obj)
+        {
+            if (string.IsNullOrWhiteSpace(SearchText)) return true;
+            if (obj is TrafficRule rule)
+            {
+                string search = SearchText.ToLower();
+                bool inGroup = rule.GroupName.ToLower().Contains(search);
+                bool inApps = rule.TargetApps.Any(a => a.ToLower().Contains(search));
+                bool inHosts = rule.TargetHosts.Any(h => h.ToLower().Contains(search));
+                return inGroup || inApps || inHosts;
+            }
+            return false;
         }
 
         private void OnLogReceived(ConnectionLog log)
@@ -321,11 +371,57 @@ namespace ProxyControl.ViewModels
 
         private void AddRule()
         {
-            var apps = NewRuleApps.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
-            var hosts = NewRuleHosts.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+            var apps = NewRuleApps.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).OrderBy(x => x).ToList();
+            var hosts = NewRuleHosts.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).OrderBy(x => x).ToList();
 
             if (!apps.Any()) apps.Add("*");
             if (!hosts.Any()) hosts.Add("*");
+
+            string group = string.IsNullOrWhiteSpace(NewRuleGroup) ? "General" : NewRuleGroup;
+
+            bool isDuplicate = RulesList.Any(r =>
+                r.GroupName == group &&
+                r.TargetApps.OrderBy(x => x).SequenceEqual(apps) &&
+                r.TargetHosts.OrderBy(x => x).SequenceEqual(hosts)
+            );
+
+            if (isDuplicate)
+            {
+                MessageBox.Show("A rule with these Apps and Hosts already exists in this Group.", "Duplicate Rule", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string? proxyIdToUse = null;
+
+            if (NewRuleAction == RuleAction.Proxy)
+            {
+                if (IsBlackListMode)
+                {
+                    if (NewRuleSelectedProxy != null)
+                    {
+                        proxyIdToUse = NewRuleSelectedProxy.Id;
+                    }
+                    else if (SelectedBlackListMainProxy != null)
+                    {
+                        MessageBox.Show("Please select a Proxy server for this rule.", "Proxy Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Please select a Proxy server.", "Proxy Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                }
+                else
+                {
+                    if (NewRuleSelectedProxy == null)
+                    {
+                        MessageBox.Show("Please select a Proxy server for this rule.", "Proxy Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+                    proxyIdToUse = NewRuleSelectedProxy.Id;
+                }
+            }
 
             var rule = new TrafficRule
             {
@@ -333,20 +429,9 @@ namespace ProxyControl.ViewModels
                 TargetHosts = hosts,
                 IsEnabled = true,
                 Action = NewRuleAction,
-                GroupName = string.IsNullOrWhiteSpace(NewRuleGroup) ? "General" : NewRuleGroup
+                GroupName = group,
+                ProxyId = proxyIdToUse
             };
-
-            if (NewRuleAction == RuleAction.Proxy)
-            {
-                if (IsBlackListMode)
-                {
-                    if (SelectedBlackListMainProxy != null) rule.ProxyId = SelectedBlackListMainProxy.Id;
-                }
-                else
-                {
-                    if (NewRuleSelectedProxy != null) rule.ProxyId = NewRuleSelectedProxy.Id;
-                }
-            }
 
             if (IsBlackListMode)
             {
@@ -394,6 +479,7 @@ namespace ProxyControl.ViewModels
                 }
             }
             _suppressSave = false;
+            RulesView.Refresh(); // Обновляем фильтр после перезагрузки
             OnPropertyChanged(nameof(IsBlackListMode));
         }
 
@@ -403,8 +489,80 @@ namespace ProxyControl.ViewModels
             if (IsProxyRunning) _proxyService.Start(); else _proxyService.Stop();
         }
 
-        private void ImportConfig() { }
-        private void ExportConfig() { }
+        private void ImportConfig()
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter = "JSON Config|*.json|All Files|*.*",
+                Title = "Import Configuration"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    var data = _settingsService.Load(openFileDialog.FileName);
+                    if (data != null)
+                    {
+                        _suppressSave = true;
+
+                        _config = data.Config ?? new AppConfig();
+                        IsAutoStart = data.IsAutoStart;
+
+                        Proxies.Clear();
+                        if (data.Proxies != null)
+                        {
+                            foreach (var p in data.Proxies)
+                            {
+                                SubscribeToItem(p);
+                                Proxies.Add(p);
+                            }
+                        }
+
+                        OnPropertyChanged(nameof(SelectedBlackListMainProxy));
+                        ReloadRulesForCurrentMode();
+
+                        _suppressSave = false;
+                        SaveSettings();
+                        MessageBox.Show("Configuration imported successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error importing config: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _suppressSave = false;
+                }
+            }
+        }
+
+        private void ExportConfig()
+        {
+            var saveFileDialog = new SaveFileDialog
+            {
+                Filter = "JSON Config|*.json|All Files|*.*",
+                Title = "Export Configuration",
+                FileName = "settings.json"
+            };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                try
+                {
+                    var data = new AppSettings
+                    {
+                        IsAutoStart = IsAutoStart,
+                        Proxies = Proxies.ToList(),
+                        Config = _config
+                    };
+                    _settingsService.Save(data, saveFileDialog.FileName);
+                    MessageBox.Show("Configuration exported successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error exporting config: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
 
         private void LoadSettings()
         {
@@ -436,7 +594,6 @@ namespace ProxyControl.ViewModels
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
-
 
     public class RelayCommand : ICommand
     {
