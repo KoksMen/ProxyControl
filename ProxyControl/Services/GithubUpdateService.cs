@@ -24,7 +24,7 @@ namespace ProxyControl.Services
             {
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.3.6"));
+                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.3.7"));
 
                     string url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
                     var response = await client.GetStringAsync(url);
@@ -70,7 +70,7 @@ namespace ProxyControl.Services
                 string cleanVer = tagName.TrimStart('v', 'V');
                 return new Version(cleanVer);
             }
-            catch { return new Version(1, 3, 6); }
+            catch { return new Version(1, 0, 0); }
         }
 
         private async Task PerformUpdate(string url)

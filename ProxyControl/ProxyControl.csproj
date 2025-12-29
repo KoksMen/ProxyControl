@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
 	<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-	<Version>1.3.6</Version>
+	<Version>1.3.7</Version>
 	<ApplicationIcon>proxy.ico</ApplicationIcon>
 	<Company>KoksMen</Company>
 	<Authors>KoksMen</Authors>
