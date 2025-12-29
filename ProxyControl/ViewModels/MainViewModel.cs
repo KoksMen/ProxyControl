@@ -184,7 +184,12 @@ namespace ProxyControl.ViewModels
 
             // Инициализация представления для правил (Группировка + Фильтрация)
             RulesView = CollectionViewSource.GetDefaultView(RulesList);
+
+            // 1. Группировка по имени группы (Высший уровень)
             RulesView.GroupDescriptions.Add(new PropertyGroupDescription("GroupName"));
+            // 2. Группировка по имени приложения (Вложенный уровень)
+            RulesView.GroupDescriptions.Add(new PropertyGroupDescription("AppKey"));
+
             RulesView.Filter = FilterRules;
 
             AddProxyCommand = new RelayCommand(_ => AddProxy());
@@ -371,36 +376,31 @@ namespace ProxyControl.ViewModels
 
         private void AddRule()
         {
-            var apps = NewRuleApps.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).OrderBy(x => x).ToList();
-            var hosts = NewRuleHosts.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).OrderBy(x => x).ToList();
+            // Парсим список приложений и хостов
+            var appsList = NewRuleApps.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                      .Select(s => s.Trim())
+                                      .Where(s => !string.IsNullOrEmpty(s))
+                                      .OrderBy(x => x)
+                                      .ToList();
 
-            if (!apps.Any()) apps.Add("*");
-            if (!hosts.Any()) hosts.Add("*");
+            var hostsList = NewRuleHosts.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                        .Select(s => s.Trim())
+                                        .Where(s => !string.IsNullOrEmpty(s))
+                                        .OrderBy(x => x)
+                                        .ToList();
+
+            if (!appsList.Any()) appsList.Add("*");
+            if (!hostsList.Any()) hostsList.Add("*");
 
             string group = string.IsNullOrWhiteSpace(NewRuleGroup) ? "General" : NewRuleGroup;
 
-            bool isDuplicate = RulesList.Any(r =>
-                r.GroupName == group &&
-                r.TargetApps.OrderBy(x => x).SequenceEqual(apps) &&
-                r.TargetHosts.OrderBy(x => x).SequenceEqual(hosts)
-            );
-
-            if (isDuplicate)
-            {
-                MessageBox.Show("A rule with these Apps and Hosts already exists in this Group.", "Duplicate Rule", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
+            // Определяем прокси
             string? proxyIdToUse = null;
-
             if (NewRuleAction == RuleAction.Proxy)
             {
                 if (IsBlackListMode)
                 {
-                    if (NewRuleSelectedProxy != null)
-                    {
-                        proxyIdToUse = NewRuleSelectedProxy.Id;
-                    }
+                    if (NewRuleSelectedProxy != null) proxyIdToUse = NewRuleSelectedProxy.Id;
                     else if (SelectedBlackListMainProxy != null)
                     {
                         MessageBox.Show("Please select a Proxy server for this rule.", "Proxy Required", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -423,27 +423,43 @@ namespace ProxyControl.ViewModels
                 }
             }
 
-            var rule = new TrafficRule
+            // Создаем отдельные правила для каждой комбинации App + Host
+            foreach (var app in appsList)
             {
-                TargetApps = apps,
-                TargetHosts = hosts,
-                IsEnabled = true,
-                Action = NewRuleAction,
-                GroupName = group,
-                ProxyId = proxyIdToUse
-            };
+                foreach (var host in hostsList)
+                {
+                    // Проверяем дубликаты для КОНКРЕТНОЙ пары (App, Host)
+                    bool isDuplicate = RulesList.Any(r =>
+                        r.GroupName == group &&
+                        r.TargetApps.Count == 1 && r.TargetApps[0] == app &&
+                        r.TargetHosts.Count == 1 && r.TargetHosts[0] == host
+                    );
 
-            if (IsBlackListMode)
-            {
-                _config.BlackListRules.Add(rule);
-            }
-            else
-            {
-                _config.WhiteListRules.Add(rule);
-            }
+                    if (isDuplicate)
+                    {
+                        // Можно пропустить или уведомить. В данном случае просто пропустим, чтобы не спамить окнами
+                        continue;
+                    }
 
-            SubscribeToItem(rule);
-            RulesList.Add(rule);
+                    var rule = new TrafficRule
+                    {
+                        TargetApps = new List<string> { app },
+                        TargetHosts = new List<string> { host },
+                        IsEnabled = true,
+                        Action = NewRuleAction,
+                        GroupName = group,
+                        ProxyId = proxyIdToUse
+                    };
+
+                    if (IsBlackListMode)
+                        _config.BlackListRules.Add(rule);
+                    else
+                        _config.WhiteListRules.Add(rule);
+
+                    SubscribeToItem(rule);
+                    RulesList.Add(rule);
+                }
+            }
         }
 
         private void RemoveRule()
@@ -479,7 +495,7 @@ namespace ProxyControl.ViewModels
                 }
             }
             _suppressSave = false;
-            RulesView.Refresh(); // Обновляем фильтр после перезагрузки
+            RulesView.Refresh();
             OnPropertyChanged(nameof(IsBlackListMode));
         }
 

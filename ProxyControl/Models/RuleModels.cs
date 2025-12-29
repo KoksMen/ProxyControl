@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 
 namespace ProxyControl.Models
 {
@@ -24,7 +26,7 @@ namespace ProxyControl.Models
         private bool _isEnabled;
         private string? _proxyId;
         private string _groupName = "General";
-        private RuleAction _action = RuleAction.Proxy; // Изменено с Default на Proxy
+        private RuleAction _action = RuleAction.Proxy;
         private List<string> _targetApps = new List<string>();
         private List<string> _targetHosts = new List<string>();
 
@@ -55,7 +57,12 @@ namespace ProxyControl.Models
         public List<string> TargetApps
         {
             get => _targetApps;
-            set { _targetApps = value; OnPropertyChanged(); }
+            set
+            {
+                _targetApps = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(AppKey)); // Обновляем ключ группировки
+            }
         }
 
         public List<string> TargetHosts
@@ -63,6 +70,10 @@ namespace ProxyControl.Models
             get => _targetHosts;
             set { _targetHosts = value; OnPropertyChanged(); }
         }
+
+        // Свойство для группировки второго уровня (по приложению)
+        [JsonIgnore]
+        public string AppKey => TargetApps != null && TargetApps.Any() ? TargetApps.First() : "*";
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)

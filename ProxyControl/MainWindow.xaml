@@ -184,6 +184,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <Grid Grid.Row="0" Margin="0,0,0,20">
@@ -279,13 +280,6 @@
                                           GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#444">
                                     <DataGrid.GroupStyle>
                                         <GroupStyle>
-                                            <GroupStyle.HeaderTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel>
-                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#007ACC" Margin="5"/>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </GroupStyle.HeaderTemplate>
                                             <GroupStyle.ContainerStyle>
                                                 <Style TargetType="{x:Type GroupItem}">
                                                     <Setter Property="Template">
@@ -295,10 +289,10 @@
                                                                     <Expander.Header>
                                                                         <StackPanel Orientation="Horizontal">
                                                                             <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#EEE" FontSize="14"/>
-                                                                            <TextBlock Text="{Binding ItemCount, StringFormat=' ({0} rules)'}" Foreground="#888" Margin="10,0,0,0"/>
+                                                                            <TextBlock Text="{Binding ItemCount, StringFormat=' ({0})'}" Foreground="#888" Margin="10,0,0,0"/>
                                                                         </StackPanel>
                                                                     </Expander.Header>
-                                                                    <ItemsPresenter />
+                                                                    <ItemsPresenter Margin="20,0,0,0" />
                                                                 </Expander>
                                                             </ControlTemplate>
                                                         </Setter.Value>
