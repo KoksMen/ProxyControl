@@ -390,8 +390,47 @@ namespace ProxyControl.ViewModels
         {
             if (SelectedProxy != null)
             {
-                Proxies.Remove(SelectedProxy);
-                SelectedProxy = null;
+                // Запрашиваем подтверждение у пользователя
+                var result = MessageBox.Show(
+                    $"Are you sure you want to delete proxy {SelectedProxy.IpAddress}:{SelectedProxy.Port}?\nThis will also remove all associated rules.",
+                    "Confirm Deletion",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                // Если пользователь нажал "Yes", выполняем удаление
+                if (result == MessageBoxResult.Yes)
+                {
+                    string proxyIdToRemove = SelectedProxy.Id;
+
+                    // 1. Удаляем правила из BlackList, связанные с этим прокси
+                    var blackListToRemove = _config.BlackListRules.Where(r => r.ProxyId == proxyIdToRemove).ToList();
+                    foreach (var rule in blackListToRemove)
+                    {
+                        _config.BlackListRules.Remove(rule);
+                    }
+
+                    // 2. Удаляем правила из WhiteList, связанные с этим прокси
+                    var whiteListToRemove = _config.WhiteListRules.Where(r => r.ProxyId == proxyIdToRemove).ToList();
+                    foreach (var rule in whiteListToRemove)
+                    {
+                        _config.WhiteListRules.Remove(rule);
+                    }
+
+                    // 3. Если этот прокси был основным шлюзом (Default Gateway), сбрасываем это
+                    if (_config.BlackListSelectedProxyId.ToString() == proxyIdToRemove)
+                    {
+                        _config.BlackListSelectedProxyId = null;
+                        OnPropertyChanged(nameof(SelectedBlackListMainProxy));
+                    }
+
+                    // 4. Удаляем сам прокси
+                    Proxies.Remove(SelectedProxy);
+                    SelectedProxy = null;
+
+                    // 5. Сохраняем и обновляем интерфейс
+                    ReloadRulesForCurrentMode();
+                    SaveSettings();
+                }
             }
         }
 
