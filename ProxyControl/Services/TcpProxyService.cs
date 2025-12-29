@@ -8,11 +8,21 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace ProxyControl.Services
 {
+    public class GeoIpResult
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("countryCode")]
+        public string CountryCode { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
+        public string Status { get; set; }
+    }
+
     public class TcpProxyService
     {
         private TcpListener _listener;
@@ -26,6 +36,7 @@ namespace ProxyControl.Services
         private const int LocalPort = 8000;
         private const int BufferSize = 8192;
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
+        private readonly HttpClient _geoHttpClient;
 
         public event Action<ConnectionLog>? OnConnectionLog;
 
@@ -39,6 +50,9 @@ namespace ProxyControl.Services
         public TcpProxyService()
         {
             _processMonitor = new ProcessMonitorService();
+            _geoHttpClient = new HttpClient();
+            _geoHttpClient.DefaultRequestHeaders.Add("User-Agent", "ProxyControl/1.0");
+            _geoHttpClient.Timeout = TimeSpan.FromSeconds(5);
         }
 
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
@@ -53,7 +67,6 @@ namespace ProxyControl.Services
                 IsEnabled = p.IsEnabled
             }).ToList();
 
-            // Обновляем списки правил
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
             _localWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
 
@@ -160,14 +173,12 @@ namespace ProxyControl.Services
 
                 var decision = ResolveAction(processName, targetHost);
 
-                // Logging
                 string logResult = decision.Action == RuleAction.Block ? "BLOCKED" : (decision.Proxy != null ? $"Proxy: {decision.Proxy.IpAddress}" : "Direct");
                 string logColor = decision.Action == RuleAction.Block ? "#FF5555" : (decision.Proxy != null ? "#55FF55" : "#AAAAAA");
                 OnConnectionLog?.Invoke(new ConnectionLog { ProcessName = processName, Host = targetHost, Result = logResult, Color = logColor });
 
                 if (decision.Action == RuleAction.Block)
                 {
-                    // Connection is blocked, verify we close correctly
                     return;
                 }
 
@@ -213,7 +224,6 @@ namespace ProxyControl.Services
                 }
                 else
                 {
-                    // Direct
                     await remoteServer.ConnectAsync(targetHost, targetPort, ctx.Cts.Token);
                     var remoteStream = remoteServer.GetStream();
 
@@ -311,7 +321,7 @@ namespace ProxyControl.Services
 
                 foreach (var rule in _localBlackList)
                 {
-                    if (!rule.IsEnabled) continue; // Добавлена проверка на включение
+                    if (!rule.IsEnabled) continue;
 
                     if (IsRuleMatch(rule, app, host))
                     {
@@ -322,7 +332,6 @@ namespace ProxyControl.Services
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
                             if (p != null) return (RuleAction.Proxy, p);
                         }
-                        // Default behavior fallback
                         return (RuleAction.Direct, null);
                     }
                 }
@@ -330,11 +339,11 @@ namespace ProxyControl.Services
                 if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                 return (RuleAction.Direct, null);
             }
-            else // WhiteList
+            else
             {
                 foreach (var rule in _localWhiteList)
                 {
-                    if (!rule.IsEnabled) continue; // Добавлена проверка на включение
+                    if (!rule.IsEnabled) continue;
 
                     if (IsRuleMatch(rule, app, host))
                     {
@@ -345,7 +354,6 @@ namespace ProxyControl.Services
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
                             if (p != null) return (RuleAction.Proxy, p);
                         }
-                        // Если указан Proxy, но ID не найден, пробуем главный прокси
                         var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                     }
@@ -383,9 +391,13 @@ namespace ProxyControl.Services
             return false;
         }
 
-        public async Task<bool> CheckProxy(ProxyItem proxy)
+        public async Task<(bool IsSuccess, string CountryCode)> CheckProxy(ProxyItem proxy)
         {
-            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return false;
+            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "");
+
+            bool connectionSuccess = false;
+            string country = "";
+
             try
             {
                 var handler = new HttpClientHandler
@@ -403,13 +415,30 @@ namespace ProxyControl.Services
                 {
                     client.Timeout = TimeSpan.FromSeconds(5);
                     var response = await client.GetAsync("http://www.google.com/generate_204");
-                    return response.IsSuccessStatusCode;
+                    connectionSuccess = response.IsSuccessStatusCode;
                 }
             }
             catch
             {
-                return false;
+                connectionSuccess = false;
             }
+
+            try
+            {
+                var response = await _geoHttpClient.GetAsync($"http://ip-api.com/json/{proxy.IpAddress}");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var result = JsonSerializer.Deserialize<GeoIpResult>(json);
+                    if (result != null && result.Status == "success")
+                    {
+                        country = result.CountryCode;
+                    }
+                }
+            }
+            catch { }
+
+            return (connectionSuccess, country);
         }
     }
 }

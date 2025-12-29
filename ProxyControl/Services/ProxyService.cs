@@ -113,7 +113,6 @@ namespace ProxyControl.Services
 
                 var decision = ResolveAction(processName, hostname);
 
-                // Log
                 string logResult = decision.Action == RuleAction.Block ? "BLOCKED" : (decision.Proxy != null ? $"Proxy: {decision.Proxy.IpAddress}" : "Direct");
                 string logColor = decision.Action == RuleAction.Block ? "#FF5555" : (decision.Proxy != null ? "#55FF55" : "#AAAAAA");
                 OnConnectionLog?.Invoke(new ConnectionLog { ProcessName = processName, Host = hostname, Result = logResult, Color = logColor });
@@ -163,7 +162,7 @@ namespace ProxyControl.Services
                 if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                 return (RuleAction.Direct, null);
             }
-            else // WhiteList
+            else
             {
                 foreach (var rule in _config.WhiteListRules)
                 {

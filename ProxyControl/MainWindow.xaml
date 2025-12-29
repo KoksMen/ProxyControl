@@ -125,15 +125,19 @@
                                 <Grid Margin="0,3">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="30"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                    <StackPanel Grid.Column="1">
+
+                                    <Image Grid.Column="1" Source="{Binding FlagUrl}" Width="20" Height="15" Margin="0,0,5,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                                    <StackPanel Grid.Column="2">
                                         <TextBlock Text="{Binding IpAddress, TargetNullValue='(No IP)'}" FontWeight="Bold"/>
                                         <TextBlock Text="{Binding Port, StringFormat=Port: {0}}" FontSize="10" Foreground="#AAA"/>
                                     </StackPanel>
-                                    <Border Grid.Column="2" Background="#333" CornerRadius="3" Padding="4,1">
+                                    <Border Grid.Column="3" Background="#333" CornerRadius="3" Padding="4,1">
                                         <TextBlock Text="{Binding Status}" FontSize="9" Foreground="{Binding Status, Converter={StaticResource StatusColor}}"/>
                                     </Border>
                                 </Grid>

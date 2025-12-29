@@ -31,13 +31,11 @@ namespace ProxyControl.ViewModels
         public ObservableCollection<TrafficRule> RulesList { get; set; } = new ObservableCollection<TrafficRule>();
         public ObservableCollection<ConnectionLog> Logs { get; set; } = new ObservableCollection<ConnectionLog>();
 
-        // Свойство для привязки DataGrid, поддерживающее группировку и фильтрацию
         public ICollectionView RulesView { get; private set; }
 
         public string ToggleProxyMenuText => IsProxyRunning ? "Turn Proxy OFF" : "Turn Proxy ON";
         public string AppVersion => "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
-        // --- New Rule Properties ---
         private string _newRuleApps = "*";
         public string NewRuleApps { get => _newRuleApps; set { _newRuleApps = value; OnPropertyChanged(); } }
 
@@ -68,7 +66,6 @@ namespace ProxyControl.ViewModels
 
         public bool IsNewRuleProxyRequired => NewRuleAction == RuleAction.Proxy;
 
-        // --- Search ---
         private string _searchText = "";
         public string SearchText
         {
@@ -77,7 +74,7 @@ namespace ProxyControl.ViewModels
             {
                 _searchText = value;
                 OnPropertyChanged();
-                RulesView.Refresh(); // Обновляем фильтр при вводе текста
+                RulesView.Refresh();
             }
         }
 
@@ -182,14 +179,9 @@ namespace ProxyControl.ViewModels
             Proxies.CollectionChanged += OnCollectionChanged;
             RulesList.CollectionChanged += OnCollectionChanged;
 
-            // Инициализация представления для правил (Группировка + Фильтрация)
             RulesView = CollectionViewSource.GetDefaultView(RulesList);
-
-            // 1. Группировка по имени группы (Высший уровень)
             RulesView.GroupDescriptions.Add(new PropertyGroupDescription("GroupName"));
-            // 2. Группировка по имени приложения (Вложенный уровень)
             RulesView.GroupDescriptions.Add(new PropertyGroupDescription("AppKey"));
-
             RulesView.Filter = FilterRules;
 
             AddProxyCommand = new RelayCommand(_ => AddProxy());
@@ -221,6 +213,36 @@ namespace ProxyControl.ViewModels
             ApplyConfig();
             IsProxyRunning = true;
             StartEnforcementLoop();
+
+            Task.Run(async () =>
+            {
+                await Task.Delay(2000);
+                await CheckAllProxies();
+            });
+        }
+
+        private async Task CheckAllProxies()
+        {
+            var proxyList = Proxies.ToList();
+            if (proxyList.Count == 0) return;
+
+            using (var semaphore = new SemaphoreSlim(5))
+            {
+                var tasks = proxyList.Select(async p =>
+                {
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        Application.Current.Dispatcher.Invoke(() => p.Status = "Checking...");
+                        await CheckSingleProxy(p);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+                await Task.WhenAll(tasks);
+            }
         }
 
         private bool FilterRules(object obj)
@@ -270,7 +292,7 @@ namespace ProxyControl.ViewModels
                 nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps),
                 nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName),
                 nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port),
-                nameof(ProxyItem.Username), nameof(ProxyItem.Password)
+                nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode)
             };
             if (triggers.Contains(e.PropertyName))
                 SaveSettings();
@@ -363,9 +385,18 @@ namespace ProxyControl.ViewModels
 
         private async Task CheckSingleProxy(ProxyItem p)
         {
-            p.Status = "Checking...";
-            bool res = await Task.Run(() => _proxyService.CheckProxy(p));
-            p.Status = res ? "Online" : "Offline";
+            Application.Current.Dispatcher.Invoke(() => p.Status = "Checking...");
+
+            var result = await Task.Run(() => _proxyService.CheckProxy(p));
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                p.Status = result.IsSuccess ? "Online" : "Offline";
+                if (!string.IsNullOrEmpty(result.CountryCode))
+                {
+                    p.CountryCode = result.CountryCode;
+                }
+            });
         }
 
         private async void CheckSelectedProxy()
@@ -376,7 +407,6 @@ namespace ProxyControl.ViewModels
 
         private void AddRule()
         {
-            // Парсим список приложений и хостов
             var appsList = NewRuleApps.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
                                       .Select(s => s.Trim())
                                       .Where(s => !string.IsNullOrEmpty(s))
@@ -394,7 +424,6 @@ namespace ProxyControl.ViewModels
 
             string group = string.IsNullOrWhiteSpace(NewRuleGroup) ? "General" : NewRuleGroup;
 
-            // Определяем прокси
             string? proxyIdToUse = null;
             if (NewRuleAction == RuleAction.Proxy)
             {
@@ -423,23 +452,17 @@ namespace ProxyControl.ViewModels
                 }
             }
 
-            // Создаем отдельные правила для каждой комбинации App + Host
             foreach (var app in appsList)
             {
                 foreach (var host in hostsList)
                 {
-                    // Проверяем дубликаты для КОНКРЕТНОЙ пары (App, Host)
                     bool isDuplicate = RulesList.Any(r =>
                         r.GroupName == group &&
                         r.TargetApps.Count == 1 && r.TargetApps[0] == app &&
                         r.TargetHosts.Count == 1 && r.TargetHosts[0] == host
                     );
 
-                    if (isDuplicate)
-                    {
-                        // Можно пропустить или уведомить. В данном случае просто пропустим, чтобы не спамить окнами
-                        continue;
-                    }
+                    if (isDuplicate) continue;
 
                     var rule = new TrafficRule
                     {
@@ -471,6 +494,8 @@ namespace ProxyControl.ViewModels
                 else
                     _config.WhiteListRules.Remove(SelectedRule);
                 RulesList.Remove(SelectedRule);
+
+                ApplyConfig();
             }
         }
 
@@ -541,6 +566,12 @@ namespace ProxyControl.ViewModels
                         _suppressSave = false;
                         SaveSettings();
                         MessageBox.Show("Configuration imported successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                        Task.Run(async () =>
+                        {
+                            await Task.Delay(1000);
+                            await CheckAllProxies();
+                        });
                     }
                 }
                 catch (Exception ex)

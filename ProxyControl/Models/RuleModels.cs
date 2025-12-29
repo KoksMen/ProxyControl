@@ -9,16 +9,15 @@ namespace ProxyControl.Models
 {
     public enum RuleMode
     {
-        BlackList, // Весь трафик через прокси, правила — исключения (Direct) или Блокировка
-        WhiteList  // Весь трафик напрямую, правила — через прокси или Блокировка
+        BlackList,
+        WhiteList  
     }
 
     public enum RuleAction
     {
-        // Default удалено
-        Proxy,   // Принудительно через прокси
-        Direct,  // Принудительно напрямую
-        Block    // Блокировать соединение
+        Proxy,   
+        Direct,  
+        Block    
     }
 
     public class TrafficRule : INotifyPropertyChanged
@@ -61,7 +60,7 @@ namespace ProxyControl.Models
             {
                 _targetApps = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(AppKey)); // Обновляем ключ группировки
+                OnPropertyChanged(nameof(AppKey));
             }
         }
 
@@ -71,7 +70,6 @@ namespace ProxyControl.Models
             set { _targetHosts = value; OnPropertyChanged(); }
         }
 
-        // Свойство для группировки второго уровня (по приложению)
         [JsonIgnore]
         public string AppKey => TargetApps != null && TargetApps.Any() ? TargetApps.First() : "*";
 
@@ -85,8 +83,8 @@ namespace ProxyControl.Models
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
         public string Host { get; set; } = "";
-        public string Result { get; set; } = ""; // Blocked, Direct, ProxyIP
-        public string Color { get; set; } = "White"; // Цвет для UI
+        public string Result { get; set; } = "";
+        public string Color { get; set; } = "White";
     }
 
     public class AppConfig
