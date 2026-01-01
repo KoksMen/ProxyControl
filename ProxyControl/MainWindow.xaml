@@ -566,5 +566,45 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <Grid x:Name="UpdateModalOverlay" Grid.RowSpan="2" Background="#CC000000" Visibility="{Binding IsUpdateModalVisible, Converter={StaticResource BoolToVis}}" Panel.ZIndex="2000" d:IsHidden="True">
+            <Border Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="8" Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" Padding="30">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.5"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,20">
+                        <TextBlock Text="♻️" FontSize="24" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Updating Application" FontSize="20" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <Grid Grid.Row="1" Margin="0,0,0,5">
+                        <ProgressBar Value="{Binding UpdateProgress}" Maximum="100" Height="20" 
+                                     Foreground="#007ACC" Background="#333" BorderThickness="0"/>
+                        <TextBlock Text="{Binding UpdateProgress, StringFormat='{}{0}%'}" 
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                   FontSize="12" FontWeight="Bold" Foreground="White">
+                            <TextBlock.Effect>
+                                <DropShadowEffect BlurRadius="2" ShadowDepth="1" Color="Black"/>
+                            </TextBlock.Effect>
+                        </TextBlock>
+                    </Grid>
+
+                    <TextBlock Grid.Row="2" Text="{Binding UpdateDetailText}" 
+                               HorizontalAlignment="Center" Foreground="#888" FontSize="11" Margin="0,0,0,15"/>
+
+                    <TextBlock Grid.Row="3" Text="{Binding UpdateStatusText}" 
+                               HorizontalAlignment="Center" Foreground="#AAA" FontSize="14" FontWeight="SemiBold"/>
+
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
