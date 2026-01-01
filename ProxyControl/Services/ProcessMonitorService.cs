@@ -45,9 +45,27 @@ namespace ProxyControl.Services
         {
             if (pid <= 0) return "Unknown";
 
-            var lazyTask = _processCache.GetOrAdd(pid, _ => new Lazy<Task<string>>(() => Task.Run(() => GetProcessNameNative(pid))));
+            var lazyTask = _processCache.GetOrAdd(pid, _ => new Lazy<Task<string>>(() => Task.Run(() => ResolveProcessName(pid))));
 
             try { return lazyTask.Value.Result; } catch { return "Unknown"; }
+        }
+
+        private string ResolveProcessName(int pid)
+        {
+            // 1. Try Native method (fast, low overhead)
+            string name = GetProcessNameNative(pid);
+            if (!string.IsNullOrEmpty(name) && name != "Unknown") return name;
+
+            // 2. Fallback to .NET Process API (reliable but heavier)
+            try
+            {
+                var p = Process.GetProcessById(pid);
+                return p.ProcessName + ".exe";
+            }
+            catch
+            {
+                return "Unknown";
+            }
         }
 
         private void LoadInitialProcesses()
@@ -58,6 +76,7 @@ namespace ProxyControl.Services
                 try
                 {
                     string name = GetProcessNameNative(id);
+                    if (name == "Unknown") name = p.ProcessName + ".exe";
                     _processCache.TryAdd(id, new Lazy<Task<string>>(() => Task.FromResult(name)));
                 }
                 catch { }
@@ -91,13 +110,15 @@ namespace ProxyControl.Services
 
         private string GetProcessNameNative(int pid)
         {
-            IntPtr hProcess = OpenProcess(0x1000, false, pid); 
+            // PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            IntPtr hProcess = OpenProcess(0x1000, false, pid);
             if (hProcess == IntPtr.Zero) return "Unknown";
             try
             {
                 int cap = 1024;
                 StringBuilder sb = new StringBuilder(cap);
-                if (QueryFullProcessImageName(hProcess, 0, sb, ref cap)) return Path.GetFileName(sb.ToString());
+                int size = cap;
+                if (QueryFullProcessImageName(hProcess, 0, sb, ref size)) return Path.GetFileName(sb.ToString());
             }
             finally { CloseHandle(hProcess); }
             return "Unknown";

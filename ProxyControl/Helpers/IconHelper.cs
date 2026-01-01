@@ -13,17 +13,18 @@ namespace ProxyControl.Helpers
 {
     public static class IconHelper
     {
-        // Кэш иконок, чтобы не извлекать их каждый раз (тяжелая операция)
+        // Кэш иконок
         private static readonly ConcurrentDictionary<string, ImageSource> _iconCache = new ConcurrentDictionary<string, ImageSource>();
 
         public static ImageSource? GetIconByProcessName(string processName)
         {
             if (string.IsNullOrEmpty(processName)) return null;
+            if (processName.ToLower() == "unknown") return null;
+
             if (_iconCache.TryGetValue(processName, out var cached)) return cached;
 
             try
             {
-                // Пытаемся найти запущенный процесс
                 var processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(processName));
                 if (processes.Length > 0)
                 {
@@ -32,10 +33,10 @@ namespace ProxyControl.Helpers
                         var path = processes[0].MainModule?.FileName;
                         if (!string.IsNullOrEmpty(path))
                         {
-                            return GetIconByPath(path, processName); // Используем имя как ключ кэша
+                            return GetIconByPath(path, processName);
                         }
                     }
-                    catch { } // Ограничение прав доступа к системным процессам
+                    catch { }
                 }
             }
             catch { }
@@ -61,9 +62,53 @@ namespace ProxyControl.Helpers
                         Int32Rect.Empty,
                         BitmapSizeOptions.FromEmptyOptions());
 
-                    imageSource.Freeze(); // Делаем доступным для других потоков
+                    imageSource.Freeze();
                     _iconCache.TryAdd(key, imageSource);
                     return imageSource;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // Конвертация в Base64 для сохранения
+        public static string? ImageSourceToBase64(ImageSource source)
+        {
+            if (source is BitmapSource bitmapSource)
+            {
+                try
+                {
+                    PngBitmapEncoder encoder = new PngBitmapEncoder();
+                    encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        encoder.Save(ms);
+                        return Convert.ToBase64String(ms.ToArray());
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        // Восстановление из Base64
+        public static ImageSource? Base64ToImageSource(string base64)
+        {
+            if (string.IsNullOrEmpty(base64)) return null;
+            try
+            {
+                byte[] bytes = Convert.FromBase64String(base64);
+                using (MemoryStream ms = new MemoryStream(bytes))
+                {
+                    var image = new BitmapImage();
+                    image.BeginInit();
+                    image.CacheOption = BitmapCacheOption.OnLoad; // Важно загрузить в память
+                    image.StreamSource = ms;
+                    image.EndInit();
+                    image.Freeze(); // Заморозить для использования в UI
+                    return image;
                 }
             }
             catch
