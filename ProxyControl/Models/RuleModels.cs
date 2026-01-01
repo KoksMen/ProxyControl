@@ -29,7 +29,8 @@ namespace ProxyControl.Models
         private RuleAction _action = RuleAction.Proxy;
         private List<string> _targetApps = new List<string>();
         private List<string> _targetHosts = new List<string>();
-        private ImageSource? _appIcon; // Иконка приложения
+        private ImageSource? _appIcon;
+        private string? _iconBase64; // Поле для сохранения иконки
 
         public bool IsEnabled
         {
@@ -79,6 +80,13 @@ namespace ProxyControl.Models
             set { _appIcon = value; OnPropertyChanged(); }
         }
 
+        // Это свойство будет сохраняться в JSON
+        public string? IconBase64
+        {
+            get => _iconBase64;
+            set { _iconBase64 = value; OnPropertyChanged(); }
+        }
+
         [JsonIgnore]
         public string AppKey => TargetApps != null && TargetApps.Any() ? TargetApps.First() : "*";
 
@@ -91,11 +99,11 @@ namespace ProxyControl.Models
     {
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
-        public ImageSource? AppIcon { get; set; } // Иконка процесса
+        public ImageSource? AppIcon { get; set; }
         public string Host { get; set; } = "";
         public string Result { get; set; } = "";
         public string Color { get; set; } = "White";
-        public string? CountryFlagUrl { get; set; } // Флаг страны прокси
+        public string? CountryFlagUrl { get; set; }
     }
 
     public class AppConfig

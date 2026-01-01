@@ -18,13 +18,13 @@ namespace ProxyControl.Services
         private const string RepoOwner = "KoksMen";
         private const string RepoName = "ProxyControl";
 
-        public async Task CheckAndInstallUpdate()
+        public async Task CheckAndInstallUpdate(bool silent = false)
         {
             try
             {
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.3.7"));
+                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.4.3"));
 
                     string url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
                     var response = await client.GetStringAsync(url);
@@ -50,7 +50,7 @@ namespace ProxyControl.Services
                                 }
                             }
                         }
-                        else
+                        else if (!silent)
                         {
                             MessageBox.Show("You are using the latest version.", "Check for Updates");
                         }
@@ -59,7 +59,8 @@ namespace ProxyControl.Services
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Update check failed: {ex.Message}", "Error");
+                if (!silent)
+                    MessageBox.Show($"Update check failed: {ex.Message}", "Error");
             }
         }
 

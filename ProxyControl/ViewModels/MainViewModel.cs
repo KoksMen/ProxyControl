@@ -1,7 +1,7 @@
 ﻿using Microsoft.Win32;
 using ProxyControl.Models;
 using ProxyControl.Services;
-using ProxyControl.Helpers; // Хелпер иконок
+using ProxyControl.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -37,6 +37,7 @@ namespace ProxyControl.ViewModels
         public string ToggleProxyMenuText => IsProxyRunning ? "Turn Proxy OFF" : "Turn Proxy ON";
         public string AppVersion => "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
+        // --- Create Rule (Settings Tab) ---
         private string _newRuleApps = "*";
         public string NewRuleApps { get => _newRuleApps; set { _newRuleApps = value; OnPropertyChanged(); } }
 
@@ -64,8 +65,84 @@ namespace ProxyControl.ViewModels
             get => _newRuleSelectedProxy;
             set { _newRuleSelectedProxy = value; OnPropertyChanged(); }
         }
-
         public bool IsNewRuleProxyRequired => NewRuleAction == RuleAction.Proxy;
+
+        // --- RULE Modal Fields ---
+        private bool _isModalVisible;
+        public bool IsModalVisible
+        {
+            get => _isModalVisible;
+            set { _isModalVisible = value; OnPropertyChanged(); }
+        }
+
+        private string _modalProcessName;
+        public string ModalProcessName
+        {
+            get => _modalProcessName;
+            set { _modalProcessName = value; OnPropertyChanged(); }
+        }
+
+        private string _modalHost;
+        public string ModalHost
+        {
+            get => _modalHost;
+            set { _modalHost = value; OnPropertyChanged(); }
+        }
+
+        private RuleAction _modalAction = RuleAction.Proxy;
+        public RuleAction ModalAction
+        {
+            get => _modalAction;
+            set { _modalAction = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsModalProxyRequired)); }
+        }
+        public bool IsModalProxyRequired => ModalAction == RuleAction.Proxy;
+
+        private ProxyItem? _modalSelectedProxy;
+        public ProxyItem? ModalSelectedProxy
+        {
+            get => _modalSelectedProxy;
+            set { _modalSelectedProxy = value; OnPropertyChanged(); }
+        }
+
+        private RuleMode _modalTargetMode;
+        public RuleMode ModalTargetMode
+        {
+            get => _modalTargetMode;
+            set { _modalTargetMode = value; OnPropertyChanged(); }
+        }
+
+        private System.Windows.Media.ImageSource? _modalIcon;
+
+        // --- PROXY Modal Fields ---
+        private bool _isProxyModalVisible;
+        public bool IsProxyModalVisible
+        {
+            get => _isProxyModalVisible;
+            set { _isProxyModalVisible = value; OnPropertyChanged(); }
+        }
+
+        private string _proxyModalTitle = "Add Proxy";
+        public string ProxyModalTitle
+        {
+            get => _proxyModalTitle;
+            set { _proxyModalTitle = value; OnPropertyChanged(); }
+        }
+
+        private string _proxyModalIp = "";
+        public string ProxyModalIp { get => _proxyModalIp; set { _proxyModalIp = value; OnPropertyChanged(); } }
+
+        private int _proxyModalPort = 8080;
+        public int ProxyModalPort { get => _proxyModalPort; set { _proxyModalPort = value; OnPropertyChanged(); } }
+
+        private string? _proxyModalUser;
+        public string? ProxyModalUser { get => _proxyModalUser; set { _proxyModalUser = value; OnPropertyChanged(); } }
+
+        private string? _proxyModalPass;
+        public string? ProxyModalPass { get => _proxyModalPass; set { _proxyModalPass = value; OnPropertyChanged(); } }
+
+        private ProxyItem? _editingProxyItem;
+
+        // --- End Modal Fields ---
 
         private string _searchText = "";
         public string SearchText
@@ -105,6 +182,18 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        private bool _checkUpdateOnStartup = true;
+        public bool CheckUpdateOnStartup
+        {
+            get => _checkUpdateOnStartup;
+            set
+            {
+                _checkUpdateOnStartup = value;
+                SaveSettings();
+                OnPropertyChanged();
+            }
+        }
+
         private ProxyItem? _selectedProxy;
         public ProxyItem? SelectedProxy
         {
@@ -113,7 +202,6 @@ namespace ProxyControl.ViewModels
             {
                 _selectedProxy = value;
                 OnPropertyChanged();
-                ApplyConfig();
             }
         }
 
@@ -131,6 +219,7 @@ namespace ProxyControl.ViewModels
         }
 
         public Array ActionTypes => Enum.GetValues(typeof(RuleAction));
+        public Array ModeTypes => Enum.GetValues(typeof(RuleMode));
 
         public ProxyItem? SelectedBlackListMainProxy
         {
@@ -153,7 +242,18 @@ namespace ProxyControl.ViewModels
             set { _selectedRule = value; OnPropertyChanged(); }
         }
 
-        public ICommand AddProxyCommand { get; }
+        private ConnectionLog? _selectedLogItem;
+        public ConnectionLog? SelectedLogItem
+        {
+            get => _selectedLogItem;
+            set { _selectedLogItem = value; OnPropertyChanged(); }
+        }
+
+        public ICommand OpenAddProxyModalCommand { get; }
+        public ICommand OpenEditProxyModalCommand { get; }
+        public ICommand SaveProxyModalCommand { get; }
+        public ICommand CloseProxyModalCommand { get; }
+
         public ICommand PasteProxyCommand { get; }
         public ICommand RemoveProxyCommand { get; }
         public ICommand SaveChangesCommand { get; }
@@ -161,7 +261,6 @@ namespace ProxyControl.ViewModels
         public ICommand AddRuleCommand { get; }
         public ICommand RemoveRuleCommand { get; }
 
-        // Команда показа окна
         public ICommand ShowWindowCommand { get; }
         public ICommand ExitAppCommand { get; }
         public ICommand ToggleProxyCommand { get; }
@@ -169,6 +268,11 @@ namespace ProxyControl.ViewModels
         public ICommand ExportConfigCommand { get; }
         public ICommand CheckUpdateCommand { get; }
         public ICommand ClearLogsCommand { get; }
+
+        public ICommand OpenRuleModalCommand { get; }
+        public ICommand SaveModalRuleCommand { get; }
+        public ICommand CloseModalCommand { get; }
+
 
         public MainViewModel()
         {
@@ -187,7 +291,11 @@ namespace ProxyControl.ViewModels
             RulesView.GroupDescriptions.Add(new PropertyGroupDescription("AppKey"));
             RulesView.Filter = FilterRules;
 
-            AddProxyCommand = new RelayCommand(_ => AddProxy());
+            OpenAddProxyModalCommand = new RelayCommand(_ => OpenProxyModal(null));
+            OpenEditProxyModalCommand = new RelayCommand(p => OpenProxyModal((ProxyItem)p));
+            SaveProxyModalCommand = new RelayCommand(_ => SaveProxyFromModal());
+            CloseProxyModalCommand = new RelayCommand(_ => IsProxyModalVisible = false);
+
             PasteProxyCommand = new RelayCommand(_ => PasteProxy());
             RemoveProxyCommand = new RelayCommand(_ => RemoveProxy());
             SaveChangesCommand = new RelayCommand(_ => SaveSettings());
@@ -195,16 +303,15 @@ namespace ProxyControl.ViewModels
             AddRuleCommand = new RelayCommand(_ => AddRule());
             RemoveRuleCommand = new RelayCommand(_ => RemoveRule());
 
-            // ИСПРАВЛЕНИЕ ДЛЯ ТРЕЯ: Принудительное разворачивание и активация
             ShowWindowCommand = new RelayCommand(_ =>
             {
                 var win = Application.Current.MainWindow;
                 if (win != null)
                 {
-                    win.Show(); // Если был Hidden
+                    win.Show();
                     if (win.WindowState == WindowState.Minimized)
                         win.WindowState = WindowState.Normal;
-                    win.Activate(); // На передний план
+                    win.Activate();
                 }
             });
 
@@ -217,8 +324,12 @@ namespace ProxyControl.ViewModels
             ToggleProxyCommand = new RelayCommand(_ => ToggleService());
             ImportConfigCommand = new RelayCommand(_ => ImportConfig());
             ExportConfigCommand = new RelayCommand(_ => ExportConfig());
-            CheckUpdateCommand = new RelayCommand(async _ => await _updateService.CheckAndInstallUpdate());
+            CheckUpdateCommand = new RelayCommand(async _ => await _updateService.CheckAndInstallUpdate(silent: false));
             ClearLogsCommand = new RelayCommand(_ => Logs.Clear());
+
+            OpenRuleModalCommand = new RelayCommand(obj => OpenRuleModal((ConnectionLog)obj));
+            CloseModalCommand = new RelayCommand(_ => IsModalVisible = false);
+            SaveModalRuleCommand = new RelayCommand(_ => SaveRuleFromModal());
 
             LoadSettings();
             _proxyService.Start();
@@ -230,7 +341,116 @@ namespace ProxyControl.ViewModels
             {
                 await Task.Delay(2000);
                 await CheckAllProxies();
+
+                if (CheckUpdateOnStartup)
+                {
+                    await _updateService.CheckAndInstallUpdate(silent: true);
+                }
             });
+        }
+
+        private void OpenProxyModal(ProxyItem? item)
+        {
+            _editingProxyItem = item;
+            if (item == null)
+            {
+                ProxyModalTitle = "Add Proxy";
+                ProxyModalIp = "";
+                ProxyModalPort = 8080;
+                ProxyModalUser = "";
+                ProxyModalPass = "";
+            }
+            else
+            {
+                ProxyModalTitle = "Edit Proxy";
+                ProxyModalIp = item.IpAddress;
+                ProxyModalPort = item.Port;
+                ProxyModalUser = item.Username;
+                ProxyModalPass = item.Password;
+            }
+            IsProxyModalVisible = true;
+        }
+
+        private void SaveProxyFromModal()
+        {
+            if (_editingProxyItem == null)
+            {
+                var newProxy = new ProxyItem
+                {
+                    IpAddress = ProxyModalIp,
+                    Port = ProxyModalPort,
+                    Username = ProxyModalUser,
+                    Password = ProxyModalPass,
+                    IsEnabled = true,
+                    Status = "New"
+                };
+                Proxies.Add(newProxy);
+                SelectedProxy = newProxy;
+                _ = CheckSingleProxy(newProxy);
+            }
+            else
+            {
+                _editingProxyItem.IpAddress = ProxyModalIp;
+                _editingProxyItem.Port = ProxyModalPort;
+                _editingProxyItem.Username = ProxyModalUser;
+                _editingProxyItem.Password = ProxyModalPass;
+                _editingProxyItem.Status = "Updated";
+                _ = CheckSingleProxy(_editingProxyItem);
+            }
+
+            IsProxyModalVisible = false;
+            SaveSettings();
+        }
+
+        private void OpenRuleModal(ConnectionLog log)
+        {
+            if (log == null) return;
+            ModalProcessName = log.ProcessName;
+            ModalHost = log.Host;
+            _modalIcon = log.AppIcon;
+
+            ModalAction = RuleAction.Proxy;
+            ModalSelectedProxy = Proxies.FirstOrDefault(p => p.IsEnabled) ?? Proxies.FirstOrDefault();
+            ModalTargetMode = IsBlackListMode ? RuleMode.BlackList : RuleMode.WhiteList;
+
+            IsModalVisible = true;
+        }
+
+        private void SaveRuleFromModal()
+        {
+            string group = "QuickRules";
+            var app = ModalProcessName;
+            var host = ModalHost;
+            string? iconBase64 = _modalIcon != null ? IconHelper.ImageSourceToBase64(_modalIcon) : null;
+
+            var rule = new TrafficRule
+            {
+                TargetApps = new List<string> { app },
+                TargetHosts = new List<string> { host },
+                IsEnabled = true,
+                Action = ModalAction,
+                GroupName = group,
+                ProxyId = (ModalAction == RuleAction.Proxy && ModalSelectedProxy != null) ? ModalSelectedProxy.Id : null,
+                AppIcon = _modalIcon,
+                IconBase64 = iconBase64
+            };
+
+            if (ModalTargetMode == RuleMode.BlackList)
+                _config.BlackListRules.Add(rule);
+            else
+                _config.WhiteListRules.Add(rule);
+
+            bool isCurrentModeView = (IsBlackListMode && ModalTargetMode == RuleMode.BlackList) ||
+                                     (!IsBlackListMode && ModalTargetMode == RuleMode.WhiteList);
+
+            if (isCurrentModeView)
+            {
+                SubscribeToItem(rule);
+                RulesList.Add(rule);
+            }
+
+            SaveSettings();
+            IsModalVisible = false;
         }
 
         private async Task CheckAllProxies()
@@ -304,7 +524,8 @@ namespace ProxyControl.ViewModels
                 nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps),
                 nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName),
                 nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port),
-                nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode)
+                nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode),
+                nameof(TrafficRule.IconBase64)
             };
             if (triggers.Contains(e.PropertyName))
                 SaveSettings();
@@ -332,6 +553,7 @@ namespace ProxyControl.ViewModels
             var data = new AppSettings
             {
                 IsAutoStart = IsAutoStart,
+                CheckUpdateOnStartup = CheckUpdateOnStartup,
                 Proxies = Proxies.ToList(),
                 Config = _config
             };
@@ -390,44 +612,37 @@ namespace ProxyControl.ViewModels
         {
             if (SelectedProxy != null)
             {
-                // Запрашиваем подтверждение у пользователя
                 var result = MessageBox.Show(
                     $"Are you sure you want to delete proxy {SelectedProxy.IpAddress}:{SelectedProxy.Port}?\nThis will also remove all associated rules.",
                     "Confirm Deletion",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
 
-                // Если пользователь нажал "Yes", выполняем удаление
                 if (result == MessageBoxResult.Yes)
                 {
                     string proxyIdToRemove = SelectedProxy.Id;
 
-                    // 1. Удаляем правила из BlackList, связанные с этим прокси
                     var blackListToRemove = _config.BlackListRules.Where(r => r.ProxyId == proxyIdToRemove).ToList();
                     foreach (var rule in blackListToRemove)
                     {
                         _config.BlackListRules.Remove(rule);
                     }
 
-                    // 2. Удаляем правила из WhiteList, связанные с этим прокси
                     var whiteListToRemove = _config.WhiteListRules.Where(r => r.ProxyId == proxyIdToRemove).ToList();
                     foreach (var rule in whiteListToRemove)
                     {
                         _config.WhiteListRules.Remove(rule);
                     }
 
-                    // 3. Если этот прокси был основным шлюзом (Default Gateway), сбрасываем это
                     if (_config.BlackListSelectedProxyId.ToString() == proxyIdToRemove)
                     {
                         _config.BlackListSelectedProxyId = null;
                         OnPropertyChanged(nameof(SelectedBlackListMainProxy));
                     }
 
-                    // 4. Удаляем сам прокси
                     Proxies.Remove(SelectedProxy);
                     SelectedProxy = null;
 
-                    // 5. Сохраняем и обновляем интерфейс
                     ReloadRulesForCurrentMode();
                     SaveSettings();
                 }
@@ -505,8 +720,8 @@ namespace ProxyControl.ViewModels
 
             foreach (var app in appsList)
             {
-                // Попытка найти иконку при добавлении
                 var icon = IconHelper.GetIconByProcessName(app);
+                string? iconBase64 = icon != null ? IconHelper.ImageSourceToBase64(icon) : null;
 
                 foreach (var host in hostsList)
                 {
@@ -526,7 +741,8 @@ namespace ProxyControl.ViewModels
                         Action = NewRuleAction,
                         GroupName = group,
                         ProxyId = proxyIdToUse,
-                        AppIcon = icon // Сохраняем найденную иконку
+                        AppIcon = icon,
+                        IconBase64 = iconBase64
                     };
 
                     if (IsBlackListMode)
@@ -558,32 +774,29 @@ namespace ProxyControl.ViewModels
         {
             _suppressSave = true;
             RulesList.Clear();
-            if (IsBlackListMode)
-            {
-                foreach (var r in _config.BlackListRules)
-                {
-                    // Подгружаем иконки при загрузке правил, если они не были сохранены (ImageSource не сериализуется напрямую, так что лучше искать снова)
-                    if (r.TargetApps.Any())
-                    {
-                        r.AppIcon = IconHelper.GetIconByProcessName(r.TargetApps.First());
-                    }
 
-                    SubscribeToItem(r);
-                    RulesList.Add(r);
-                }
-            }
-            else
+            var sourceRules = IsBlackListMode ? _config.BlackListRules : _config.WhiteListRules;
+
+            foreach (var r in sourceRules)
             {
-                foreach (var r in _config.WhiteListRules)
+                if (!string.IsNullOrEmpty(r.IconBase64))
                 {
-                    if (r.TargetApps.Any())
-                    {
-                        r.AppIcon = IconHelper.GetIconByProcessName(r.TargetApps.First());
-                    }
-                    SubscribeToItem(r);
-                    RulesList.Add(r);
+                    r.AppIcon = IconHelper.Base64ToImageSource(r.IconBase64);
                 }
+                else if (r.TargetApps.Any())
+                {
+                    var icon = IconHelper.GetIconByProcessName(r.TargetApps.First());
+                    if (icon != null)
+                    {
+                        r.AppIcon = icon;
+                        r.IconBase64 = IconHelper.ImageSourceToBase64(icon);
+                    }
+                }
+
+                SubscribeToItem(r);
+                RulesList.Add(r);
             }
+
             _suppressSave = false;
             RulesView.Refresh();
             OnPropertyChanged(nameof(IsBlackListMode));
@@ -614,6 +827,7 @@ namespace ProxyControl.ViewModels
 
                         _config = data.Config ?? new AppConfig();
                         IsAutoStart = data.IsAutoStart;
+                        CheckUpdateOnStartup = data.CheckUpdateOnStartup;
 
                         Proxies.Clear();
                         if (data.Proxies != null)
@@ -663,6 +877,7 @@ namespace ProxyControl.ViewModels
                     var data = new AppSettings
                     {
                         IsAutoStart = IsAutoStart,
+                        CheckUpdateOnStartup = CheckUpdateOnStartup,
                         Proxies = Proxies.ToList(),
                         Config = _config
                     };
@@ -684,6 +899,7 @@ namespace ProxyControl.ViewModels
                 var data = _settingsService.Load();
                 _config = data.Config ?? new AppConfig();
                 IsAutoStart = _settingsService.IsAutoStartEnabled();
+                CheckUpdateOnStartup = data.CheckUpdateOnStartup;
                 Proxies.Clear();
                 if (data.Proxies != null)
                 {

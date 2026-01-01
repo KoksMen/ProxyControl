@@ -9,6 +9,7 @@ namespace ProxyControl.Models
     public class AppSettings
     {
         public bool IsAutoStart { get; set; }
+        public bool CheckUpdateOnStartup { get; set; } = true; // New setting
         public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
         public AppConfig Config { get; set; } = new AppConfig();
     }

@@ -1,4 +1,4 @@
-﻿using ProxyControl.Helpers; // Подключаем хелпер
+﻿using ProxyControl.Helpers;
 using ProxyControl.Models;
 using System;
 using System.Collections.Concurrent;
@@ -77,6 +77,7 @@ namespace ProxyControl.Services
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
 
+            // Возвращаем старый надежный метод сброса всех соединений при обновлении конфига
             DisconnectAllClients();
         }
 
@@ -164,12 +165,22 @@ namespace ProxyControl.Services
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
                 int pid = SystemProxyHelper.GetPidByPort(clientPort);
 
+                if (pid == 0)
+                {
+                    await Task.Delay(10);
+                    pid = SystemProxyHelper.GetPidByPort(clientPort);
+                }
+
                 string processName = _processMonitor.GetProcessName(pid);
+
                 string processPath = "";
                 try
                 {
-                    var proc = Process.GetProcessById(pid);
-                    processPath = proc.MainModule?.FileName;
+                    if (pid > 0)
+                    {
+                        var proc = Process.GetProcessById(pid);
+                        processPath = proc.MainModule?.FileName;
+                    }
                 }
                 catch { }
 
@@ -359,8 +370,10 @@ namespace ProxyControl.Services
                         if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
                         if (rule.ProxyId != null)
                         {
+                            // FIX: Добавлена проверка p.IsEnabled
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
-                            if (p != null) return (RuleAction.Proxy, p);
+                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+                            return (RuleAction.Direct, null);
                         }
                         return (RuleAction.Direct, null);
                     }
@@ -383,8 +396,12 @@ namespace ProxyControl.Services
                         if (rule.ProxyId != null)
                         {
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
-                            if (p != null) return (RuleAction.Proxy, p);
+                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+
+                            var mainProxyFallback = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
+                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
                         }
+
                         var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                     }
@@ -400,7 +417,13 @@ namespace ProxyControl.Services
                 bool match = false;
                 for (int i = 0; i < rule.TargetApps.Count; i++)
                 {
-                    if (rule.TargetApps[i] == "*" || string.Equals(rule.TargetApps[i], app, StringComparison.OrdinalIgnoreCase))
+                    string target = rule.TargetApps[i];
+                    if (target == "*")
+                    {
+                        match = true;
+                        break;
+                    }
+                    if (app.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         match = true;
                         break;
@@ -418,8 +441,7 @@ namespace ProxyControl.Services
                 }
                 return false;
             }
-
-            return false;
+            return true;
         }
 
         public async Task<(bool IsSuccess, string CountryCode)> CheckProxy(ProxyItem proxy)

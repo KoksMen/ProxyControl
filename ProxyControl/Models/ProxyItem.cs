@@ -8,13 +8,13 @@ namespace ProxyControl.Models
     public class ProxyItem : INotifyPropertyChanged
     {
         private string _id = Guid.NewGuid().ToString();
-        private string _ipAddress;
-        private int _port;
-        private string _username;
-        private string _password;
-        private bool _isEnabled;
+        private string _ipAddress = "";
+        private int _port = 8080;
+        private string? _username;
+        private string? _password;
+        private bool _isEnabled = true;
         private string _status = "Idle";
-        private string _countryCode;
+        private string? _countryCode;
 
         public string Id
         {
@@ -34,13 +34,13 @@ namespace ProxyControl.Models
             set { _port = value; OnPropertyChanged(); }
         }
 
-        public string Username
+        public string? Username
         {
             get => _username;
             set { _username = value; OnPropertyChanged(); }
         }
 
-        public string Password
+        public string? Password
         {
             get => _password;
             set { _password = value; OnPropertyChanged(); }
@@ -59,7 +59,7 @@ namespace ProxyControl.Models
             set { _status = value; OnPropertyChanged(); }
         }
 
-        public string CountryCode
+        public string? CountryCode
         {
             get => _countryCode;
             set
@@ -71,14 +71,9 @@ namespace ProxyControl.Models
         }
 
         [JsonIgnore]
-        public string? FlagUrl
-        {
-            get
-            {
-                if (string.IsNullOrEmpty(CountryCode)) return null;
-                return $"https://flagcdn.com/w40/{CountryCode.ToLower()}.png";
-            }
-        }
+        public string? FlagUrl => !string.IsNullOrEmpty(CountryCode)
+            ? $"https://flagcdn.com/w40/{CountryCode.ToLower()}.png"
+            : null;
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
