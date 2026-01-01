@@ -37,6 +37,36 @@ namespace ProxyControl.ViewModels
         public string ToggleProxyMenuText => IsProxyRunning ? "Turn Proxy OFF" : "Turn Proxy ON";
         public string AppVersion => "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
+        // --- UPDATE Modal Fields ---
+        private bool _isUpdateModalVisible;
+        public bool IsUpdateModalVisible
+        {
+            get => _isUpdateModalVisible;
+            set { _isUpdateModalVisible = value; OnPropertyChanged(); }
+        }
+
+        private int _updateProgress;
+        public int UpdateProgress
+        {
+            get => _updateProgress;
+            set { _updateProgress = value; OnPropertyChanged(); }
+        }
+
+        private string _updateStatusText = "Initializing...";
+        public string UpdateStatusText
+        {
+            get => _updateStatusText;
+            set { _updateStatusText = value; OnPropertyChanged(); }
+        }
+
+        private string _updateDetailText = "";
+        public string UpdateDetailText
+        {
+            get => _updateDetailText;
+            set { _updateDetailText = value; OnPropertyChanged(); }
+        }
+        // ---------------------------
+
         // --- Create Rule (Settings Tab) ---
         private string _newRuleApps = "*";
         public string NewRuleApps { get => _newRuleApps; set { _newRuleApps = value; OnPropertyChanged(); } }
@@ -324,7 +354,9 @@ namespace ProxyControl.ViewModels
             ToggleProxyCommand = new RelayCommand(_ => ToggleService());
             ImportConfigCommand = new RelayCommand(_ => ImportConfig());
             ExportConfigCommand = new RelayCommand(_ => ExportConfig());
-            CheckUpdateCommand = new RelayCommand(async _ => await _updateService.CheckAndInstallUpdate(silent: false));
+
+            CheckUpdateCommand = new RelayCommand(async _ => await PerformUpdateCheck(silent: false));
+
             ClearLogsCommand = new RelayCommand(_ => Logs.Clear());
 
             OpenRuleModalCommand = new RelayCommand(obj => OpenRuleModal((ConnectionLog)obj));
@@ -344,9 +376,32 @@ namespace ProxyControl.ViewModels
 
                 if (CheckUpdateOnStartup)
                 {
-                    await _updateService.CheckAndInstallUpdate(silent: true);
+                    await Application.Current.Dispatcher.InvokeAsync(async () =>
+                    {
+                        await PerformUpdateCheck(silent: true);
+                    });
                 }
             });
+        }
+
+        private async Task PerformUpdateCheck(bool silent)
+        {
+            await _updateService.CheckAndInstallUpdate(
+                onProgress: (status, details, percent) =>
+                {
+                    IsUpdateModalVisible = true;
+                    UpdateStatusText = status;
+                    UpdateDetailText = details;
+                    UpdateProgress = percent;
+                },
+                onCompleted: () =>
+                {
+                    UpdateStatusText = "Update complete!";
+                    UpdateDetailText = "Restarting...";
+                    UpdateProgress = 100;
+                },
+                silent: silent
+            );
         }
 
         private void OpenProxyModal(ProxyItem? item)
