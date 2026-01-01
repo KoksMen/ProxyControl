@@ -23,13 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="..\..\..\..\Downloads\unnamed.png">
-      <Pack>True</Pack>
-      <PackagePath>\</PackagePath>
-    </Resource>
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Hardcodet.NotifyIcon.Wpf" Version="2.0.1" />
     <PackageReference Include="System.Management" Version="10.0.1" />
     <PackageReference Include="Titanium.Web.Proxy" Version="3.2.0" />

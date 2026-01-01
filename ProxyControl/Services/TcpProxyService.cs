@@ -68,7 +68,7 @@ namespace ProxyControl.Services
                 Username = p.Username,
                 Password = p.Password,
                 IsEnabled = p.IsEnabled,
-                CountryCode = p.CountryCode // Сохраняем код страны
+                CountryCode = p.CountryCode
             }).ToList();
 
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
@@ -164,18 +164,15 @@ namespace ProxyControl.Services
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
                 int pid = SystemProxyHelper.GetPidByPort(clientPort);
 
-                // Получаем имя и путь для иконки
                 string processName = _processMonitor.GetProcessName(pid);
                 string processPath = "";
                 try
                 {
-                    // Пробуем получить полный путь для точной иконки
                     var proc = Process.GetProcessById(pid);
                     processPath = proc.MainModule?.FileName;
                 }
                 catch { }
 
-                // Извлекаем иконку
                 ImageSource? icon = null;
                 if (!string.IsNullOrEmpty(processPath))
                     icon = IconHelper.GetIconByPath(processPath);
@@ -195,11 +192,9 @@ namespace ProxyControl.Services
 
                 var decision = ResolveAction(processName, targetHost);
 
-                // Logging Logic Update
                 string logResult = decision.Action == RuleAction.Block ? "BLOCKED" : (decision.Proxy != null ? $"Proxy: {decision.Proxy.IpAddress}" : "Direct");
                 string logColor = decision.Action == RuleAction.Block ? "#FF5555" : (decision.Proxy != null ? "#55FF55" : "#AAAAAA");
 
-                // Flag logic
                 string? flagUrl = null;
                 if (decision.Proxy != null && !string.IsNullOrEmpty(decision.Proxy.CountryCode))
                 {
@@ -226,7 +221,6 @@ namespace ProxyControl.Services
 
                 if (targetProxy != null)
                 {
-                    // ... (стандартная логика проксирования) ...
                     await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
                     var remoteStream = remoteServer.GetStream();
 
@@ -260,7 +254,6 @@ namespace ProxyControl.Services
                 }
                 else
                 {
-                    // ... (стандартная логика прямого соединения) ...
                     await remoteServer.ConnectAsync(targetHost, targetPort, ctx.Cts.Token);
                     var remoteStream = remoteServer.GetStream();
 
@@ -351,8 +344,8 @@ namespace ProxyControl.Services
 
         private (RuleAction Action, ProxyItem? Proxy) ResolveAction(string app, string host)
         {
-            // (Логика выбора правил без изменений, кроме использования _localProxies с countryCode)
-            if (_currentMode == RuleMode.BlackList)
+
+            if (_currentMode == RuleMode.BlackList) // Black List
             {
                 var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
 
@@ -376,7 +369,8 @@ namespace ProxyControl.Services
                 if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                 return (RuleAction.Direct, null);
             }
-            else // WhiteList
+
+            else // White List
             {
                 foreach (var rule in _localWhiteList)
                 {
