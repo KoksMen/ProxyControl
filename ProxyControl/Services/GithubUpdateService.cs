@@ -22,7 +22,7 @@ namespace ProxyControl.Services
             {
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.5.6"));
+                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.6.0"));
 
                     string url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
                     var response = await client.GetStringAsync(url);

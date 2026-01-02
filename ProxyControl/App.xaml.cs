@@ -1,8 +1,11 @@
 ﻿using ProxyControl.Services;
+using System;
 using System.Configuration;
 using System.Data;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 
 namespace ProxyControl
@@ -42,10 +45,27 @@ namespace ProxyControl
 
             base.OnStartup(e);
 
+            // --- Добавлено: Сброс DNS при запуске (исправление залипания) ---
+            if (SystemProxyHelper.IsAdministrator())
+            {
+                SystemProxyHelper.RestoreSystemDns();
+            }
+            // ----------------------------------------------------------------
+
             SystemProxyHelper.EnableSafetyNet();
 
-            this.DispatcherUnhandledException += (s, args) => SystemProxyHelper.RestoreSystemProxy();
-            System.AppDomain.CurrentDomain.UnhandledException += (s, args) => SystemProxyHelper.RestoreSystemProxy();
+            this.DispatcherUnhandledException += (s, args) =>
+            {
+                SystemProxyHelper.RestoreSystemProxy();
+                // Также пытаемся сбросить DNS при краше
+                if (SystemProxyHelper.IsAdministrator()) SystemProxyHelper.RestoreSystemDns();
+            };
+
+            System.AppDomain.CurrentDomain.UnhandledException += (s, args) =>
+            {
+                SystemProxyHelper.RestoreSystemProxy();
+                if (SystemProxyHelper.IsAdministrator()) SystemProxyHelper.RestoreSystemDns();
+            };
 
             var mainWindow = new MainWindow();
             bool isAutostart = e.Args.Contains("--autostart");
@@ -83,8 +103,12 @@ namespace ProxyControl
             }
             SystemProxyHelper.DisableSafetyNet();
             SystemProxyHelper.RestoreSystemProxy();
+
+            // --- Добавлено: Сброс DNS при выходе ---
+            SystemProxyHelper.RestoreSystemDns();
+            // ---------------------------------------
+
             base.OnExit(e);
         }
     }
-
 }

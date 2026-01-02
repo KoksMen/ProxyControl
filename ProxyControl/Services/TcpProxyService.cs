@@ -212,7 +212,6 @@ namespace ProxyControl.Services
 
                 if (decision.Action == RuleAction.Block)
                 {
-                    // Если блокировка полная (Both), пишем BLOCKED. Если частичная, уточним.
                     if (decision.BlockDir == BlockDirection.Both)
                     {
                         logResult = "BLOCKED";
@@ -249,21 +248,17 @@ namespace ProxyControl.Services
                     CountryFlagUrl = flagUrl
                 });
 
-                // Если полная блокировка - выходим сразу
+                // 1. Полная блокировка - разрываем соединение сразу
                 if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) return;
 
-                // Если частичная блокировка или прокси/директ - продолжаем соединение
-                // Важно: если BlockOutbound, мы можем прочитать запрос, но не отправить его на удаленный сервер?
-                // На самом деле для HTTP CONNECT (HTTPS) если мы блокируем Outbound, туннель не имеет смысла.
-                // Но для реализации требования "Блокировать входящий/исходящий", мы просто передаем флаги в BridgeStreams.
-
+                // 2. Иначе - продолжаем (частичная блокировка или пропуск)
                 ProxyItem? targetProxy = decision.Proxy;
 
                 var remoteServer = new TcpClient();
                 remoteServer.NoDelay = true;
                 ctx.Remote = remoteServer;
 
-                // Подключение к удаленному серверу (или прокси)
+                // Подключение к удаленному серверу
                 if (targetProxy != null)
                 {
                     await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
@@ -293,8 +288,7 @@ namespace ProxyControl.Services
                     }
                     else
                     {
-                        // Начальные данные от клиента (если это не CONNECT)
-                        // Если заблокирован Outbound, не шлем
+                        // Если заблокирован Outbound, не отправляем данные на сервер
                         if (decision.BlockDir != BlockDirection.Outbound)
                         {
                             await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
@@ -320,6 +314,7 @@ namespace ProxyControl.Services
                     }
                     else
                     {
+                        // Если заблокирован Outbound, не отправляем данные на сервер
                         if (decision.BlockDir != BlockDirection.Outbound)
                         {
                             await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
@@ -347,16 +342,32 @@ namespace ProxyControl.Services
         private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
         {
             // Upload: Client -> Remote (Блокируем если Outbound)
+            // Вместо Task.CompletedTask используем DiscardAsync, чтобы не закрывать соединение сразу
             var uploadTask = (blockDir == BlockDirection.Outbound)
-                ? Task.CompletedTask
+                ? DiscardAsync(clientStream, token)
                 : CopyAndTrackAsync(clientStream, remoteStream, processName, isDownload: false, historyItem, token);
 
             // Download: Remote -> Client (Блокируем если Inbound)
             var downloadTask = (blockDir == BlockDirection.Inbound)
-                ? Task.CompletedTask
+                ? DiscardAsync(remoteStream, token)
                 : CopyAndTrackAsync(remoteStream, clientStream, processName, isDownload: true, historyItem, token);
 
+            // Ждем пока любой из активных потоков завершится (обрыв связи или конец передачи)
             await Task.WhenAny(uploadTask, downloadTask);
+        }
+
+        private async Task DiscardAsync(NetworkStream source, CancellationToken token)
+        {
+            // Читаем из потока "в пустоту", чтобы поддерживать соединение живым, но не передавать данные
+            byte[] buffer = new byte[1024];
+            try
+            {
+                while (await source.ReadAsync(buffer, 0, buffer.Length, token) > 0)
+                {
+                    // Просто игнорируем данные
+                }
+            }
+            catch { }
         }
 
         private async Task CopyAndTrackAsync(NetworkStream source, NetworkStream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
@@ -455,7 +466,8 @@ namespace ProxyControl.Services
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
                             return (RuleAction.Direct, null, BlockDirection.Both);
                         }
-                        return (RuleAction.Direct, null, BlockDirection.Both);
+                        // Default Blacklist Rule: Proxy with Main
+                        return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                     }
                 }
 
@@ -542,15 +554,12 @@ namespace ProxyControl.Services
                 handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
             }
 
-            // 1. Check Connectivity & Ping
             try
             {
                 using (var client = new HttpClient(handler))
                 {
                     client.Timeout = TimeSpan.FromSeconds(10);
-
                     var sw = Stopwatch.StartNew();
-                    // Легкий запрос для проверки соединения и пинга
                     var response = await client.GetAsync("http://www.google.com/generate_204");
                     sw.Stop();
                     ping = sw.ElapsedMilliseconds;
@@ -564,10 +573,8 @@ namespace ProxyControl.Services
 
             if (!connectionSuccess) return (false, "", 0, 0);
 
-            // 2. Check Speed (Download small test file)
             try
             {
-                // Пересоздаем Handler/Client для чистоты эксперимента
                 var speedHandler = new HttpClientHandler
                 {
                     Proxy = new WebProxy(proxy.IpAddress, proxy.Port),
@@ -578,11 +585,6 @@ namespace ProxyControl.Services
                 using (var speedClient = new HttpClient(speedHandler))
                 {
                     speedClient.Timeout = TimeSpan.FromSeconds(15);
-                    // Скачиваем логотип Cloudflare (~6KB) или что-то побольше для теста.
-                    // Для реального теста скорости нужно хотя бы 500КБ-1МБ. 
-                    // Используем тестовый файл 1MB от speedtest (может быть медленно для плохих прокси)
-                    // Возьмем что-то среднее, например jQuery CDN (около 90KB) или картинку.
-                    // Для демонстрации возьмем файл ~200KB.
                     string testUrl = "https://code.jquery.com/jquery-3.6.0.min.js";
 
                     var sw = Stopwatch.StartNew();
@@ -597,15 +599,12 @@ namespace ProxyControl.Services
             }
             catch
             {
-                speedMbps = 0; // Speed test failed
+                speedMbps = 0;
             }
 
-            // 3. Get Geo Info
             string country = "";
             try
             {
-                // Geo IP запрос делаем напрямую или через прокси? Обычно лучше напрямую, но ip-api режет частые запросы.
-                // Если через прокси, узнаем где он.
                 var geoResponse = await _geoHttpClient.GetAsync($"http://ip-api.com/json/{proxy.IpAddress}");
                 if (geoResponse.IsSuccessStatusCode)
                 {
