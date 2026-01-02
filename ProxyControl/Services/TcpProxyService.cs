@@ -36,6 +36,7 @@ namespace ProxyControl.Services
         private string? _blackListProxyId;
         private RuleMode _currentMode;
         private readonly ProcessMonitorService _processMonitor;
+        private readonly TrafficMonitorService _trafficMonitor;
         private const int LocalPort = 8000;
         private const int BufferSize = 8192;
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
@@ -50,8 +51,9 @@ namespace ProxyControl.Services
             public CancellationTokenSource Cts { get; set; }
         }
 
-        public TcpProxyService()
+        public TcpProxyService(TrafficMonitorService trafficMonitor)
         {
+            _trafficMonitor = trafficMonitor;
             _processMonitor = new ProcessMonitorService();
             _geoHttpClient = new HttpClient();
             _geoHttpClient.DefaultRequestHeaders.Add("User-Agent", "ProxyControl/1.0");
@@ -77,7 +79,6 @@ namespace ProxyControl.Services
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
 
-            // Возвращаем старый надежный метод сброса всех соединений при обновлении конфига
             DisconnectAllClients();
         }
 
@@ -157,6 +158,9 @@ namespace ProxyControl.Services
             var ctx = new ClientContext { Client = client, Cts = new CancellationTokenSource() };
             _activeClients.TryAdd(connectionId, ctx);
 
+            // Объявляем historyItem здесь, чтобы он был доступен в finally
+            ConnectionHistoryItem? historyItem = null;
+
             try
             {
                 client.NoDelay = true;
@@ -212,6 +216,11 @@ namespace ProxyControl.Services
                     flagUrl = $"https://flagcdn.com/w40/{decision.Proxy.CountryCode.ToLower()}.png";
                 }
 
+                // --- MONITORING: Create History Item ---
+                string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "";
+                historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, decision.Action.ToString(), details, flagUrl, logColor);
+                // ---------------------------------------
+
                 OnConnectionLog?.Invoke(new ConnectionLog
                 {
                     ProcessName = processName,
@@ -260,8 +269,14 @@ namespace ProxyControl.Services
                     else
                     {
                         await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                        // Учитываем уже прочитанные байты как upload
+                        if (historyItem != null)
+                        {
+                            historyItem.BytesUp += bytesRead;
+                            _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                        }
                     }
-                    await BridgeStreams(clientStream, remoteStream, ctx.Cts.Token);
+                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, ctx.Cts.Token);
                 }
                 else
                 {
@@ -276,13 +291,24 @@ namespace ProxyControl.Services
                     else
                     {
                         await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                        if (historyItem != null)
+                        {
+                            historyItem.BytesUp += bytesRead;
+                            _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                        }
                     }
-                    await BridgeStreams(clientStream, remoteStream, ctx.Cts.Token);
+                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, ctx.Cts.Token);
                 }
             }
             catch { }
             finally
             {
+                // Завершаем соединение и сохраняем его в лог
+                if (historyItem != null)
+                {
+                    _trafficMonitor.CompleteConnection(historyItem);
+                }
+
                 _activeClients.TryRemove(connectionId, out _);
                 ForceClose(client);
                 ForceClose(ctx.Remote);
@@ -290,11 +316,34 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task BridgeStreams(NetworkStream a, NetworkStream b, CancellationToken token)
+        private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, CancellationToken token)
         {
-            var task1 = a.CopyToAsync(b, token);
-            var task2 = b.CopyToAsync(a, token);
-            await Task.WhenAny(task1, task2);
+            var uploadTask = CopyAndTrackAsync(clientStream, remoteStream, processName, isDownload: false, historyItem, token);
+            var downloadTask = CopyAndTrackAsync(remoteStream, clientStream, processName, isDownload: true, historyItem, token);
+            await Task.WhenAny(uploadTask, downloadTask);
+        }
+
+        private async Task CopyAndTrackAsync(NetworkStream source, NetworkStream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
+        {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            try
+            {
+                while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
+                {
+                    await destination.WriteAsync(buffer, 0, bytesRead, token);
+
+                    // Обновляем статистику
+                    _trafficMonitor.AddLiveTraffic(processName, bytesRead, isDownload);
+
+                    if (historyItem != null)
+                    {
+                        if (isDownload) historyItem.BytesDown += bytesRead;
+                        else historyItem.BytesUp += bytesRead;
+                    }
+                }
+            }
+            catch { }
         }
 
         private bool TryGetTargetHost(string header, out string host, out int port, out bool isConnect)
@@ -370,7 +419,6 @@ namespace ProxyControl.Services
                         if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
                         if (rule.ProxyId != null)
                         {
-                            // FIX: Добавлена проверка p.IsEnabled
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
                             return (RuleAction.Direct, null);
