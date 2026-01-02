@@ -21,6 +21,7 @@ namespace ProxyControl.ViewModels
     public class MainViewModel : INotifyPropertyChanged
     {
         private readonly TcpProxyService _proxyService;
+        private readonly DnsProxyService _dnsProxyService;
         private readonly SettingsService _settingsService;
         private readonly GithubUpdateService _updateService;
         private readonly TrafficMonitorService _trafficMonitorService;
@@ -317,6 +318,45 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        public bool IsDnsProtectionEnabled
+        {
+            get => _config.EnableDnsProtection;
+            set
+            {
+                if (value && !SystemProxyHelper.IsAdministrator())
+                {
+                    var result = MessageBox.Show(
+                        "DNS Leak Protection requires Administrator privileges to modify system DNS settings.\n\nRestart application as Administrator?",
+                        "Admin Rights Required",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Warning);
+
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        _config.EnableDnsProtection = true;
+                        SaveSettings();
+                        SystemProxyHelper.RestartAsAdmin();
+                        Application.Current.Shutdown();
+                        return;
+                    }
+                    else
+                    {
+                        OnPropertyChanged();
+                        return;
+                    }
+                }
+
+                _config.EnableDnsProtection = value;
+                OnPropertyChanged();
+
+                // При отключении галочки или изменении - обновляем сервис
+                // Если value = false, это вызовет Stop(), который теперь корректно сбрасывает DNS
+                UpdateDnsServiceState();
+
+                SaveSettings();
+            }
+        }
+
         public Array ActionTypes => Enum.GetValues(typeof(RuleAction));
         public Array ModeTypes => Enum.GetValues(typeof(RuleMode));
         public Array TrafficPeriodModes => Enum.GetValues(typeof(TrafficPeriodMode));
@@ -383,6 +423,8 @@ namespace ProxyControl.ViewModels
         {
             _trafficMonitorService = new TrafficMonitorService();
             _proxyService = new TcpProxyService(_trafficMonitorService);
+            _dnsProxyService = new DnsProxyService();
+
             _settingsService = new SettingsService();
             _updateService = new GithubUpdateService();
             _config = new AppConfig();
@@ -423,6 +465,8 @@ namespace ProxyControl.ViewModels
 
             ExitAppCommand = new RelayCommand(_ =>
             {
+                _dnsProxyService.Stop();
+                SystemProxyHelper.RestoreSystemDns();
                 MainWindow.AllowClose = true;
                 Application.Current.Shutdown();
             });
@@ -449,6 +493,7 @@ namespace ProxyControl.ViewModels
             _proxyService.Start();
             ApplyConfig();
             IsProxyRunning = true;
+            UpdateDnsServiceState();
             StartEnforcementLoop();
 
             Task.Run(async () =>
@@ -751,6 +796,7 @@ namespace ProxyControl.ViewModels
         private void ApplyConfig()
         {
             _proxyService.UpdateConfig(_config, Proxies.ToList());
+            _dnsProxyService.UpdateConfig(_config, Proxies.ToList());
         }
 
         private void AddProxy()
@@ -995,7 +1041,28 @@ namespace ProxyControl.ViewModels
         private void ToggleService()
         {
             IsProxyRunning = !IsProxyRunning;
-            if (IsProxyRunning) _proxyService.Start(); else _proxyService.Stop();
+            if (IsProxyRunning)
+            {
+                _proxyService.Start();
+                UpdateDnsServiceState();
+            }
+            else
+            {
+                _proxyService.Stop();
+                _dnsProxyService.Stop();
+            }
+        }
+
+        private void UpdateDnsServiceState()
+        {
+            if (IsProxyRunning && IsDnsProtectionEnabled)
+            {
+                _dnsProxyService.Start();
+            }
+            else
+            {
+                _dnsProxyService.Stop();
+            }
         }
 
         private void ImportConfig()
@@ -1101,6 +1168,7 @@ namespace ProxyControl.ViewModels
                 }
                 OnPropertyChanged(nameof(SelectedBlackListMainProxy));
                 ReloadRulesForCurrentMode();
+                OnPropertyChanged(nameof(IsDnsProtectionEnabled));
             }
             finally
             {

@@ -18,6 +18,8 @@ namespace ProxyControl.Models
         public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
         public Guid? BlackListSelectedProxyId { get; set; }
 
+        public bool EnableDnsProtection { get; set; } = false;
+
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
     }
