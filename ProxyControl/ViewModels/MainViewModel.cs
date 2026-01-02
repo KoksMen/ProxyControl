@@ -85,9 +85,6 @@ namespace ProxyControl.ViewModels
             get => _filterTimeEnd;
             set { _filterTimeEnd = value; OnPropertyChanged(); }
         }
-
-        public ICommand ApplyFilterCommand { get; }
-
         // --------------------------------------
 
         public ICollectionView RulesView { get; private set; }
@@ -147,6 +144,13 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        private BlockDirection _newRuleBlockDirection = BlockDirection.Both;
+        public BlockDirection NewRuleBlockDirection
+        {
+            get => _newRuleBlockDirection;
+            set { _newRuleBlockDirection = value; OnPropertyChanged(); }
+        }
+
         private ProxyItem? _newRuleSelectedProxy;
         public ProxyItem? NewRuleSelectedProxy
         {
@@ -184,6 +188,13 @@ namespace ProxyControl.ViewModels
             set { _modalAction = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsModalProxyRequired)); }
         }
         public bool IsModalProxyRequired => ModalAction == RuleAction.Proxy;
+
+        private BlockDirection _modalBlockDirection = BlockDirection.Both;
+        public BlockDirection ModalBlockDirection
+        {
+            get => _modalBlockDirection;
+            set { _modalBlockDirection = value; OnPropertyChanged(); }
+        }
 
         private ProxyItem? _modalSelectedProxy;
         public ProxyItem? ModalSelectedProxy
@@ -309,6 +320,7 @@ namespace ProxyControl.ViewModels
         public Array ActionTypes => Enum.GetValues(typeof(RuleAction));
         public Array ModeTypes => Enum.GetValues(typeof(RuleMode));
         public Array TrafficPeriodModes => Enum.GetValues(typeof(TrafficPeriodMode));
+        public Array BlockDirectionTypes => Enum.GetValues(typeof(BlockDirection));
 
         public ProxyItem? SelectedBlackListMainProxy
         {
@@ -362,6 +374,10 @@ namespace ProxyControl.ViewModels
         public ICommand SaveModalRuleCommand { get; }
         public ICommand CloseModalCommand { get; }
 
+        public ICommand ApplyFilterCommand { get; }
+        public ICommand TraySelectProxyCommand { get; }
+        public ICommand TraySetBlackListModeCommand { get; }
+        public ICommand TraySetWhiteListModeCommand { get; }
 
         public MainViewModel()
         {
@@ -419,11 +435,15 @@ namespace ProxyControl.ViewModels
 
             ClearLogsCommand = new RelayCommand(_ => Logs.Clear());
 
-            OpenRuleModalCommand = new RelayCommand(obj => OpenRuleModal((ConnectionLog)obj));
+            OpenRuleModalCommand = new RelayCommand(obj => OpenRuleModal(obj));
             CloseModalCommand = new RelayCommand(_ => IsModalVisible = false);
             SaveModalRuleCommand = new RelayCommand(_ => SaveRuleFromModal());
 
             ApplyFilterCommand = new RelayCommand(_ => ApplyFilter());
+
+            TraySelectProxyCommand = new RelayCommand(p => SelectedBlackListMainProxy = (ProxyItem)p);
+            TraySetBlackListModeCommand = new RelayCommand(_ => IsBlackListMode = true);
+            TraySetWhiteListModeCommand = new RelayCommand(_ => IsBlackListMode = false);
 
             LoadSettings();
             _proxyService.Start();
@@ -557,14 +577,24 @@ namespace ProxyControl.ViewModels
             SaveSettings();
         }
 
-        private void OpenRuleModal(ConnectionLog log)
+        private void OpenRuleModal(object obj)
         {
-            if (log == null) return;
-            ModalProcessName = log.ProcessName;
-            ModalHost = log.Host;
-            _modalIcon = log.AppIcon;
+            if (obj is ConnectionLog log)
+            {
+                ModalProcessName = log.ProcessName;
+                ModalHost = log.Host;
+                _modalIcon = log.AppIcon;
+            }
+            else if (obj is ConnectionHistoryItem historyItem)
+            {
+                ModalProcessName = historyItem.ProcessName;
+                ModalHost = historyItem.Host;
+                _modalIcon = IconHelper.GetIconByProcessName(historyItem.ProcessName);
+            }
+            else return;
 
             ModalAction = RuleAction.Proxy;
+            ModalBlockDirection = BlockDirection.Both;
             ModalSelectedProxy = Proxies.FirstOrDefault(p => p.IsEnabled) ?? Proxies.FirstOrDefault();
             ModalTargetMode = IsBlackListMode ? RuleMode.BlackList : RuleMode.WhiteList;
 
@@ -584,6 +614,7 @@ namespace ProxyControl.ViewModels
                 TargetHosts = new List<string> { host },
                 IsEnabled = true,
                 Action = ModalAction,
+                BlockDirection = ModalBlockDirection,
                 GroupName = group,
                 ProxyId = (ModalAction == RuleAction.Proxy && ModalSelectedProxy != null) ? ModalSelectedProxy.Id : null,
                 AppIcon = _modalIcon,
@@ -613,7 +644,7 @@ namespace ProxyControl.ViewModels
             var proxyList = Proxies.ToList();
             if (proxyList.Count == 0) return;
 
-            using (var semaphore = new SemaphoreSlim(5))
+            using (var semaphore = new SemaphoreSlim(3))
             {
                 var tasks = proxyList.Select(async p =>
                 {
@@ -678,6 +709,7 @@ namespace ProxyControl.ViewModels
             {
                 nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps),
                 nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName),
+                nameof(TrafficRule.BlockDirection),
                 nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port),
                 nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode),
                 nameof(TrafficRule.IconBase64)
@@ -813,6 +845,8 @@ namespace ProxyControl.ViewModels
             Application.Current.Dispatcher.Invoke(() =>
             {
                 p.Status = result.IsSuccess ? "Online" : "Offline";
+                p.PingMs = result.Ping;
+                p.SpeedMbps = result.Speed;
                 if (!string.IsNullOrEmpty(result.CountryCode))
                 {
                     p.CountryCode = result.CountryCode;
@@ -894,6 +928,7 @@ namespace ProxyControl.ViewModels
                         TargetHosts = new List<string> { host },
                         IsEnabled = true,
                         Action = NewRuleAction,
+                        BlockDirection = NewRuleBlockDirection,
                         GroupName = group,
                         ProxyId = proxyIdToUse,
                         AppIcon = icon,

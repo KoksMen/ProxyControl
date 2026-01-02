@@ -1,19 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
-using System.Windows.Media; // Для ImageSource
+using System.Windows.Media;
 
 namespace ProxyControl.Models
 {
-    public enum RuleMode
-    {
-        BlackList,
-        WhiteList
-    }
-
     public enum RuleAction
     {
         Proxy,
@@ -21,16 +13,31 @@ namespace ProxyControl.Models
         Block
     }
 
+    public enum RuleMode
+    {
+        BlackList,
+        WhiteList
+    }
+
+    public enum BlockDirection
+    {
+        Both,
+        Inbound,
+        Outbound
+    }
+
     public class TrafficRule : INotifyPropertyChanged
     {
         private bool _isEnabled;
-        private string? _proxyId;
         private string _groupName = "General";
-        private RuleAction _action = RuleAction.Proxy;
-        private List<string> _targetApps = new List<string>();
-        private List<string> _targetHosts = new List<string>();
+        private RuleAction _action;
+        private string? _proxyId;
+        private BlockDirection _blockDirection = BlockDirection.Both;
         private ImageSource? _appIcon;
-        private string? _iconBase64; // Поле для сохранения иконки
+        private string? _iconBase64;
+
+        public List<string> TargetApps { get; set; } = new List<string>();
+        public List<string> TargetHosts { get; set; } = new List<string>();
 
         public bool IsEnabled
         {
@@ -50,67 +57,52 @@ namespace ProxyControl.Models
             set { _action = value; OnPropertyChanged(); }
         }
 
+        public BlockDirection BlockDirection
+        {
+            get => _blockDirection;
+            set { _blockDirection = value; OnPropertyChanged(); }
+        }
+
         public string? ProxyId
         {
             get => _proxyId;
             set { _proxyId = value; OnPropertyChanged(); }
         }
 
-        public List<string> TargetApps
-        {
-            get => _targetApps;
-            set
-            {
-                _targetApps = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(AppKey));
-            }
-        }
-
-        public List<string> TargetHosts
-        {
-            get => _targetHosts;
-            set { _targetHosts = value; OnPropertyChanged(); }
-        }
-
-        [JsonIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
         public ImageSource? AppIcon
         {
             get => _appIcon;
             set { _appIcon = value; OnPropertyChanged(); }
         }
 
-        // Это свойство будет сохраняться в JSON
         public string? IconBase64
         {
             get => _iconBase64;
             set { _iconBase64 = value; OnPropertyChanged(); }
         }
 
-        [JsonIgnore]
-        public string AppKey => TargetApps != null && TargetApps.Any() ? TargetApps.First() : "*";
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string AppKey => TargetApps.Count > 0 ? TargetApps[0] : "Global";
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
-    public class ConnectionLog
+    // Класс для логов подключений (используется во вкладке Connection Logs)
+    public class ConnectionLog : INotifyPropertyChanged
     {
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
-        public ImageSource? AppIcon { get; set; }
         public string Host { get; set; } = "";
-        public string Result { get; set; } = "";
-        public string Color { get; set; } = "White";
+        public string Result { get; set; } = ""; // Blocked, Proxy IP, etc.
+        public string Color { get; set; } = "#White";
+        public ImageSource? AppIcon { get; set; }
         public string? CountryFlagUrl { get; set; }
-    }
 
-    public class AppConfig
-    {
-        public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
-        public Guid? BlackListSelectedProxyId { get; set; }
-        public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
-        public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }

@@ -158,7 +158,6 @@ namespace ProxyControl.Services
             var ctx = new ClientContext { Client = client, Cts = new CancellationTokenSource() };
             _activeClients.TryAdd(connectionId, ctx);
 
-            // Объявляем historyItem здесь, чтобы он был доступен в finally
             ConnectionHistoryItem? historyItem = null;
 
             try
@@ -207,8 +206,29 @@ namespace ProxyControl.Services
 
                 var decision = ResolveAction(processName, targetHost);
 
-                string logResult = decision.Action == RuleAction.Block ? "BLOCKED" : (decision.Proxy != null ? $"Proxy: {decision.Proxy.IpAddress}" : "Direct");
-                string logColor = decision.Action == RuleAction.Block ? "#FF5555" : (decision.Proxy != null ? "#55FF55" : "#AAAAAA");
+                // Determine display status
+                string logResult = "Direct";
+                string logColor = "#AAAAAA";
+
+                if (decision.Action == RuleAction.Block)
+                {
+                    // Если блокировка полная (Both), пишем BLOCKED. Если частичная, уточним.
+                    if (decision.BlockDir == BlockDirection.Both)
+                    {
+                        logResult = "BLOCKED";
+                        logColor = "#FF5555";
+                    }
+                    else
+                    {
+                        logResult = $"Block {decision.BlockDir}";
+                        logColor = "#FFAA55";
+                    }
+                }
+                else if (decision.Proxy != null)
+                {
+                    logResult = $"Proxy: {decision.Proxy.IpAddress}";
+                    logColor = "#55FF55";
+                }
 
                 string? flagUrl = null;
                 if (decision.Proxy != null && !string.IsNullOrEmpty(decision.Proxy.CountryCode))
@@ -216,10 +236,8 @@ namespace ProxyControl.Services
                     flagUrl = $"https://flagcdn.com/w40/{decision.Proxy.CountryCode.ToLower()}.png";
                 }
 
-                // --- MONITORING: Create History Item ---
                 string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "";
-                historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, decision.Action.ToString(), details, flagUrl, logColor);
-                // ---------------------------------------
+                historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(), details, flagUrl, logColor);
 
                 OnConnectionLog?.Invoke(new ConnectionLog
                 {
@@ -231,7 +249,13 @@ namespace ProxyControl.Services
                     CountryFlagUrl = flagUrl
                 });
 
-                if (decision.Action == RuleAction.Block) return;
+                // Если полная блокировка - выходим сразу
+                if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) return;
+
+                // Если частичная блокировка или прокси/директ - продолжаем соединение
+                // Важно: если BlockOutbound, мы можем прочитать запрос, но не отправить его на удаленный сервер?
+                // На самом деле для HTTP CONNECT (HTTPS) если мы блокируем Outbound, туннель не имеет смысла.
+                // Но для реализации требования "Блокировать входящий/исходящий", мы просто передаем флаги в BridgeStreams.
 
                 ProxyItem? targetProxy = decision.Proxy;
 
@@ -239,6 +263,7 @@ namespace ProxyControl.Services
                 remoteServer.NoDelay = true;
                 ctx.Remote = remoteServer;
 
+                // Подключение к удаленному серверу (или прокси)
                 if (targetProxy != null)
                 {
                     await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
@@ -268,18 +293,23 @@ namespace ProxyControl.Services
                     }
                     else
                     {
-                        await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
-                        // Учитываем уже прочитанные байты как upload
-                        if (historyItem != null)
+                        // Начальные данные от клиента (если это не CONNECT)
+                        // Если заблокирован Outbound, не шлем
+                        if (decision.BlockDir != BlockDirection.Outbound)
                         {
-                            historyItem.BytesUp += bytesRead;
-                            _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                            await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                            if (historyItem != null)
+                            {
+                                historyItem.BytesUp += bytesRead;
+                                _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                            }
                         }
                     }
-                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, ctx.Cts.Token);
+                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
                 }
                 else
                 {
+                    // Direct connection
                     await remoteServer.ConnectAsync(targetHost, targetPort, ctx.Cts.Token);
                     var remoteStream = remoteServer.GetStream();
 
@@ -290,25 +320,23 @@ namespace ProxyControl.Services
                     }
                     else
                     {
-                        await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
-                        if (historyItem != null)
+                        if (decision.BlockDir != BlockDirection.Outbound)
                         {
-                            historyItem.BytesUp += bytesRead;
-                            _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                            await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                            if (historyItem != null)
+                            {
+                                historyItem.BytesUp += bytesRead;
+                                _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                            }
                         }
                     }
-                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, ctx.Cts.Token);
+                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
                 }
             }
             catch { }
             finally
             {
-                // Завершаем соединение и сохраняем его в лог
-                if (historyItem != null)
-                {
-                    _trafficMonitor.CompleteConnection(historyItem);
-                }
-
+                if (historyItem != null) _trafficMonitor.CompleteConnection(historyItem);
                 _activeClients.TryRemove(connectionId, out _);
                 ForceClose(client);
                 ForceClose(ctx.Remote);
@@ -316,10 +344,18 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, CancellationToken token)
+        private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
         {
-            var uploadTask = CopyAndTrackAsync(clientStream, remoteStream, processName, isDownload: false, historyItem, token);
-            var downloadTask = CopyAndTrackAsync(remoteStream, clientStream, processName, isDownload: true, historyItem, token);
+            // Upload: Client -> Remote (Блокируем если Outbound)
+            var uploadTask = (blockDir == BlockDirection.Outbound)
+                ? Task.CompletedTask
+                : CopyAndTrackAsync(clientStream, remoteStream, processName, isDownload: false, historyItem, token);
+
+            // Download: Remote -> Client (Блокируем если Inbound)
+            var downloadTask = (blockDir == BlockDirection.Inbound)
+                ? Task.CompletedTask
+                : CopyAndTrackAsync(remoteStream, clientStream, processName, isDownload: true, historyItem, token);
+
             await Task.WhenAny(uploadTask, downloadTask);
         }
 
@@ -332,10 +368,7 @@ namespace ProxyControl.Services
                 while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
                 {
                     await destination.WriteAsync(buffer, 0, bytesRead, token);
-
-                    // Обновляем статистику
                     _trafficMonitor.AddLiveTraffic(processName, bytesRead, isDownload);
-
                     if (historyItem != null)
                     {
                         if (isDownload) historyItem.BytesDown += bytesRead;
@@ -402,9 +435,8 @@ namespace ProxyControl.Services
             }
         }
 
-        private (RuleAction Action, ProxyItem? Proxy) ResolveAction(string app, string host)
+        private (RuleAction Action, ProxyItem? Proxy, BlockDirection BlockDir) ResolveAction(string app, string host)
         {
-
             if (_currentMode == RuleMode.BlackList) // Black List
             {
                 var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
@@ -415,22 +447,21 @@ namespace ProxyControl.Services
 
                     if (IsRuleMatch(rule, app, host))
                     {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
-                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
+                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null, rule.BlockDirection);
+                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
                         if (rule.ProxyId != null)
                         {
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
-                            return (RuleAction.Direct, null);
+                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
+                            return (RuleAction.Direct, null, BlockDirection.Both);
                         }
-                        return (RuleAction.Direct, null);
+                        return (RuleAction.Direct, null, BlockDirection.Both);
                     }
                 }
 
-                if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
-                return (RuleAction.Direct, null);
+                if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
+                return (RuleAction.Direct, null, BlockDirection.Both);
             }
-
             else // White List
             {
                 foreach (var rule in _localWhiteList)
@@ -439,22 +470,22 @@ namespace ProxyControl.Services
 
                     if (IsRuleMatch(rule, app, host))
                     {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
-                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
+                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null, rule.BlockDirection);
+                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
                         if (rule.ProxyId != null)
                         {
                             var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
 
                             var mainProxyFallback = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
-                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
+                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback, BlockDirection.Both);
                         }
 
                         var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
-                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
+                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                     }
                 }
-                return (RuleAction.Direct, null);
+                return (RuleAction.Direct, null, BlockDirection.Both);
             }
         }
 
@@ -492,30 +523,37 @@ namespace ProxyControl.Services
             return true;
         }
 
-        public async Task<(bool IsSuccess, string CountryCode)> CheckProxy(ProxyItem proxy)
+        public async Task<(bool IsSuccess, string CountryCode, long Ping, double Speed)> CheckProxy(ProxyItem proxy)
         {
-            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "");
+            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "", 0, 0);
 
             bool connectionSuccess = false;
-            string country = "";
+            long ping = 0;
+            double speedMbps = 0;
 
+            var handler = new HttpClientHandler
+            {
+                Proxy = new WebProxy(proxy.IpAddress, proxy.Port),
+                UseProxy = true
+            };
+
+            if (!string.IsNullOrEmpty(proxy.Username))
+            {
+                handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
+            }
+
+            // 1. Check Connectivity & Ping
             try
             {
-                var handler = new HttpClientHandler
-                {
-                    Proxy = new WebProxy(proxy.IpAddress, proxy.Port),
-                    UseProxy = true
-                };
-
-                if (!string.IsNullOrEmpty(proxy.Username))
-                {
-                    handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
-                }
-
                 using (var client = new HttpClient(handler))
                 {
-                    client.Timeout = TimeSpan.FromSeconds(5);
+                    client.Timeout = TimeSpan.FromSeconds(10);
+
+                    var sw = Stopwatch.StartNew();
+                    // Легкий запрос для проверки соединения и пинга
                     var response = await client.GetAsync("http://www.google.com/generate_204");
+                    sw.Stop();
+                    ping = sw.ElapsedMilliseconds;
                     connectionSuccess = response.IsSuccessStatusCode;
                 }
             }
@@ -524,12 +562,54 @@ namespace ProxyControl.Services
                 connectionSuccess = false;
             }
 
+            if (!connectionSuccess) return (false, "", 0, 0);
+
+            // 2. Check Speed (Download small test file)
             try
             {
-                var response = await _geoHttpClient.GetAsync($"http://ip-api.com/json/{proxy.IpAddress}");
-                if (response.IsSuccessStatusCode)
+                // Пересоздаем Handler/Client для чистоты эксперимента
+                var speedHandler = new HttpClientHandler
                 {
-                    var json = await response.Content.ReadAsStringAsync();
+                    Proxy = new WebProxy(proxy.IpAddress, proxy.Port),
+                    UseProxy = true
+                };
+                if (!string.IsNullOrEmpty(proxy.Username)) speedHandler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
+
+                using (var speedClient = new HttpClient(speedHandler))
+                {
+                    speedClient.Timeout = TimeSpan.FromSeconds(15);
+                    // Скачиваем логотип Cloudflare (~6KB) или что-то побольше для теста.
+                    // Для реального теста скорости нужно хотя бы 500КБ-1МБ. 
+                    // Используем тестовый файл 1MB от speedtest (может быть медленно для плохих прокси)
+                    // Возьмем что-то среднее, например jQuery CDN (около 90KB) или картинку.
+                    // Для демонстрации возьмем файл ~200KB.
+                    string testUrl = "https://code.jquery.com/jquery-3.6.0.min.js";
+
+                    var sw = Stopwatch.StartNew();
+                    var data = await speedClient.GetByteArrayAsync(testUrl);
+                    sw.Stop();
+
+                    double seconds = sw.Elapsed.TotalSeconds;
+                    double bits = data.Length * 8;
+                    double mbps = (bits / 1000000) / seconds;
+                    speedMbps = Math.Round(mbps, 2);
+                }
+            }
+            catch
+            {
+                speedMbps = 0; // Speed test failed
+            }
+
+            // 3. Get Geo Info
+            string country = "";
+            try
+            {
+                // Geo IP запрос делаем напрямую или через прокси? Обычно лучше напрямую, но ip-api режет частые запросы.
+                // Если через прокси, узнаем где он.
+                var geoResponse = await _geoHttpClient.GetAsync($"http://ip-api.com/json/{proxy.IpAddress}");
+                if (geoResponse.IsSuccessStatusCode)
+                {
+                    var json = await geoResponse.Content.ReadAsStringAsync();
                     var result = JsonSerializer.Deserialize<GeoIpResult>(json);
                     if (result != null && result.Status == "success")
                     {
@@ -539,7 +619,7 @@ namespace ProxyControl.Services
             }
             catch { }
 
-            return (connectionSuccess, country);
+            return (connectionSuccess, country, ping, speedMbps);
         }
     }
 }
