@@ -1,26 +1,24 @@
 ﻿using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Text.Json.Serialization;
 
 namespace ProxyControl.Models
 {
     public class ProxyItem : INotifyPropertyChanged
     {
-        private string _id = Guid.NewGuid().ToString();
         private string _ipAddress = "";
-        private int _port = 8080;
+        private int _port;
         private string? _username;
         private string? _password;
-        private bool _isEnabled = true;
-        private string _status = "Idle";
-        private string? _countryCode;
+        private bool _isEnabled;
+        private string _status = "Unknown"; // Online, Offline, Checking...
+        private string _countryCode = "";
 
-        public string Id
-        {
-            get => _id;
-            set { _id = value; OnPropertyChanged(); }
-        }
+        // Новые поля статистики
+        private long _pingMs = 0;
+        private double _speedMbps = 0;
+
+        public string Id { get; set; } = Guid.NewGuid().ToString();
 
         public string IpAddress
         {
@@ -52,28 +50,36 @@ namespace ProxyControl.Models
             set { _isEnabled = value; OnPropertyChanged(); }
         }
 
-        [JsonIgnore]
         public string Status
         {
             get => _status;
             set { _status = value; OnPropertyChanged(); }
         }
 
-        public string? CountryCode
+        public string CountryCode
         {
             get => _countryCode;
-            set
-            {
-                _countryCode = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(FlagUrl));
-            }
+            set { _countryCode = value; OnPropertyChanged(); OnPropertyChanged(nameof(FlagUrl)); }
         }
 
-        [JsonIgnore]
-        public string? FlagUrl => !string.IsNullOrEmpty(CountryCode)
+        public long PingMs
+        {
+            get => _pingMs;
+            set { _pingMs = value; OnPropertyChanged(); OnPropertyChanged(nameof(PingFormatted)); }
+        }
+
+        public double SpeedMbps
+        {
+            get => _speedMbps;
+            set { _speedMbps = value; OnPropertyChanged(); OnPropertyChanged(nameof(SpeedFormatted)); }
+        }
+
+        public string FlagUrl => !string.IsNullOrEmpty(CountryCode)
             ? $"https://flagcdn.com/w40/{CountryCode.ToLower()}.png"
-            : null;
+            : "";
+
+        public string PingFormatted => PingMs > 0 ? $"{PingMs} ms" : "-";
+        public string SpeedFormatted => SpeedMbps > 0 ? $"{SpeedMbps:0.##} Mb/s" : "-";
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)

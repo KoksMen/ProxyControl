@@ -8,7 +8,7 @@
         xmlns:tb="http://www.hardcodet.net/taskbar"
         xmlns:models="clr-namespace:ProxyControl.Models"
         mc:Ignorable="d"
-        Title="Proxy Control" Height="800" Width="1200"
+        Title="Proxy Control" Height="900" Width="1450"
         Background="#1E1E1E" Foreground="White"
         WindowStartupLocation="CenterScreen">
 
@@ -23,6 +23,8 @@
         <local:StatusColorConverter x:Key="StatusColor"/>
         <local:ListToStringConverter x:Key="ListToStr"/>
         <local:NullToBooleanConverter x:Key="NullToBool"/>
+        <local:ActionToBlockVisConverter x:Key="ActionToBlockVisConverter"/>
+        <local:EqualityConverter x:Key="EqualityConverter"/>
 
         <Style TargetType="MenuItem">
             <Setter Property="Foreground" Value="Black"/>
@@ -132,7 +134,7 @@
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="340"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -144,6 +146,37 @@
                     <ContextMenu>
                         <MenuItem Header="Open" Command="{Binding ShowWindowCommand}" />
                         <MenuItem Header="{Binding ToggleProxyMenuText}" Command="{Binding ToggleProxyCommand}" />
+                        <Separator />
+
+                        <MenuItem Header="Routing Mode">
+                            <MenuItem Header="BlackList Mode" IsCheckable="True" IsChecked="{Binding IsBlackListMode}" Command="{Binding TraySetBlackListModeCommand}"/>
+                            <MenuItem Header="WhiteList Mode" IsCheckable="True" IsChecked="{Binding IsBlackListMode, Converter={StaticResource InvBool}}" Command="{Binding TraySetWhiteListModeCommand}"/>
+                        </MenuItem>
+
+                        <MenuItem Header="Select Main Proxy" 
+                                  ItemsSource="{Binding Proxies}"
+                                  Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
+                            <MenuItem.ItemContainerStyle>
+                                <Style TargetType="MenuItem">
+                                    <Setter Property="Header" Value="{Binding IpAddress}"/>
+                                    <Setter Property="Command" Value="{Binding DataContext.TraySelectProxyCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"/>
+                                    <Setter Property="CommandParameter" Value="{Binding}"/>
+                                    <Setter Property="IsCheckable" Value="True"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Value="True">
+                                            <DataTrigger.Binding>
+                                                <MultiBinding Converter="{StaticResource EqualityConverter}">
+                                                    <Binding Path="DataContext.SelectedBlackListMainProxy.Id" RelativeSource="{RelativeSource AncestorType=ContextMenu}"/>
+                                                    <Binding Path="Id"/>
+                                                </MultiBinding>
+                                            </DataTrigger.Binding>
+                                            <Setter Property="IsChecked" Value="True"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </MenuItem.ItemContainerStyle>
+                        </MenuItem>
+
                         <Separator />
                         <MenuItem Header="Exit" Command="{Binding ExitAppCommand}" />
                     </ContextMenu>
@@ -176,10 +209,14 @@
 
                                     <StackPanel Grid.Column="2">
                                         <TextBlock Text="{Binding IpAddress, TargetNullValue='(No IP)'}" FontWeight="Bold"/>
-                                        <TextBlock Text="{Binding Port, StringFormat=Port: {0}}" FontSize="10" Foreground="#AAA"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Port, StringFormat=Port: {0}}" FontSize="10" Foreground="#AAA" Margin="0,0,5,0"/>
+                                            <TextBlock Text="{Binding PingFormatted}" FontSize="10" Foreground="#55AAFF" Margin="0,0,5,0"/>
+                                            <TextBlock Text="{Binding SpeedFormatted}" FontSize="10" Foreground="#55FF55"/>
+                                        </StackPanel>
                                     </StackPanel>
 
-                                    <Border Grid.Column="3" Background="#333" CornerRadius="3" Padding="4,1" Margin="5,0">
+                                    <Border Grid.Column="3" Background="#333" CornerRadius="3" Padding="4,1" Margin="5,0" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Status}" FontSize="9" Foreground="{Binding Status, Converter={StaticResource StatusColor}}"/>
                                     </Border>
 
@@ -202,6 +239,7 @@
                             <Button Grid.Column="1" Content="Paste" Command="{Binding PasteProxyCommand}"/>
                         </Grid>
                         <Button Content="Remove Selected" Command="{Binding RemoveProxyCommand}" Background="#A03333" Margin="2,5,2,2"/>
+                        <Button Content="Check All Connections" Command="{Binding CheckProxyCommand}" Background="#444" Margin="2,2,2,2"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -346,6 +384,15 @@
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
+                                        <DataGridTemplateColumn Header="Direction" Width="100" MinWidth="90">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <ComboBox ItemsSource="{Binding DataContext.BlockDirectionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                              SelectedItem="{Binding BlockDirection, UpdateSourceTrigger=PropertyChanged}"
+                                                              Visibility="{Binding Action, Converter={StaticResource ActionToBlockVisConverter}}"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
                                         <DataGridTemplateColumn Header="Proxy Route" Width="150" MinWidth="140">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
@@ -375,10 +422,11 @@
 
                                 <Grid Grid.Row="3" Margin="0,10,0,0">
                                     <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="70"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="80"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="90"/>
+                                        <ColumnDefinition Width="80"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
@@ -398,13 +446,17 @@
                                         <TextBlock Text="Action" FontSize="9" Foreground="#777"/>
                                         <ComboBox ItemsSource="{Binding ActionTypes}" SelectedItem="{Binding NewRuleAction}"/>
                                     </StackPanel>
+                                    <StackPanel Grid.Column="4" Margin="2" Visibility="{Binding NewRuleAction, Converter={StaticResource ActionToBlockVisConverter}}">
+                                        <TextBlock Text="Block Dir" FontSize="9" Foreground="#777"/>
+                                        <ComboBox ItemsSource="{Binding BlockDirectionTypes}" SelectedItem="{Binding NewRuleBlockDirection}"/>
+                                    </StackPanel>
 
-                                    <StackPanel Grid.Column="4" Margin="2" Width="120" Visibility="{Binding IsNewRuleProxyRequired, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel Grid.Column="5" Margin="2" Width="120" Visibility="{Binding IsNewRuleProxyRequired, Converter={StaticResource BoolToVis}}">
                                         <TextBlock Text="Select Proxy" FontSize="9" Foreground="#777"/>
                                         <ComboBox ItemsSource="{Binding Proxies}" SelectedItem="{Binding NewRuleSelectedProxy}" DisplayMemberPath="IpAddress"/>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Bottom">
                                         <Button Content="Add" Command="{Binding AddRuleCommand}" Style="{StaticResource AccentBtn}" Width="50"/>
                                         <Button Content="Del" Command="{Binding RemoveRuleCommand}" Background="#A03333" Width="40" Margin="5,0,0,0"/>
                                     </StackPanel>
@@ -496,7 +548,7 @@
                                 <DataGrid.Columns>
                                     <DataGridTextColumn Header="Time" Binding="{Binding TimeStr}" Width="60" Foreground="#888"/>
                                     <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
-                                    <DataGridTextColumn Header="Traffic" Binding="{Binding TrafficFormatted}" Width="100" Foreground="#AAA" FontSize="10"/>
+                                    <DataGridTextColumn Header="Traffic" Binding="{Binding TrafficFormatted}" Width="90" Foreground="#AAA" FontSize="10"/>
                                     <DataGridTemplateColumn Header="Route" Width="80">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
@@ -505,6 +557,17 @@
                                            Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
                                                     <TextBlock Text="{Binding Status}" Foreground="{Binding Color}" FontSize="10" VerticalAlignment="Center"/>
                                                 </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTemplateColumn Header="Action" Width="60">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="➕ Rule" 
+                                                        Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource ActionButtonStyle}"
+                                                        Padding="2"/>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
@@ -610,6 +673,11 @@
                                 <ComboBox ItemsSource="{Binding ActionTypes}" SelectedItem="{Binding ModalAction}" Padding="5"/>
                             </StackPanel>
                         </Grid>
+
+                        <StackPanel Margin="0,0,0,15" Visibility="{Binding ModalAction, Converter={StaticResource ActionToBlockVisConverter}}">
+                            <TextBlock Text="Block Direction" Foreground="#AAA" Margin="0,0,0,5"/>
+                            <ComboBox ItemsSource="{Binding BlockDirectionTypes}" SelectedItem="{Binding ModalBlockDirection}" Padding="5"/>
+                        </StackPanel>
 
                         <StackPanel Visibility="{Binding IsModalProxyRequired, Converter={StaticResource BoolToVis}}">
                             <TextBlock Text="Select Proxy" Foreground="#AAA" Margin="0,0,0,5"/>
