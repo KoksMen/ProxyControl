@@ -23,6 +23,7 @@ namespace ProxyControl.ViewModels
         private readonly TcpProxyService _proxyService;
         private readonly SettingsService _settingsService;
         private readonly GithubUpdateService _updateService;
+        private readonly TrafficMonitorService _trafficMonitorService;
 
         private AppConfig _config;
         private CancellationTokenSource _enforceCts;
@@ -31,6 +32,63 @@ namespace ProxyControl.ViewModels
         public ObservableCollection<ProxyItem> Proxies { get; set; } = new ObservableCollection<ProxyItem>();
         public ObservableCollection<TrafficRule> RulesList { get; set; } = new ObservableCollection<TrafficRule>();
         public ObservableCollection<ConnectionLog> Logs { get; set; } = new ObservableCollection<ConnectionLog>();
+
+        // --- Monitor & Filtering Properties ---
+        public ObservableCollection<ProcessTrafficData> MonitoredProcesses => _trafficMonitorService.DisplayedProcessList;
+
+        private ProcessTrafficData? _selectedMonitorProcess;
+        public ProcessTrafficData? SelectedMonitorProcess
+        {
+            get => _selectedMonitorProcess;
+            set { _selectedMonitorProcess = value; OnPropertyChanged(); }
+        }
+
+        private TrafficPeriodMode _selectedPeriodMode = TrafficPeriodMode.LiveSession;
+        public TrafficPeriodMode SelectedPeriodMode
+        {
+            get => _selectedPeriodMode;
+            set
+            {
+                _selectedPeriodMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsDateRangeVisible));
+                ApplyFilter();
+            }
+        }
+
+        public bool IsDateRangeVisible => SelectedPeriodMode == TrafficPeriodMode.CustomRange;
+
+        private DateTime _filterDateStart = DateTime.Now;
+        public DateTime FilterDateStart
+        {
+            get => _filterDateStart;
+            set { _filterDateStart = value; OnPropertyChanged(); }
+        }
+
+        private DateTime _filterDateEnd = DateTime.Now;
+        public DateTime FilterDateEnd
+        {
+            get => _filterDateEnd;
+            set { _filterDateEnd = value; OnPropertyChanged(); }
+        }
+
+        private string _filterTimeStart = "00:00";
+        public string FilterTimeStart
+        {
+            get => _filterTimeStart;
+            set { _filterTimeStart = value; OnPropertyChanged(); }
+        }
+
+        private string _filterTimeEnd = "23:59";
+        public string FilterTimeEnd
+        {
+            get => _filterTimeEnd;
+            set { _filterTimeEnd = value; OnPropertyChanged(); }
+        }
+
+        public ICommand ApplyFilterCommand { get; }
+
+        // --------------------------------------
 
         public ICollectionView RulesView { get; private set; }
 
@@ -250,6 +308,7 @@ namespace ProxyControl.ViewModels
 
         public Array ActionTypes => Enum.GetValues(typeof(RuleAction));
         public Array ModeTypes => Enum.GetValues(typeof(RuleMode));
+        public Array TrafficPeriodModes => Enum.GetValues(typeof(TrafficPeriodMode));
 
         public ProxyItem? SelectedBlackListMainProxy
         {
@@ -306,7 +365,8 @@ namespace ProxyControl.ViewModels
 
         public MainViewModel()
         {
-            _proxyService = new TcpProxyService();
+            _trafficMonitorService = new TrafficMonitorService();
+            _proxyService = new TcpProxyService(_trafficMonitorService);
             _settingsService = new SettingsService();
             _updateService = new GithubUpdateService();
             _config = new AppConfig();
@@ -363,6 +423,8 @@ namespace ProxyControl.ViewModels
             CloseModalCommand = new RelayCommand(_ => IsModalVisible = false);
             SaveModalRuleCommand = new RelayCommand(_ => SaveRuleFromModal());
 
+            ApplyFilterCommand = new RelayCommand(_ => ApplyFilter());
+
             LoadSettings();
             _proxyService.Start();
             ApplyConfig();
@@ -382,6 +444,44 @@ namespace ProxyControl.ViewModels
                     });
                 }
             });
+        }
+
+        private async void ApplyFilter()
+        {
+            SelectedMonitorProcess = null;
+
+            if (SelectedPeriodMode == TrafficPeriodMode.LiveSession)
+            {
+                _trafficMonitorService.SwitchToLiveMode();
+            }
+            else
+            {
+                DateTime start = DateTime.Now;
+                DateTime end = DateTime.Now;
+                TimeSpan? timeStart = null;
+                TimeSpan? timeEnd = null;
+
+                if (SelectedPeriodMode == TrafficPeriodMode.Today)
+                {
+                    start = DateTime.Today;
+                    end = DateTime.Today;
+                }
+                else if (SelectedPeriodMode == TrafficPeriodMode.Yesterday)
+                {
+                    start = DateTime.Today.AddDays(-1);
+                    end = DateTime.Today.AddDays(-1);
+                }
+                else if (SelectedPeriodMode == TrafficPeriodMode.CustomRange)
+                {
+                    start = FilterDateStart.Date;
+                    end = FilterDateEnd.Date;
+
+                    if (TimeSpan.TryParse(FilterTimeStart, out var ts)) timeStart = ts;
+                    if (TimeSpan.TryParse(FilterTimeEnd, out var te)) timeEnd = te;
+                }
+
+                await _trafficMonitorService.LoadHistoryAsync(start, end, timeStart, timeEnd);
+            }
         }
 
         private async Task PerformUpdateCheck(bool silent)

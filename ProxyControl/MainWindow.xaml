@@ -414,6 +414,110 @@
                     </Grid>
                 </TabItem>
 
+                <TabItem Header="MONITOR">
+                    <Grid Margin="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="3*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="2*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Background="#252526" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                        <TextBlock Text="Period: " VerticalAlignment="Center" Foreground="#AAA" Margin="0,0,5,0"/>
+                                        <ComboBox ItemsSource="{Binding TrafficPeriodModes}" SelectedItem="{Binding SelectedPeriodMode}" Width="120" Margin="0,0,10,0"/>
+                                        <Button Content="Apply" Command="{Binding ApplyFilterCommand}" Width="60" Style="{StaticResource AccentBtn}"/>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsDateRangeVisible, Converter={StaticResource BoolToVis}}">
+                                        <DatePicker SelectedDate="{Binding FilterDateStart}" Width="100" Margin="0,0,5,0"/>
+                                        <TextBox Text="{Binding FilterTimeStart}" Width="40" Margin="0,0,5,0" ToolTip="Start Time (HH:mm)"/>
+                                        <TextBlock Text="-" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                        <DatePicker SelectedDate="{Binding FilterDateEnd}" Width="100" Margin="0,0,5,0"/>
+                                        <TextBox Text="{Binding FilterTimeEnd}" Width="40" ToolTip="End Time (HH:mm)"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Grid.Row="1" Text="Traffic Overview" FontWeight="Bold" Foreground="#999" Margin="0,0,0,10"/>
+
+                            <DataGrid Grid.Row="2" ItemsSource="{Binding MonitoredProcesses}" 
+                                      SelectedItem="{Binding SelectedMonitorProcess}"
+                                      AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" 
+                                      Foreground="White" BorderThickness="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#333">
+                                <DataGrid.Columns>
+                                    <DataGridTemplateColumn Header="App" Width="40">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Image Source="{Binding Icon}" Width="16" Height="16"/>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="Process Name" Binding="{Binding ProcessName}" Width="*" FontWeight="Bold"/>
+                                    <DataGridTextColumn Header="DL Speed" Binding="{Binding DownloadSpeedFormatted}" Width="80" Foreground="#55FF55"/>
+                                    <DataGridTextColumn Header="UL Speed" Binding="{Binding UploadSpeedFormatted}" Width="80" Foreground="#55AAFF"/>
+                                    <DataGridTextColumn Header="Total DL" Binding="{Binding TotalDownloadFormatted}" Width="80"/>
+                                    <DataGridTextColumn Header="Total UL" Binding="{Binding TotalUploadFormatted}" Width="80"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+
+                        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" Background="#333" Margin="5,0"/>
+
+                        <Grid Grid.Column="2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10" 
+                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                <TextBlock Text="Details for: " FontWeight="Bold" Foreground="#999"/>
+                                <TextBlock Text="{Binding SelectedMonitorProcess.ProcessName}" FontWeight="Bold" Foreground="White" Margin="5,0,0,0"/>
+                            </StackPanel>
+
+                            <DataGrid Grid.Row="1" ItemsSource="{Binding SelectedMonitorProcess.Connections}" 
+                                      AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" 
+                                      Foreground="White" BorderThickness="0" GridLinesVisibility="None"
+                                      Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                <DataGrid.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGrid.Resources>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Time" Binding="{Binding TimeStr}" Width="60" Foreground="#888"/>
+                                    <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
+                                    <DataGridTextColumn Header="Traffic" Binding="{Binding TrafficFormatted}" Width="100" Foreground="#AAA" FontSize="10"/>
+                                    <DataGridTemplateColumn Header="Route" Width="80">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Image Source="{Binding FlagUrl}" Width="16" Height="12" Margin="0,0,5,0" 
+                                           Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                    <TextBlock Text="{Binding Status}" Foreground="{Binding Color}" FontSize="10" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+
+                            <TextBlock Grid.Row="1" Text="Select a process to view connections" 
+                       VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#555"
+                       Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}"/>
+                        </Grid>
+                    </Grid>
+                </TabItem>
+
                 <TabItem Header="CONNECTION LOGS">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -441,7 +545,7 @@
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
                                                 <Image Source="{Binding CountryFlagUrl}" Width="20" Height="15" Margin="0,0,5,0" RenderOptions.BitmapScalingMode="HighQuality"
-                                                       Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                                Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
                                                 <TextBlock Text="{Binding Result}" Foreground="{Binding Color}" FontWeight="Bold" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </DataTemplate>
