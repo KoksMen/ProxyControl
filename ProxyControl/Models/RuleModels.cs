@@ -36,8 +36,9 @@ namespace ProxyControl.Models
         private ImageSource? _appIcon;
         private string? _iconBase64;
 
-        public List<string> TargetApps { get; set; } = new List<string>();
-        public List<string> TargetHosts { get; set; } = new List<string>();
+        // Backing fields for lists
+        private List<string> _targetApps = new List<string>();
+        private List<string> _targetHosts = new List<string>();
 
         public bool IsEnabled
         {
@@ -82,8 +83,40 @@ namespace ProxyControl.Models
             set { _iconBase64 = value; OnPropertyChanged(); }
         }
 
+        public List<string> TargetApps
+        {
+            get => _targetApps;
+            set
+            {
+                _targetApps = value ?? new List<string>();
+                OnPropertyChanged();
+                // AppKey зависит от TargetApps, уведомляем об изменении для обновления группировки
+                OnPropertyChanged(nameof(AppKey));
+            }
+        }
+
+        public List<string> TargetHosts
+        {
+            get => _targetHosts;
+            set
+            {
+                _targetHosts = value ?? new List<string>();
+                OnPropertyChanged();
+            }
+        }
+
         [System.Text.Json.Serialization.JsonIgnore]
-        public string AppKey => TargetApps.Count > 0 ? TargetApps[0] : "Global";
+        public string AppKey
+        {
+            get
+            {
+                if (TargetApps != null && TargetApps.Count > 0)
+                {
+                    return TargetApps[0];
+                }
+                return "Global";
+            }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
