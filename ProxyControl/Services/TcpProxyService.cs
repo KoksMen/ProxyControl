@@ -171,8 +171,7 @@ namespace ProxyControl.Services
 
                     totalBytesRead += bytesRead;
 
-                    // Ищем конец заголовков \r\n\r\n (13, 10, 13, 10)
-                    // Оптимизация: искать только в новой порции данных + небольшой перехлест
+                    // Ищем конец заголовков \r\n\r\n
                     int searchStart = Math.Max(0, totalBytesRead - bytesRead - 3);
                     headerEndIndex = FindHeaderEnd(buffer, searchStart, totalBytesRead);
 
@@ -190,16 +189,10 @@ namespace ProxyControl.Services
 
             if (headerEndIndex != -1 || totalBytesRead > 0)
             {
-                // Возвращаем то, что прочитали. Если заголовка полного нет, вернем сколько есть для попытки парсинга (fail-safe)
                 string headerStr = Encoding.ASCII.GetString(buffer, 0, totalBytesRead);
-
-                // Копируем данные в точный массив, чтобы вернуть арендованный,
-                // или оставляем арендованный, но тогда caller должен вернуть.
-                // Для простоты здесь: копируем в новый массив нужного размера, возвращаем арендованный.
                 byte[] exactBuffer = new byte[totalBytesRead];
                 Buffer.BlockCopy(buffer, 0, exactBuffer, 0, totalBytesRead);
                 ArrayPool<byte>.Shared.Return(buffer);
-
                 return (exactBuffer, totalBytesRead, headerStr);
             }
 
@@ -213,7 +206,7 @@ namespace ProxyControl.Services
             {
                 if (buffer[i] == 13 && buffer[i + 1] == 10 && buffer[i + 2] == 13 && buffer[i + 3] == 10)
                 {
-                    return i + 4; // Возвращаем позицию сразу после заголовков
+                    return i + 4;
                 }
             }
             return -1;
@@ -233,13 +226,20 @@ namespace ProxyControl.Services
                 NetworkStream clientStream = client.GetStream();
 
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
-                int pid = SystemProxyHelper.GetPidByPort(clientPort);
 
-                if (pid == 0)
+                // --- ИСПРАВЛЕНИЕ 1 и 3: Цикл повторных попыток определения PID ---
+                // Операционная система может не успеть обновить таблицу TCP мгновенно.
+                // Пробуем 5 раз с паузой 20мс (итого до 100мс задержки, что незаметно, но надежно).
+                int pid = 0;
+                for (int i = 0; i < 5; i++)
                 {
-                    await Task.Delay(10);
-                    pid = SystemProxyHelper.GetPidByPort(clientPort);
+                    // Первый раз (i=0) пробуем из кэша, далее - forceRefresh
+                    pid = SystemProxyHelper.GetPidByPort(clientPort, forceRefresh: i > 0);
+                    if (pid > 0) break;
+
+                    if (i < 4) await Task.Delay(20);
                 }
+                // ------------------------------------------------------------------
 
                 string processName = _processMonitor.GetProcessName(pid);
 
@@ -260,7 +260,6 @@ namespace ProxyControl.Services
                 else
                     icon = IconHelper.GetIconByProcessName(processName);
 
-                // --- Improved Header Reading ---
                 var headerData = await ReadHeaderAsync(clientStream, ctx.Cts.Token);
                 byte[] buffer = headerData.Buffer;
                 int bytesRead = headerData.Length;
@@ -317,17 +316,14 @@ namespace ProxyControl.Services
                     CountryFlagUrl = flagUrl
                 });
 
-                // 1. Полная блокировка - разрываем соединение сразу
+                // 1. Полная блокировка (Исправление 2: Теперь правило сработает, т.к. processName определен)
                 if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) return;
 
-                // 2. Иначе - продолжаем (частичная блокировка или пропуск)
                 ProxyItem? targetProxy = decision.Proxy;
-
                 var remoteServer = new TcpClient();
                 remoteServer.NoDelay = true;
                 ctx.Remote = remoteServer;
 
-                // Подключение к удаленному серверу
                 if (targetProxy != null)
                 {
                     await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
@@ -344,7 +340,6 @@ namespace ProxyControl.Services
                     byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
                     await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
 
-                    // Читаем ответ от прокси (также лучше бы использовать буферизированное чтение, но для простоты оставим массив)
                     byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
                     try
                     {
@@ -365,7 +360,6 @@ namespace ProxyControl.Services
                     }
                     else
                     {
-                        // Если заблокирован Outbound, не отправляем данные на сервер
                         if (decision.BlockDir != BlockDirection.Outbound)
                         {
                             await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
@@ -391,7 +385,6 @@ namespace ProxyControl.Services
                     }
                     else
                     {
-                        // Если заблокирован Outbound, не отправляем данные на сервер
                         if (decision.BlockDir != BlockDirection.Outbound)
                         {
                             await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
@@ -418,42 +411,30 @@ namespace ProxyControl.Services
 
         private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
         {
-            // Upload: Client -> Remote (Блокируем если Outbound)
             var uploadTask = (blockDir == BlockDirection.Outbound)
                 ? DiscardAsync(clientStream, token)
                 : CopyAndTrackAsync(clientStream, remoteStream, processName, isDownload: false, historyItem, token);
 
-            // Download: Remote -> Client (Блокируем если Inbound)
             var downloadTask = (blockDir == BlockDirection.Inbound)
                 ? DiscardAsync(remoteStream, token)
                 : CopyAndTrackAsync(remoteStream, clientStream, processName, isDownload: true, historyItem, token);
 
-            // Ждем пока любой из активных потоков завершится (обрыв связи или конец передачи)
             await Task.WhenAny(uploadTask, downloadTask);
         }
 
         private async Task DiscardAsync(NetworkStream source, CancellationToken token)
         {
-            // Читаем из потока "в пустоту", чтобы поддерживать соединение живым, но не передавать данные
-            // Используем ArrayPool для минимизации аллокаций даже тут
             byte[] buffer = ArrayPool<byte>.Shared.Rent(1024);
             try
             {
-                while (await source.ReadAsync(buffer, 0, buffer.Length, token) > 0)
-                {
-                    // Просто игнорируем данные
-                }
+                while (await source.ReadAsync(buffer, 0, buffer.Length, token) > 0) { }
             }
             catch { }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
+            finally { ArrayPool<byte>.Shared.Return(buffer); }
         }
 
         private async Task CopyAndTrackAsync(NetworkStream source, NetworkStream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
         {
-            // Оптимизация: использование ArrayPool
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
             {
@@ -461,9 +442,6 @@ namespace ProxyControl.Services
                 while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
                 {
                     await destination.WriteAsync(buffer, 0, bytesRead, token);
-
-                    // Обновление статистики (лучше делать не на каждый пакет, если частота высокая, 
-                    // но для монитора трафика оставим как есть для точности)
                     _trafficMonitor.AddLiveTraffic(processName, bytesRead, isDownload);
                     if (historyItem != null)
                     {
@@ -473,10 +451,7 @@ namespace ProxyControl.Services
                 }
             }
             catch { }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
+            finally { ArrayPool<byte>.Shared.Return(buffer); }
         }
 
         private bool TryGetTargetHost(string header, out string host, out int port, out bool isConnect)
@@ -537,10 +512,11 @@ namespace ProxyControl.Services
 
         private (RuleAction Action, ProxyItem? Proxy, BlockDirection BlockDir) ResolveAction(string app, string host)
         {
+            // Строгое сравнение для поиска Main Proxy
+            var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+
             if (_currentMode == RuleMode.BlackList) // Black List
             {
-                var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
-
                 foreach (var rule in _localBlackList)
                 {
                     if (!rule.IsEnabled) continue;
@@ -551,11 +527,10 @@ namespace ProxyControl.Services
                         if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
                         if (rule.ProxyId != null)
                         {
-                            var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
+                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
                             return (RuleAction.Direct, null, BlockDirection.Both);
                         }
-                        // Default Blacklist Rule: Proxy with Main
                         return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                     }
                 }
@@ -573,16 +548,23 @@ namespace ProxyControl.Services
                     {
                         if (rule.Action == RuleAction.Block) return (RuleAction.Block, null, rule.BlockDirection);
                         if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
+
                         if (rule.ProxyId != null)
                         {
-                            var p = _localProxies.FirstOrDefault(x => x.Id == rule.ProxyId);
+                            // ИСПРАВЛЕНИЕ 1: Использование OrdinalIgnoreCase для ID и корректный фоллбек
+                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
+
+                            // Если выбран конкретный прокси и он активен - используем его
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
 
-                            var mainProxyFallback = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
-                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback, BlockDirection.Both);
+                            // Если прокси не найден или выключен, но правило сработало - 
+                            // логичнее использовать Main Proxy, чем Direct (чтобы не допустить утечки),
+                            // либо Direct, если такова логика. 
+                            // В оригинале был fallback на MainProxy. Восстанавливаем и усиливаем логику:
+                            if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                         }
 
-                        var mainProxy = _localProxies.FirstOrDefault(p => p.Id.ToString() == _blackListProxyId && p.IsEnabled);
+                        // Если ID прокси не задан, но правило сработало - используем Main Proxy
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                     }
                 }

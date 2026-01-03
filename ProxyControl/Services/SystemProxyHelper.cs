@@ -23,40 +23,87 @@ namespace ProxyControl.Services
         private const string RunOnceKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
         private const string AppName = "ProxyManagerSafetyNet";
 
-        // Список интерфейсов для сброса DNS
         private static readonly string[] NetworkInterfaces = { "Wi-Fi", "Ethernet", "Ethernet 2", "Беспроводная сеть", "Подключение по локальной сети" };
 
-        public static int GetPidByPort(int port)
+        // --- Caching Variables ---
+        private static readonly object _cacheLock = new object();
+        private static Dictionary<int, int> _pidCache = new Dictionary<int, int>();
+        private static DateTime _lastCacheUpdate = DateTime.MinValue;
+        private const int CacheDurationMs = 250;
+        // -------------------------
+
+        public static int GetPidByPort(int port, bool forceRefresh = false)
         {
-            int bufferSize = 0;
-            GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
-
-            IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
-            try
+            if (!forceRefresh)
             {
-                if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0) == 0)
+                lock (_cacheLock)
                 {
-                    int rowCount = Marshal.ReadInt32(tcpTablePtr);
-                    IntPtr rowPtr = tcpTablePtr + 4;
-
-                    for (int i = 0; i < rowCount; i++)
+                    if ((DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
                     {
-                        int localPort = Marshal.ReadInt32(rowPtr + 8);
-                        localPort = ((localPort & 0xFF00) >> 8) | ((localPort & 0xFF) << 8);
-
-                        if (localPort == port)
+                        // Если PID == 0, считаем что "нет данных", и не возвращаем его из кэша,
+                        // чтобы дать шанс реальному обновлению (forceRefresh) найти процесс.
+                        if (_pidCache.TryGetValue(port, out int cachedPid) && cachedPid > 0)
                         {
-                            return Marshal.ReadInt32(rowPtr + 20);
+                            return cachedPid;
                         }
-                        rowPtr += 24;
                     }
                 }
             }
-            finally
+
+            return RefreshAndGetPid(port);
+        }
+
+        private static int RefreshAndGetPid(int port)
+        {
+            lock (_cacheLock)
             {
-                Marshal.FreeHGlobal(tcpTablePtr);
+                if ((DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
+                {
+                    // Double-check: если другой поток обновил кэш, и нашел валидный PID
+                    if (_pidCache.TryGetValue(port, out int existingPid) && existingPid > 0) return existingPid;
+                }
+
+                int bufferSize = 0;
+                // ipVersion: 2 = AF_INET (IPv4)
+                GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
+
+                IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
+                var newCache = new Dictionary<int, int>();
+
+                try
+                {
+                    if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0) == 0)
+                    {
+                        int rowCount = Marshal.ReadInt32(tcpTablePtr);
+                        IntPtr rowPtr = tcpTablePtr + 4;
+
+                        for (int i = 0; i < rowCount; i++)
+                        {
+                            // dwLocalPort at offset 8
+                            int localPort = Marshal.ReadInt32(rowPtr + 8);
+                            // Network byte order swap for port (16 bit relevant part)
+                            localPort = ((localPort & 0xFF00) >> 8) | ((localPort & 0xFF) << 8);
+
+                            // PID at offset 20
+                            int pid = Marshal.ReadInt32(rowPtr + 20);
+
+                            // Кэшируем даже 0, но GetPidByPort будет игнорировать 0 при чтении
+                            newCache[localPort] = pid;
+
+                            rowPtr += 24;
+                        }
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(tcpTablePtr);
+                }
+
+                _pidCache = newCache;
+                _lastCacheUpdate = DateTime.UtcNow;
+
+                return _pidCache.TryGetValue(port, out int resultPid) ? resultPid : 0;
             }
-            return 0;
         }
 
         public static void SetSystemProxy(bool enable, string host, int port)
@@ -114,12 +161,9 @@ namespace ProxyControl.Services
         {
             try
             {
-                // Формируем команду, которая сбросит прокси И сбросит DNS для основных интерфейсов
-                // Это сработает при следующей загрузке Windows, если приложение упало и не удалило этот ключ.
                 StringBuilder cmdBuilder = new StringBuilder();
                 cmdBuilder.Append("cmd /C \"reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\" /v ProxyEnable /t REG_DWORD /d 0 /f");
 
-                // Добавляем команды сброса DNS для каждого интерфейса
                 foreach (var iface in NetworkInterfaces)
                 {
                     cmdBuilder.Append($" & netsh interface ip set dns name=\\\"{iface}\\\" source=dhcp");
@@ -158,7 +202,6 @@ namespace ProxyControl.Services
 
             if (useLocalProxy)
             {
-                // Установка статического DNS (127.0.0.1)
                 string dnsServer = "127.0.0.1";
                 string source = "static";
                 foreach (var iface in NetworkInterfaces)
@@ -172,12 +215,10 @@ namespace ProxyControl.Services
             }
             else
             {
-                // Сброс на DHCP
                 RestoreSystemDns();
             }
         }
 
-        // Метод для явного сброса DNS
         public static void RestoreSystemDns()
         {
             if (!IsAdministrator()) return;
@@ -186,7 +227,6 @@ namespace ProxyControl.Services
             {
                 try
                 {
-                    // Команда source=dhcp НЕ должна содержать addr=...
                     RunNetsh($"interface ip set dns name=\"{iface}\" source=dhcp");
                 }
                 catch { }
