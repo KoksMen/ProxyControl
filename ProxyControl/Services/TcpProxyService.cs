@@ -1,6 +1,7 @@
 ﻿using ProxyControl.Helpers;
 using ProxyControl.Models;
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -39,6 +40,9 @@ namespace ProxyControl.Services
         private readonly TrafficMonitorService _trafficMonitor;
         private const int LocalPort = 8000;
         private const int BufferSize = 8192;
+        // Лимит размера заголовка для защиты и парсинга (16 KB)
+        private const int MaxHeaderSize = 16 * 1024;
+
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
         private readonly HttpClient _geoHttpClient;
 
@@ -152,6 +156,69 @@ namespace ProxyControl.Services
             }
         }
 
+        private async Task<(byte[] Buffer, int Length, string HeaderStr)> ReadHeaderAsync(NetworkStream stream, CancellationToken token)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(MaxHeaderSize);
+            int totalBytesRead = 0;
+            int headerEndIndex = -1;
+
+            try
+            {
+                while (totalBytesRead < MaxHeaderSize)
+                {
+                    int bytesRead = await stream.ReadAsync(buffer, totalBytesRead, buffer.Length - totalBytesRead, token);
+                    if (bytesRead == 0) break; // Connection closed
+
+                    totalBytesRead += bytesRead;
+
+                    // Ищем конец заголовков \r\n\r\n (13, 10, 13, 10)
+                    // Оптимизация: искать только в новой порции данных + небольшой перехлест
+                    int searchStart = Math.Max(0, totalBytesRead - bytesRead - 3);
+                    headerEndIndex = FindHeaderEnd(buffer, searchStart, totalBytesRead);
+
+                    if (headerEndIndex != -1)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+                throw;
+            }
+
+            if (headerEndIndex != -1 || totalBytesRead > 0)
+            {
+                // Возвращаем то, что прочитали. Если заголовка полного нет, вернем сколько есть для попытки парсинга (fail-safe)
+                string headerStr = Encoding.ASCII.GetString(buffer, 0, totalBytesRead);
+
+                // Копируем данные в точный массив, чтобы вернуть арендованный,
+                // или оставляем арендованный, но тогда caller должен вернуть.
+                // Для простоты здесь: копируем в новый массив нужного размера, возвращаем арендованный.
+                byte[] exactBuffer = new byte[totalBytesRead];
+                Buffer.BlockCopy(buffer, 0, exactBuffer, 0, totalBytesRead);
+                ArrayPool<byte>.Shared.Return(buffer);
+
+                return (exactBuffer, totalBytesRead, headerStr);
+            }
+
+            ArrayPool<byte>.Shared.Return(buffer);
+            return (Array.Empty<byte>(), 0, "");
+        }
+
+        private int FindHeaderEnd(byte[] buffer, int start, int end)
+        {
+            for (int i = start; i <= end - 4; i++)
+            {
+                if (buffer[i] == 13 && buffer[i + 1] == 10 && buffer[i + 2] == 13 && buffer[i + 3] == 10)
+                {
+                    return i + 4; // Возвращаем позицию сразу после заголовков
+                }
+            }
+            return -1;
+        }
+
         private async Task HandleClientAsync(TcpClient client)
         {
             Guid connectionId = Guid.NewGuid();
@@ -193,12 +260,14 @@ namespace ProxyControl.Services
                 else
                     icon = IconHelper.GetIconByProcessName(processName);
 
+                // --- Improved Header Reading ---
+                var headerData = await ReadHeaderAsync(clientStream, ctx.Cts.Token);
+                byte[] buffer = headerData.Buffer;
+                int bytesRead = headerData.Length;
+                string headerStr = headerData.HeaderStr;
 
-                byte[] buffer = new byte[BufferSize];
-                int bytesRead = await clientStream.ReadAsync(buffer, 0, buffer.Length, ctx.Cts.Token);
                 if (bytesRead == 0) return;
 
-                string headerStr = Encoding.ASCII.GetString(buffer, 0, bytesRead);
                 if (!TryGetTargetHost(headerStr, out string targetHost, out int targetPort, out bool isConnectMethod))
                 {
                     return;
@@ -275,11 +344,19 @@ namespace ProxyControl.Services
                     byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
                     await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
 
-                    byte[] proxyRespBuffer = new byte[4096];
-                    int respLen = await remoteStream.ReadAsync(proxyRespBuffer, 0, proxyRespBuffer.Length, ctx.Cts.Token);
-                    string proxyResp = Encoding.ASCII.GetString(proxyRespBuffer, 0, respLen);
+                    // Читаем ответ от прокси (также лучше бы использовать буферизированное чтение, но для простоты оставим массив)
+                    byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
+                    try
+                    {
+                        int respLen = await remoteStream.ReadAsync(proxyRespBuffer, 0, proxyRespBuffer.Length, ctx.Cts.Token);
+                        string proxyResp = Encoding.ASCII.GetString(proxyRespBuffer, 0, respLen);
 
-                    if (!proxyResp.Contains("200")) return;
+                        if (!proxyResp.Contains("200")) return;
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(proxyRespBuffer);
+                    }
 
                     if (isConnectMethod)
                     {
@@ -342,7 +419,6 @@ namespace ProxyControl.Services
         private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
         {
             // Upload: Client -> Remote (Блокируем если Outbound)
-            // Вместо Task.CompletedTask используем DiscardAsync, чтобы не закрывать соединение сразу
             var uploadTask = (blockDir == BlockDirection.Outbound)
                 ? DiscardAsync(clientStream, token)
                 : CopyAndTrackAsync(clientStream, remoteStream, processName, isDownload: false, historyItem, token);
@@ -359,7 +435,8 @@ namespace ProxyControl.Services
         private async Task DiscardAsync(NetworkStream source, CancellationToken token)
         {
             // Читаем из потока "в пустоту", чтобы поддерживать соединение живым, но не передавать данные
-            byte[] buffer = new byte[1024];
+            // Используем ArrayPool для минимизации аллокаций даже тут
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(1024);
             try
             {
                 while (await source.ReadAsync(buffer, 0, buffer.Length, token) > 0)
@@ -368,17 +445,25 @@ namespace ProxyControl.Services
                 }
             }
             catch { }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         private async Task CopyAndTrackAsync(NetworkStream source, NetworkStream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
         {
-            byte[] buffer = new byte[8192];
-            int bytesRead;
+            // Оптимизация: использование ArrayPool
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
             {
+                int bytesRead;
                 while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
                 {
                     await destination.WriteAsync(buffer, 0, bytesRead, token);
+
+                    // Обновление статистики (лучше делать не на каждый пакет, если частота высокая, 
+                    // но для монитора трафика оставим как есть для точности)
                     _trafficMonitor.AddLiveTraffic(processName, bytesRead, isDownload);
                     if (historyItem != null)
                     {
@@ -388,6 +473,10 @@ namespace ProxyControl.Services
                 }
             }
             catch { }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         private bool TryGetTargetHost(string header, out string host, out int port, out bool isConnect)

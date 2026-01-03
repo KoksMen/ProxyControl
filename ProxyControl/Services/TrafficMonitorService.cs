@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -26,7 +27,11 @@ namespace ProxyControl.Services
 
         private Timer _speedTimer;
         private readonly string _logsPath;
-        private readonly object _logLock = new object();
+
+        // --- Async Logging with Channel ---
+        private readonly Channel<ConnectionHistoryItem> _logChannel;
+        private readonly CancellationTokenSource _logCts;
+        // ----------------------------------
 
         // Флаг режима: true = показываем реальное время, false = историю
         public bool IsLiveMode { get; set; } = true;
@@ -35,6 +40,13 @@ namespace ProxyControl.Services
         {
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
+
+            // Инициализация канала для асинхронного логирования (Unbounded - бесконечная очередь)
+            _logChannel = Channel.CreateUnbounded<ConnectionHistoryItem>();
+            _logCts = new CancellationTokenSource();
+
+            // Запуск фоновой задачи записи логов
+            Task.Run(() => LogWriterLoop(_logCts.Token));
 
             _speedTimer = new Timer(UpdateSpeeds, null, 1000, 1000);
         }
@@ -104,8 +116,8 @@ namespace ProxyControl.Services
 
         public void CompleteConnection(ConnectionHistoryItem item)
         {
-            // Сохраняем завершенное соединение в лог файл
-            Task.Run(() => AppendLog(item));
+            // Асинхронно отправляем в канал для записи, не блокируя текущий поток
+            _logChannel.Writer.TryWrite(item);
         }
 
         private void UpdateSpeeds(object? state)
@@ -124,20 +136,34 @@ namespace ProxyControl.Services
 
         // --- Persistence Logic ---
 
-        private void AppendLog(ConnectionHistoryItem item)
+        private async Task LogWriterLoop(CancellationToken token)
         {
             try
             {
-                string fileName = $"log_{item.Timestamp:yyyy-MM-dd}.jsonl";
-                string fullPath = Path.Combine(_logsPath, fileName);
-                string json = JsonSerializer.Serialize(item);
-
-                lock (_logLock)
+                while (await _logChannel.Reader.WaitToReadAsync(token))
                 {
-                    File.AppendAllText(fullPath, json + Environment.NewLine);
+                    while (_logChannel.Reader.TryRead(out var item))
+                    {
+                        try
+                        {
+                            string fileName = $"log_{item.Timestamp:yyyy-MM-dd}.jsonl";
+                            string fullPath = Path.Combine(_logsPath, fileName);
+                            string json = JsonSerializer.Serialize(item);
+
+                            // Асинхронная запись в файл
+                            await File.AppendAllTextAsync(fullPath, json + Environment.NewLine, token);
+                        }
+                        catch
+                        {
+                            // Логирование ошибок записи, если необходимо
+                        }
+                    }
                 }
             }
-            catch { }
+            catch (OperationCanceledException)
+            {
+                // Нормальное завершение
+            }
         }
 
         public async Task LoadHistoryAsync(DateTime start, DateTime end, TimeSpan? startTime = null, TimeSpan? endTime = null)
@@ -184,9 +210,6 @@ namespace ProxyControl.Services
                                     pData.TotalDownload += item.BytesDown;
                                     pData.TotalUpload += item.BytesUp;
 
-                                    // Добавляем в историю (в начало списка, чтобы новые были сверху)
-                                    // Так как мы читаем последовательно, лучше добавлять в конец, а потом развернуть, или Insert(0)
-                                    // Для производительности при чтении большого лога лучше Add и потом сортировка
                                     pData.Connections.Add(item);
                                 }
                             }
