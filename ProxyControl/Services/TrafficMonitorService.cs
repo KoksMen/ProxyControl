@@ -12,26 +12,41 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace ProxyControl.Services
 {
     public class TrafficMonitorService
     {
-        // Для Live режима
+        // Для Live режима (хранилище данных)
         private readonly ConcurrentDictionary<string, ProcessTrafficData> _liveProcessStats
             = new ConcurrentDictionary<string, ProcessTrafficData>();
 
-        // Основная коллекция для биндинга (может содержать Live или History данные)
+        // Основная коллекция для биндинга (UI)
         public ObservableCollection<ProcessTrafficData> DisplayedProcessList { get; private set; }
             = new ObservableCollection<ProcessTrafficData>();
 
-        private Timer _speedTimer;
         private readonly string _logsPath;
 
-        // --- Async Logging with Channel ---
+        // --- Async Logging (Disk I/O) ---
         private readonly Channel<ConnectionHistoryItem> _logChannel;
-        private readonly CancellationTokenSource _logCts;
-        // ----------------------------------
+        private readonly CancellationTokenSource _servicesCts;
+        // --------------------------------
+
+        // --- UI Throttling (Batching) ---
+        private readonly ConcurrentQueue<ConnectionHistoryItem> _pendingConnections = new ConcurrentQueue<ConnectionHistoryItem>();
+        // Накапливаем дельту трафика: Key -> (DownloadedBytes, UploadedBytes)
+        private readonly ConcurrentDictionary<string, TrafficDelta> _pendingTraffic = new ConcurrentDictionary<string, TrafficDelta>();
+
+        private readonly DispatcherTimer _uiBatchTimer;
+        private const int UiRefreshRateMs = 250; // Частота обновления UI (4 раза в секунду)
+
+        private class TrafficDelta
+        {
+            public long Down;
+            public long Up;
+        }
+        // --------------------------------
 
         // Флаг режима: true = показываем реальное время, false = историю
         public bool IsLiveMode { get; set; } = true;
@@ -41,14 +56,18 @@ namespace ProxyControl.Services
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
 
-            // Инициализация канала для асинхронного логирования (Unbounded - бесконечная очередь)
             _logChannel = Channel.CreateUnbounded<ConnectionHistoryItem>();
-            _logCts = new CancellationTokenSource();
+            _servicesCts = new CancellationTokenSource();
 
-            // Запуск фоновой задачи записи логов
-            Task.Run(() => LogWriterLoop(_logCts.Token));
+            // Запуск фоновой задачи записи логов на диск
+            Task.Run(() => LogWriterLoop(_servicesCts.Token));
 
-            _speedTimer = new Timer(UpdateSpeeds, null, 1000, 1000);
+            // Таймер для пакетного обновления UI (Throttling)
+            // Используем DispatcherTimer, чтобы тик срабатывал сразу в UI потоке
+            _uiBatchTimer = new DispatcherTimer(DispatcherPriority.Background);
+            _uiBatchTimer.Interval = TimeSpan.FromMilliseconds(UiRefreshRateMs);
+            _uiBatchTimer.Tick += OnUiBatchTick;
+            _uiBatchTimer.Start();
         }
 
         // --- Live Logic ---
@@ -59,10 +78,11 @@ namespace ProxyControl.Services
             {
                 var newData = new ProcessTrafficData { ProcessName = name, Icon = icon };
 
-                // Если мы в Live режиме, добавляем сразу в список отображения
+                // Добавляем в UI коллекцию через Dispatcher, если еще нет
+                // (Это происходит редко - только при появлении нового процесса, поэтому можно не батчить жестко)
                 if (IsLiveMode)
                 {
-                    Application.Current.Dispatcher.Invoke(() =>
+                    Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (!DisplayedProcessList.Any(p => p.ProcessName == name))
                             DisplayedProcessList.Add(newData);
@@ -74,19 +94,22 @@ namespace ProxyControl.Services
 
         public void AddLiveTraffic(string processName, long bytes, bool isDownload)
         {
+            // 1. Обновляем атомарные счетчики для расчета скорости (они не привязаны к UI напрямую)
             if (_liveProcessStats.TryGetValue(processName, out var stats))
             {
-                if (isDownload)
-                {
-                    Interlocked.Add(ref stats.BytesDownLastSecond, bytes);
-                    stats.TotalDownload += bytes;
-                }
-                else
-                {
-                    Interlocked.Add(ref stats.BytesUpLastSecond, bytes);
-                    stats.TotalUpload += bytes;
-                }
+                if (isDownload) Interlocked.Add(ref stats.BytesDownLastSecond, bytes);
+                else Interlocked.Add(ref stats.BytesUpLastSecond, bytes);
             }
+
+            // 2. Накапливаем дельту для UI (Total Download/Upload) в буфер
+            _pendingTraffic.AddOrUpdate(processName,
+                _ => new TrafficDelta { Down = isDownload ? bytes : 0, Up = isDownload ? 0 : bytes },
+                (_, delta) =>
+                {
+                    if (isDownload) Interlocked.Add(ref delta.Down, bytes);
+                    else Interlocked.Add(ref delta.Up, bytes);
+                    return delta;
+                });
         }
 
         public ConnectionHistoryItem CreateConnectionItem(string processName, ImageSource? icon, string host, string status, string details, string? flagUrl, string color)
@@ -102,27 +125,71 @@ namespace ProxyControl.Services
                 Color = color
             };
 
-            var stats = GetOrAddLiveProcess(processName, icon);
+            // Убеждаемся, что процесс есть в статистике
+            GetOrAddLiveProcess(processName, icon);
 
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                // Добавляем в Live список соединений
-                stats.Connections.Insert(0, item);
-                if (stats.Connections.Count > 200) stats.Connections.RemoveAt(stats.Connections.Count - 1);
-            });
+            // Вместо тяжелого Invoke - кладем в очередь
+            _pendingConnections.Enqueue(item);
 
             return item;
         }
 
         public void CompleteConnection(ConnectionHistoryItem item)
         {
-            // Асинхронно отправляем в канал для записи, не блокируя текущий поток
             _logChannel.Writer.TryWrite(item);
         }
 
-        private void UpdateSpeeds(object? state)
+        // --- Batch UI Update Logic ---
+
+        private void OnUiBatchTick(object? sender, EventArgs e)
         {
-            // Обновляем скорость только для Live статистики
+            if (!IsLiveMode) return;
+
+            // 1. Обработка новых соединений (Log list)
+            bool hasNewConnections = !_pendingConnections.IsEmpty;
+            while (_pendingConnections.TryDequeue(out var item))
+            {
+                if (_liveProcessStats.TryGetValue(item.ProcessName, out var stats))
+                {
+                    stats.Connections.Insert(0, item);
+                    // Ограничиваем размер истории в памяти
+                    if (stats.Connections.Count > 200) stats.Connections.RemoveAt(stats.Connections.Count - 1);
+                }
+            }
+
+            // 2. Обработка накопленного трафика и расчет скорости
+            // Проходим по всем процессам, даже если трафика не было (чтобы сбросить скорость в 0)
+            foreach (var kvp in _liveProcessStats)
+            {
+                var processName = kvp.Key;
+                var stats = kvp.Value;
+
+                // Забираем накопленные байты для TotalDownload/Upload
+                if (_pendingTraffic.TryRemove(processName, out var delta))
+                {
+                    stats.TotalDownload += delta.Down;
+                    stats.TotalUpload += delta.Up;
+                }
+
+                // Расчет скорости (Atomic exchange сбрасывает счетчик за интервал)
+                // Интервал таймера ~250мс, но счетчики BytesDownLastSecond накапливаются
+                // Для корректного отображения "в секунду" нам нужен отдельный механизм или пересчет.
+                // В оригинале был таймер раз в 1 сек. Здесь мы сделаем проще:
+                // Мы будем читать атомарно счетчики, но сбрасывать их раз в секунду.
+                // Для этого добавим счетчик тиков или используем DateTime. 
+                // НО, чтобы не ломать логику, просто перенесем логику скорости сюда.
+                // UpdateSpeeds был раз в 1с. Сделаем проверку времени.
+            }
+
+            // Вызов обновления скоростей раз в секунду (приблизительно каждые 4 тика)
+            if ((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) % 1000 < UiRefreshRateMs * 1.5)
+            {
+                UpdateSpeeds();
+            }
+        }
+
+        private void UpdateSpeeds()
+        {
             foreach (var kvp in _liveProcessStats)
             {
                 var stats = kvp.Value;
@@ -150,25 +217,20 @@ namespace ProxyControl.Services
                             string fullPath = Path.Combine(_logsPath, fileName);
                             string json = JsonSerializer.Serialize(item);
 
-                            // Асинхронная запись в файл
                             await File.AppendAllTextAsync(fullPath, json + Environment.NewLine, token);
                         }
-                        catch
-                        {
-                            // Логирование ошибок записи, если необходимо
-                        }
+                        catch { }
                     }
                 }
             }
-            catch (OperationCanceledException)
-            {
-                // Нормальное завершение
-            }
+            catch (OperationCanceledException) { }
         }
 
         public async Task LoadHistoryAsync(DateTime start, DateTime end, TimeSpan? startTime = null, TimeSpan? endTime = null)
         {
             IsLiveMode = false;
+            // Останавливаем таймер обновлений, чтобы не мешал
+            _uiBatchTimer.Stop();
 
             var resultDict = new Dictionary<string, ProcessTrafficData>();
 
@@ -184,15 +246,13 @@ namespace ProxyControl.Services
 
                     if (File.Exists(fullPath))
                     {
-                        var lines = File.ReadLines(fullPath);
-                        foreach (var line in lines)
+                        foreach (var line in File.ReadLines(fullPath))
                         {
                             try
                             {
                                 var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
                                 if (item != null)
                                 {
-                                    // Фильтрация по времени внутри дня
                                     if (startTime.HasValue && item.Timestamp.TimeOfDay < startTime.Value) continue;
                                     if (endTime.HasValue && item.Timestamp.TimeOfDay > endTime.Value) continue;
 
@@ -201,7 +261,6 @@ namespace ProxyControl.Services
                                         resultDict[item.ProcessName] = new ProcessTrafficData
                                         {
                                             ProcessName = item.ProcessName,
-                                            // Иконку пробуем найти в кэше Live или загрузить заново
                                             Icon = _liveProcessStats.TryGetValue(item.ProcessName, out var liveP) ? liveP.Icon : IconHelper.GetIconByProcessName(item.ProcessName)
                                         };
                                     }
@@ -209,7 +268,6 @@ namespace ProxyControl.Services
                                     var pData = resultDict[item.ProcessName];
                                     pData.TotalDownload += item.BytesDown;
                                     pData.TotalUpload += item.BytesUp;
-
                                     pData.Connections.Add(item);
                                 }
                             }
@@ -220,7 +278,6 @@ namespace ProxyControl.Services
                 }
             });
 
-            // Сортировка соединений по времени (новые сверху)
             foreach (var p in resultDict.Values)
             {
                 var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
@@ -241,6 +298,7 @@ namespace ProxyControl.Services
         public void SwitchToLiveMode()
         {
             IsLiveMode = true;
+            _uiBatchTimer.Start();
             Application.Current.Dispatcher.Invoke(() =>
             {
                 DisplayedProcessList.Clear();
