@@ -33,9 +33,14 @@ namespace ProxyControl.Services
     {
         private TcpListener _listener;
         private bool _isRunning;
+
         private List<ProxyItem> _localProxies = new List<ProxyItem>();
         private List<TrafficRule> _localBlackList = new List<TrafficRule>();
         private List<TrafficRule> _localWhiteList = new List<TrafficRule>();
+
+        private HashSet<string> _blackListHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private HashSet<string> _whiteListHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         private string? _blackListProxyId;
         private RuleMode _currentMode;
         private readonly ProcessMonitorService _processMonitor;
@@ -43,6 +48,8 @@ namespace ProxyControl.Services
         private const int LocalPort = 8000;
         private const int BufferSize = 8192;
         private const int MaxHeaderSize = 16 * 1024;
+
+        private readonly SemaphoreSlim _connectionLimiter = new SemaphoreSlim(2000);
 
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
         private readonly HttpClient _geoHttpClient;
@@ -67,7 +74,6 @@ namespace ProxyControl.Services
 
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
         {
-            // Обновляем список прокси, создавая копии, чтобы избежать проблем с многопоточностью при изменении UI
             _localProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
@@ -84,11 +90,33 @@ namespace ProxyControl.Services
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
             _localWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
 
+            _blackListHosts.Clear();
+            foreach (var rule in _localBlackList)
+            {
+                if (rule.IsEnabled)
+                {
+                    foreach (var host in rule.TargetHosts)
+                    {
+                        if (host != "*") _blackListHosts.Add(host);
+                    }
+                }
+            }
+
+            _whiteListHosts.Clear();
+            foreach (var rule in _localWhiteList)
+            {
+                if (rule.IsEnabled)
+                {
+                    foreach (var host in rule.TargetHosts)
+                    {
+                        if (host != "*") _whiteListHosts.Add(host);
+                    }
+                }
+            }
+
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
 
-            // Принудительно разрываем соединения, чтобы новые правила вступили в силу.
-            // Обернуто в try-catch для безопасности.
             try
             {
                 DisconnectAllClients();
@@ -132,7 +160,7 @@ namespace ProxyControl.Services
             catch
             {
                 _isRunning = false;
-                throw; // Rethrow to let ViewModel know start failed
+                throw;
             }
         }
 
@@ -157,12 +185,25 @@ namespace ProxyControl.Services
             {
                 try
                 {
+                    await _connectionLimiter.WaitAsync();
+
                     var client = await _listener.AcceptTcpClientAsync();
-                    _ = HandleClientAsync(client);
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await HandleClientAsync(client);
+                        }
+                        finally
+                        {
+                            _connectionLimiter.Release();
+                        }
+                    });
                 }
                 catch
                 {
                     if (!_isRunning) break;
+                    await Task.Delay(100);
                 }
             }
         }
@@ -237,12 +278,17 @@ namespace ProxyControl.Services
 
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
 
-                int pid = 0;
-                for (int i = 0; i < 5; i++)
+                int pid = SystemProxyHelper.GetPidByPort(clientPort);
+
+                // Retry logic is now mostly handled by the Helper forcing refresh, but keep for safety
+                if (pid == 0)
                 {
-                    pid = SystemProxyHelper.GetPidByPort(clientPort, forceRefresh: i > 0);
-                    if (pid > 0) break;
-                    if (i < 4) await Task.Delay(20);
+                    for (int i = 0; i < 3; i++)
+                    {
+                        await Task.Delay(20);
+                        pid = SystemProxyHelper.GetPidByPort(clientPort);
+                        if (pid > 0) break;
+                    }
                 }
 
                 string processName = _processMonitor.GetProcessName(pid);
@@ -344,7 +390,9 @@ namespace ProxyControl.Services
                             protocols = SslProtocols.Tls | SslProtocols.Tls11;
                         }
 
+                        // Fix 1: Always return true to ignore certificate errors for proxies
                         var sslStream = new SslStream(remoteStream, false, (s, c, ch, e) => true);
+
                         try
                         {
                             await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, protocols, false);
@@ -367,6 +415,7 @@ namespace ProxyControl.Services
                     byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
 
                     await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
+                    await remoteStream.FlushAsync(); // Ensure request is sent
 
                     byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
                     try
@@ -463,17 +512,37 @@ namespace ProxyControl.Services
         private async Task CopyAndTrackAsync(Stream source, Stream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            long bytesAccumulated = 0;
+            const long BatchSize = 16384;
+
             try
             {
                 int bytesRead;
                 while ((bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, token)) > 0)
                 {
                     await destination.WriteAsync(buffer, 0, bytesRead, token);
-                    _trafficMonitor.AddLiveTraffic(processName, bytesRead, isDownload);
+
+                    bytesAccumulated += bytesRead;
+
+                    if (bytesAccumulated >= BatchSize)
+                    {
+                        _trafficMonitor.AddLiveTraffic(processName, bytesAccumulated, isDownload);
+                        if (historyItem != null)
+                        {
+                            if (isDownload) historyItem.BytesDown += bytesAccumulated;
+                            else historyItem.BytesUp += bytesAccumulated;
+                        }
+                        bytesAccumulated = 0;
+                    }
+                }
+
+                if (bytesAccumulated > 0)
+                {
+                    _trafficMonitor.AddLiveTraffic(processName, bytesAccumulated, isDownload);
                     if (historyItem != null)
                     {
-                        if (isDownload) historyItem.BytesDown += bytesRead;
-                        else historyItem.BytesUp += bytesRead;
+                        if (isDownload) historyItem.BytesDown += bytesAccumulated;
+                        else historyItem.BytesUp += bytesAccumulated;
                     }
                 }
             }
@@ -543,21 +612,19 @@ namespace ProxyControl.Services
 
             if (_currentMode == RuleMode.BlackList)
             {
+                if (_blackListHosts.Contains(host))
+                {
+                    var rule = _localBlackList.FirstOrDefault(r => r.IsEnabled && IsRuleMatch(r, app, host));
+                    if (rule != null) return GetRuleDecision(rule, mainProxy);
+                }
+
                 foreach (var rule in _localBlackList)
                 {
                     if (!rule.IsEnabled) continue;
 
                     if (IsRuleMatch(rule, app, host))
                     {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null, rule.BlockDirection);
-                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
-                        if (rule.ProxyId != null)
-                        {
-                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
-                            return (RuleAction.Direct, null, BlockDirection.Both);
-                        }
-                        return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
+                        return GetRuleDecision(rule, mainProxy);
                     }
                 }
 
@@ -566,29 +633,38 @@ namespace ProxyControl.Services
             }
             else
             {
+                if (_whiteListHosts.Contains(host))
+                {
+                    var rule = _localWhiteList.FirstOrDefault(r => r.IsEnabled && IsRuleMatch(r, app, host));
+                    if (rule != null) return GetRuleDecision(rule, mainProxy);
+                }
+
                 foreach (var rule in _localWhiteList)
                 {
                     if (!rule.IsEnabled) continue;
 
                     if (IsRuleMatch(rule, app, host))
                     {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null, rule.BlockDirection);
-                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
-
-                        if (rule.ProxyId != null)
-                        {
-                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
-
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
-
-                            if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
-                        }
-
-                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
+                        return GetRuleDecision(rule, mainProxy);
                     }
                 }
                 return (RuleAction.Direct, null, BlockDirection.Both);
             }
+        }
+
+        private (RuleAction, ProxyItem?, BlockDirection) GetRuleDecision(TrafficRule rule, ProxyItem? mainProxy)
+        {
+            if (rule.Action == RuleAction.Block) return (RuleAction.Block, null, rule.BlockDirection);
+            if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null, BlockDirection.Both);
+            if (rule.ProxyId != null)
+            {
+                var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
+
+                if (_currentMode == RuleMode.WhiteList && mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
+                return (RuleAction.Direct, null, BlockDirection.Both);
+            }
+            return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
         }
 
         private bool IsRuleMatch(TrafficRule rule, string app, string host)
@@ -617,7 +693,8 @@ namespace ProxyControl.Services
             {
                 for (int i = 0; i < rule.TargetHosts.Count; i++)
                 {
-                    if (rule.TargetHosts[i] == "*" || host.Contains(rule.TargetHosts[i], StringComparison.OrdinalIgnoreCase))
+                    if (rule.TargetHosts[i] == "*") return true;
+                    if (host.Contains(rule.TargetHosts[i], StringComparison.OrdinalIgnoreCase))
                         return true;
                 }
                 return false;
@@ -625,13 +702,14 @@ namespace ProxyControl.Services
             return true;
         }
 
-        public async Task<(bool IsSuccess, string CountryCode, long Ping, double Speed)> CheckProxy(ProxyItem proxy)
+        public async Task<(bool IsSuccess, string CountryCode, long Ping, double Speed, string SslError)> CheckProxy(ProxyItem proxy)
         {
-            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "", 0, 0);
+            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "", 0, 0, "Invalid IP/Port");
 
             bool connectionSuccess = false;
             long ping = 0;
             double speedMbps = 0;
+            string sslError = "None";
 
             string scheme = "http";
             if (proxy.UseTls || proxy.UseSsl) scheme = "https";
@@ -646,7 +724,11 @@ namespace ProxyControl.Services
 
             if (proxy.UseTls || proxy.UseSsl)
             {
-                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+                {
+                    sslError = errors.ToString();
+                    return true;
+                };
             }
 
             if (!string.IsNullOrEmpty(proxy.Username))
@@ -666,12 +748,13 @@ namespace ProxyControl.Services
                     connectionSuccess = response.IsSuccessStatusCode;
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 connectionSuccess = false;
+                if (sslError == "None") sslError = ex.Message;
             }
 
-            if (!connectionSuccess) return (false, "", 0, 0);
+            if (!connectionSuccess) return (false, "", 0, 0, sslError);
 
             try
             {
@@ -722,7 +805,7 @@ namespace ProxyControl.Services
             }
             catch { }
 
-            return (connectionSuccess, country, ping, speedMbps);
+            return (connectionSuccess, country, ping, speedMbps, sslError);
         }
     }
 }

@@ -184,457 +184,465 @@
             </tb:TaskbarIcon>
 
             <Border Grid.Column="0" Background="#252526" BorderBrush="#3E3E42" BorderThickness="0,0,1,0">
-                <Grid Margin="10">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Text="PROXY LIST" FontWeight="Bold" Foreground="#999" Margin="0,0,0,10"/>
-                    <ListBox Grid.Row="1" ItemsSource="{Binding Proxies}" SelectedItem="{Binding SelectedProxy}" Background="Transparent" BorderThickness="0" Foreground="White">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,3">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="30"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <CheckBox IsChecked="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,0,5,0"/>
-
-                                    <Image Grid.Column="1" Source="{Binding FlagUrl}" Width="20" Height="15" Margin="0,0,5,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
-
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Text="{Binding IpAddress, TargetNullValue='(No IP)'}" FontWeight="Bold"/>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Port, StringFormat=Port: {0}}" FontSize="10" Foreground="#AAA" Margin="0,0,5,0"/>
-                                            <TextBlock Text="{Binding PingFormatted}" FontSize="10" Foreground="#55AAFF" Margin="0,0,5,0"/>
-                                            <TextBlock Text="{Binding SpeedFormatted}" FontSize="10" Foreground="#55FF55"/>
-                                        </StackPanel>
-                                    </StackPanel>
-
-                                    <Border Grid.Column="3" Background="#333" CornerRadius="3" Padding="4,1" Margin="5,0" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Status}" FontSize="9" Foreground="{Binding Status, Converter={StaticResource StatusColor}}"/>
-                                    </Border>
-
-                                    <Button Grid.Column="4" Content="✏️" 
-                                            Command="{Binding DataContext.OpenEditProxyModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                            CommandParameter="{Binding}"
-                                            Background="Transparent" BorderThickness="0" Foreground="#888" 
-                                            FontSize="14" Padding="0" Cursor="Hand" ToolTip="Edit Proxy"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <StackPanel Grid.Row="2" Margin="0,10,0,0">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Content="+ Manual" Command="{Binding OpenAddProxyModalCommand}" Style="{StaticResource AccentBtn}"/>
-                            <Button Grid.Column="1" Content="Paste" Command="{Binding PasteProxyCommand}"/>
-                        </Grid>
-                        <Button Content="Remove Selected" Command="{Binding RemoveProxyCommand}" Background="#A03333" Margin="2,5,2,2"/>
-                        <Button Content="Check All Connections" Command="{Binding CheckProxyCommand}" Background="#444" Margin="2,2,2,2"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <TabControl Grid.Column="1" Background="Transparent" BorderThickness="0" Margin="10">
-                <TabControl.Resources>
-                    <Style TargetType="TabItem">
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="TabItem">
-                                    <Border Name="Border" BorderThickness="0,0,0,2" BorderBrush="Transparent" Padding="10,5">
-                                        <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="10,2"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="Border" Property="BorderBrush" Value="#007ACC"/>
-                                            <Setter Property="Foreground" Value="#007ACC"/>
-                                        </Trigger>
-                                        <Trigger Property="IsSelected" Value="False">
-                                            <Setter Property="Foreground" Value="#999"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </TabControl.Resources>
-
-                <TabItem Header="SETTINGS &amp; RULES">
                     <Grid Margin="10">
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
+                        <TextBlock Text="PROXY LIST" FontWeight="Bold" Foreground="#999" Margin="0,0,0,10"/>
+                        <ListBox Grid.Row="1" ItemsSource="{Binding Proxies}" SelectedItem="{Binding SelectedProxy}" Background="Transparent" BorderThickness="0" Foreground="White">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,3">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="30"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
 
-                        <Grid Grid.Row="0" Margin="0,0,0,20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel>
-                                <TextBlock Text="ROUTER SETTINGS" FontSize="18" FontWeight="Light"/>
-                                <CheckBox Content="Autostart with Windows" IsChecked="{Binding IsAutoStart}" Margin="0,5,0,0" Foreground="#AAA"/>
-                                <CheckBox Content="Check Updates on Startup" IsChecked="{Binding CheckUpdateOnStartup}" Margin="0,5,0,0" Foreground="#AAA"/>
-                                <CheckBox Content="Enable DNS Leak Protection (Admin Only)" IsChecked="{Binding IsDnsProtectionEnabled}" Margin="0,5,0,0" Foreground="#AAA"
-                                          ToolTip="Requires Administrator rights. Tunnels DNS requests through proxy ONLY for proxied hosts. Direct connections use 8.8.8.8."/>
-                            </StackPanel>
-                            <Button Grid.Column="1" Command="{Binding ToggleProxyCommand}" Width="200" Height="40" FontWeight="Bold" FontSize="14">
-                                <Button.Style>
-                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding IsProxyRunning}" Value="True">
-                                                <Setter Property="Content" Value="SYSTEM PROXY: ON"/>
-                                                <Setter Property="Background" Value="#28A745"/>
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsProxyRunning}" Value="False">
-                                                <Setter Property="Content" Value="SYSTEM PROXY: OFF"/>
-                                                <Setter Property="Background" Value="#A03333"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </Button.Style>
-                            </Button>
+                                        <CheckBox IsChecked="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+
+                                        <Image Grid.Column="1" Source="{Binding FlagUrl}" Width="20" Height="15" Margin="0,0,5,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Text="{Binding IpAddress, TargetNullValue='(No IP)'}" FontWeight="Bold"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Port, StringFormat=Port: {0}}" FontSize="10" Foreground="#AAA" Margin="0,0,5,0"/>
+                                                <TextBlock Text="{Binding PingFormatted}" FontSize="10" Foreground="#55AAFF" Margin="0,0,5,0"/>
+                                                <TextBlock Text="{Binding SpeedFormatted}" FontSize="10" Foreground="#55FF55"/>
+                                            </StackPanel>
+                                        </StackPanel>
+
+                                        <Border Grid.Column="3" Background="#333" CornerRadius="3" Padding="4,1" Margin="5,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Status}" FontSize="9" Foreground="{Binding Status, Converter={StaticResource StatusColor}}"/>
+                                        </Border>
+
+                                        <Button Grid.Column="4" Content="✏️" 
+                                            Command="{Binding DataContext.OpenEditProxyModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent" BorderThickness="0" Foreground="#888" 
+                                            FontSize="14" Padding="0" Cursor="Hand" ToolTip="Edit Proxy"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Content="+ Manual" Command="{Binding OpenAddProxyModalCommand}" Style="{StaticResource AccentBtn}"/>
+                                <Button Grid.Column="1" Content="Paste" Command="{Binding PasteProxyCommand}"/>
+                            </Grid>
+                            <Button Content="Remove Selected" Command="{Binding RemoveProxyCommand}" Background="#A03333" Margin="2,5,2,2"/>
+                            <Button Content="Check All Connections" Command="{Binding CheckProxyCommand}" Background="#444" Margin="2,2,2,2"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <TabControl Grid.Column="1" Background="Transparent" BorderThickness="0" Margin="10">
+                    <TabControl.Resources>
+                        <Style TargetType="TabItem">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="TabItem">
+                                        <Border Name="Border" BorderThickness="0,0,0,2" BorderBrush="Transparent" Padding="10,5">
+                                            <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="10,2"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Border" Property="BorderBrush" Value="#007ACC"/>
+                                                <Setter Property="Foreground" Value="#007ACC"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="False">
+                                                <Setter Property="Foreground" Value="#999"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </TabControl.Resources>
+
+                    <TabItem Header="SETTINGS &amp; RULES">
+                        <Grid Margin="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0" Margin="0,0,0,20">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="ROUTER SETTINGS" FontSize="18" FontWeight="Light"/>
+                                    <CheckBox Content="Autostart with Windows" IsChecked="{Binding IsAutoStart}" Margin="0,5,0,0" Foreground="#AAA"/>
+                                    <CheckBox Content="Check Updates on Startup" IsChecked="{Binding CheckUpdateOnStartup}" Margin="0,5,0,0" Foreground="#AAA"/>
+
+                                    <CheckBox Content="Enable DNS Leak Protection (Admin Only)" IsChecked="{Binding IsDnsProtectionEnabled}" Margin="0,5,0,0" Foreground="#AAA"
+                                          ToolTip="Requires Administrator rights. Tunnels DNS requests through proxy ONLY for proxied hosts. Direct connections use selected DNS."/>
+
+                                    <StackPanel Orientation="Horizontal" Margin="20,5,0,0" Visibility="{Binding IsDnsProtectionEnabled, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="Provider:" Foreground="#888" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                        <ComboBox ItemsSource="{Binding DnsProviders}" SelectedItem="{Binding SelectedDnsProvider}" Width="110" Margin="0,0,10,0"/>
+                                        <TextBox Text="{Binding DnsHost}" Width="120" IsEnabled="{Binding IsDnsCustom}" VerticalAlignment="Center" ToolTip="Custom DNS IP"/>
+                                    </StackPanel>
+
+                                </StackPanel>
+                                <Button Grid.Column="1" Command="{Binding ToggleProxyCommand}" Width="200" Height="40" FontWeight="Bold" FontSize="14">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsProxyRunning}" Value="True">
+                                                    <Setter Property="Content" Value="SYSTEM PROXY: ON"/>
+                                                    <Setter Property="Background" Value="#28A745"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding IsProxyRunning}" Value="False">
+                                                    <Setter Property="Content" Value="SYSTEM PROXY: OFF"/>
+                                                    <Setter Property="Background" Value="#A03333"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </Grid>
+
+                            <GroupBox Grid.Row="2" Header="TRAFFIC RULES" Foreground="#007ACC" BorderBrush="#3E3E42" Margin="0,10,0,0">
+                                <Grid Margin="10">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                                        <StackPanel Orientation="Horizontal">
+                                            <RadioButton Content="BlackList Mode" IsChecked="{Binding IsBlackListMode}" Foreground="White" Margin="0,0,15,0"/>
+                                            <RadioButton Content="WhiteList Mode" IsChecked="{Binding IsBlackListMode, Converter={StaticResource InvBool}}" Foreground="White"/>
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0" Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="Default Gateway:" Foreground="#999" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                            <ComboBox ItemsSource="{Binding Proxies}" SelectedItem="{Binding SelectedBlackListMainProxy}" DisplayMemberPath="IpAddress" Width="200"/>
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <Grid Grid.Row="1" Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#AAA"/>
+                                        <TextBox Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Background="#333" BorderThickness="0" Padding="5"/>
+                                    </Grid>
+
+                                    <DataGrid Grid.Row="2" ItemsSource="{Binding RulesView}" SelectedItem="{Binding SelectedRule}"
+                                          AutoGenerateColumns="False" CanUserAddRows="False"
+                                          Background="#2D2D30" RowBackground="#2D2D30" Foreground="White" BorderThickness="0"
+                                          GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#444">
+                                        <DataGrid.GroupStyle>
+                                            <GroupStyle>
+                                                <GroupStyle.ContainerStyle>
+                                                    <Style TargetType="{x:Type GroupItem}">
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="{x:Type GroupItem}">
+                                                                    <Expander IsExpanded="True" BorderThickness="0,0,0,1" BorderBrush="#444">
+                                                                        <Expander.Header>
+                                                                            <StackPanel Orientation="Horizontal">
+                                                                                <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#EEE" FontSize="14"/>
+                                                                                <TextBlock Text="{Binding ItemCount, StringFormat=' ({0})'}" Foreground="#888" Margin="10,0,0,0"/>
+                                                                            </StackPanel>
+                                                                        </Expander.Header>
+                                                                        <ItemsPresenter Margin="20,0,0,0" />
+                                                                    </Expander>
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                    </Style>
+                                                </GroupStyle.ContainerStyle>
+                                            </GroupStyle>
+                                        </DataGrid.GroupStyle>
+
+                                        <DataGrid.Columns>
+                                            <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
+
+                                            <DataGridTemplateColumn Header="Icon" Width="40">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <Image Source="{Binding AppIcon}" Width="16" Height="16"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+
+                                            <DataGridTextColumn Header="Group" Binding="{Binding GroupName}" Width="100"/>
+                                            <DataGridTextColumn Header="Apps" Binding="{Binding TargetApps, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
+                                            <DataGridTextColumn Header="Hosts" Binding="{Binding TargetHosts, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
+                                            <DataGridTemplateColumn Header="Action" Width="110" MinWidth="100">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ComboBox ItemsSource="{Binding DataContext.ActionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                              SelectedItem="{Binding Action, UpdateSourceTrigger=PropertyChanged}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Direction" Width="100" MinWidth="90">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ComboBox ItemsSource="{Binding DataContext.BlockDirectionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                              SelectedItem="{Binding BlockDirection, UpdateSourceTrigger=PropertyChanged}"
+                                                              Visibility="{Binding Action, Converter={StaticResource ActionToBlockVisConverter}}"/>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                            <DataGridTemplateColumn Header="Proxy Route" Width="150" MinWidth="140">
+                                                <DataGridTemplateColumn.CellTemplate>
+                                                    <DataTemplate>
+                                                        <ComboBox ItemsSource="{Binding DataContext.Proxies, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                              DisplayMemberPath="IpAddress"
+                                                              SelectedValue="{Binding ProxyId, UpdateSourceTrigger=PropertyChanged}"
+                                                              SelectedValuePath="Id">
+                                                            <ComboBox.Style>
+                                                                <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Action}" Value="Block">
+                                                                            <Setter Property="Visibility" Value="Hidden"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Action}" Value="Direct">
+                                                                            <Setter Property="Visibility" Value="Hidden"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </ComboBox.Style>
+                                                        </ComboBox>
+                                                    </DataTemplate>
+                                                </DataGridTemplateColumn.CellTemplate>
+                                            </DataGridTemplateColumn>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+
+                                    <Grid Grid.Row="3" Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="2">
+                                            <TextBlock Text="Group" FontSize="9" Foreground="#777"/>
+                                            <TextBox Text="{Binding NewRuleGroup}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="2">
+                                            <TextBlock Text="Apps (; sep)" FontSize="9" Foreground="#777"/>
+                                            <TextBox Text="{Binding NewRuleApps}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Margin="2">
+                                            <TextBlock Text="Hosts (; sep)" FontSize="9" Foreground="#777"/>
+                                            <TextBox Text="{Binding NewRuleHosts}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3" Margin="2">
+                                            <TextBlock Text="Action" FontSize="9" Foreground="#777"/>
+                                            <ComboBox ItemsSource="{Binding ActionTypes}" SelectedItem="{Binding NewRuleAction}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="4" Margin="2" Visibility="{Binding NewRuleAction, Converter={StaticResource ActionToBlockVisConverter}}">
+                                            <TextBlock Text="Block Dir" FontSize="9" Foreground="#777"/>
+                                            <ComboBox ItemsSource="{Binding BlockDirectionTypes}" SelectedItem="{Binding NewRuleBlockDirection}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="5" Margin="2" Width="120" Visibility="{Binding IsNewRuleProxyRequired, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="Select Proxy" FontSize="9" Foreground="#777"/>
+                                            <ComboBox ItemsSource="{Binding Proxies}" SelectedItem="{Binding NewRuleSelectedProxy}" DisplayMemberPath="IpAddress"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                            <Button Content="Add" Command="{Binding AddRuleCommand}" Style="{StaticResource AccentBtn}" Width="50"/>
+                                            <Button Content="Del" Command="{Binding RemoveRuleCommand}" Background="#A03333" Width="40" Margin="5,0,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Grid>
+                            </GroupBox>
                         </Grid>
+                    </TabItem>
 
-                        <GroupBox Grid.Row="2" Header="TRAFFIC RULES" Foreground="#007ACC" BorderBrush="#3E3E42" Margin="0,10,0,0">
-                            <Grid Margin="10">
+                    <TabItem Header="MONITOR">
+                        <Grid Margin="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="3*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="2*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid Grid.Column="0">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
-                                    <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
-                                <StackPanel Grid.Row="0" Margin="0,0,0,10">
-                                    <StackPanel Orientation="Horizontal">
-                                        <RadioButton Content="BlackList Mode" IsChecked="{Binding IsBlackListMode}" Foreground="White" Margin="0,0,15,0"/>
-                                        <RadioButton Content="WhiteList Mode" IsChecked="{Binding IsBlackListMode, Converter={StaticResource InvBool}}" Foreground="White"/>
+                                <Border Grid.Row="0" Background="#252526" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5" Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                            <TextBlock Text="Period: " VerticalAlignment="Center" Foreground="#AAA" Margin="0,0,5,0"/>
+                                            <ComboBox ItemsSource="{Binding TrafficPeriodModes}" SelectedItem="{Binding SelectedPeriodMode}" Width="120" Margin="0,0,10,0"/>
+                                            <Button Content="Apply" Command="{Binding ApplyFilterCommand}" Width="60" Style="{StaticResource AccentBtn}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Orientation="Horizontal" Visibility="{Binding IsDateRangeVisible, Converter={StaticResource BoolToVis}}">
+                                            <DatePicker SelectedDate="{Binding FilterDateStart}" Width="100" Margin="0,0,5,0"/>
+                                            <TextBox Text="{Binding FilterTimeStart}" Width="40" Margin="0,0,5,0" ToolTip="Start Time (HH:mm)"/>
+                                            <TextBlock Text="-" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                            <DatePicker SelectedDate="{Binding FilterDateEnd}" Width="100" Margin="0,0,5,0"/>
+                                            <TextBox Text="{Binding FilterTimeEnd}" Width="40" ToolTip="End Time (HH:mm)"/>
+                                        </StackPanel>
                                     </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0" Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Text="Default Gateway:" Foreground="#999" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <ComboBox ItemsSource="{Binding Proxies}" SelectedItem="{Binding SelectedBlackListMainProxy}" DisplayMemberPath="IpAddress" Width="200"/>
-                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Grid.Row="1" Text="Traffic Overview" FontWeight="Bold" Foreground="#999" Margin="0,0,0,10"/>
+
+                                <DataGrid Grid.Row="2" ItemsSource="{Binding MonitoredProcesses}" 
+                                      SelectedItem="{Binding SelectedMonitorProcess}"
+                                      AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" 
+                                      Foreground="White" BorderThickness="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#333">
+                                    <DataGrid.Columns>
+                                        <DataGridTemplateColumn Header="App" Width="40">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Image Source="{Binding Icon}" Width="16" Height="16"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                        <DataGridTextColumn Header="Process Name" Binding="{Binding ProcessName}" Width="*" FontWeight="Bold"/>
+                                        <DataGridTextColumn Header="DL Speed" Binding="{Binding DownloadSpeedFormatted}" Width="80" Foreground="#55FF55"/>
+                                        <DataGridTextColumn Header="UL Speed" Binding="{Binding UploadSpeedFormatted}" Width="80" Foreground="#55AAFF"/>
+                                        <DataGridTextColumn Header="Total DL" Binding="{Binding TotalDownloadFormatted}" Width="80"/>
+                                        <DataGridTextColumn Header="Total UL" Binding="{Binding TotalUploadFormatted}" Width="80"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+
+                            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" Background="#333" Margin="5,0"/>
+
+                            <Grid Grid.Column="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10" 
+                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                    <TextBlock Text="Details for: " FontWeight="Bold" Foreground="#999"/>
+                                    <TextBlock Text="{Binding SelectedMonitorProcess.ProcessName}" FontWeight="Bold" Foreground="White" Margin="5,0,0,0"/>
                                 </StackPanel>
 
-                                <Grid Grid.Row="1" Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0" Foreground="#AAA"/>
-                                    <TextBox Grid.Column="1" Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Background="#333" BorderThickness="0" Padding="5"/>
-                                </Grid>
-
-                                <DataGrid Grid.Row="2" ItemsSource="{Binding RulesView}" SelectedItem="{Binding SelectedRule}"
-                                          AutoGenerateColumns="False" CanUserAddRows="False"
-                                          Background="#2D2D30" RowBackground="#2D2D30" Foreground="White" BorderThickness="0"
-                                          GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#444">
-                                    <DataGrid.GroupStyle>
-                                        <GroupStyle>
-                                            <GroupStyle.ContainerStyle>
-                                                <Style TargetType="{x:Type GroupItem}">
-                                                    <Setter Property="Template">
-                                                        <Setter.Value>
-                                                            <ControlTemplate TargetType="{x:Type GroupItem}">
-                                                                <Expander IsExpanded="True" BorderThickness="0,0,0,1" BorderBrush="#444">
-                                                                    <Expander.Header>
-                                                                        <StackPanel Orientation="Horizontal">
-                                                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="#EEE" FontSize="14"/>
-                                                                            <TextBlock Text="{Binding ItemCount, StringFormat=' ({0})'}" Foreground="#888" Margin="10,0,0,0"/>
-                                                                        </StackPanel>
-                                                                    </Expander.Header>
-                                                                    <ItemsPresenter Margin="20,0,0,0" />
-                                                                </Expander>
-                                                            </ControlTemplate>
-                                                        </Setter.Value>
-                                                    </Setter>
-                                                </Style>
-                                            </GroupStyle.ContainerStyle>
-                                        </GroupStyle>
-                                    </DataGrid.GroupStyle>
-
+                                <DataGrid Grid.Row="1" ItemsSource="{Binding SelectedMonitorProcess.Connections}" 
+                                      AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" 
+                                      Foreground="White" BorderThickness="0" GridLinesVisibility="None"
+                                      Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                    <DataGrid.Resources>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                        </Style>
+                                    </DataGrid.Resources>
                                     <DataGrid.Columns>
-                                        <DataGridCheckBoxColumn Header="On" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="40"/>
-
-                                        <DataGridTemplateColumn Header="Icon" Width="40">
+                                        <DataGridTextColumn Header="Time" Binding="{Binding TimeStr}" Width="60" Foreground="#888"/>
+                                        <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
+                                        <DataGridTextColumn Header="Traffic" Binding="{Binding TrafficFormatted}" Width="90" Foreground="#AAA" FontSize="10"/>
+                                        <DataGridTemplateColumn Header="Route" Width="80">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
-                                                    <Image Source="{Binding AppIcon}" Width="16" Height="16"/>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Image Source="{Binding FlagUrl}" Width="16" Height="12" Margin="0,0,5,0" 
+                                                           Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                        <TextBlock Text="{Binding Status}" Foreground="{Binding Color}" FontSize="10" VerticalAlignment="Center"/>
+                                                    </StackPanel>
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
-
-                                        <DataGridTextColumn Header="Group" Binding="{Binding GroupName}" Width="100"/>
-                                        <DataGridTextColumn Header="Apps" Binding="{Binding TargetApps, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
-                                        <DataGridTextColumn Header="Hosts" Binding="{Binding TargetHosts, Converter={StaticResource ListToStr}}" Width="2*" MinWidth="150"/>
-                                        <DataGridTemplateColumn Header="Action" Width="110" MinWidth="100">
+                                        <DataGridTemplateColumn Header="Action" Width="60">
                                             <DataGridTemplateColumn.CellTemplate>
                                                 <DataTemplate>
-                                                    <ComboBox ItemsSource="{Binding DataContext.ActionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                              SelectedItem="{Binding Action, UpdateSourceTrigger=PropertyChanged}"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-                                        <DataGridTemplateColumn Header="Direction" Width="100" MinWidth="90">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <ComboBox ItemsSource="{Binding DataContext.BlockDirectionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                              SelectedItem="{Binding BlockDirection, UpdateSourceTrigger=PropertyChanged}"
-                                                              Visibility="{Binding Action, Converter={StaticResource ActionToBlockVisConverter}}"/>
-                                                </DataTemplate>
-                                            </DataGridTemplateColumn.CellTemplate>
-                                        </DataGridTemplateColumn>
-                                        <DataGridTemplateColumn Header="Proxy Route" Width="150" MinWidth="140">
-                                            <DataGridTemplateColumn.CellTemplate>
-                                                <DataTemplate>
-                                                    <ComboBox ItemsSource="{Binding DataContext.Proxies, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                              DisplayMemberPath="IpAddress"
-                                                              SelectedValue="{Binding ProxyId, UpdateSourceTrigger=PropertyChanged}"
-                                                              SelectedValuePath="Id">
-                                                        <ComboBox.Style>
-                                                            <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding Action}" Value="Block">
-                                                                        <Setter Property="Visibility" Value="Hidden"/>
-                                                                    </DataTrigger>
-                                                                    <DataTrigger Binding="{Binding Action}" Value="Direct">
-                                                                        <Setter Property="Visibility" Value="Hidden"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </ComboBox.Style>
-                                                    </ComboBox>
+                                                    <Button Content="➕ Rule" 
+                                                        Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource ActionButtonStyle}"
+                                                        Padding="2"/>
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
                                     </DataGrid.Columns>
                                 </DataGrid>
 
-                                <Grid Grid.Row="3" Margin="0,10,0,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="70"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="80"/>
-                                        <ColumnDefinition Width="80"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Margin="2">
-                                        <TextBlock Text="Group" FontSize="9" Foreground="#777"/>
-                                        <TextBox Text="{Binding NewRuleGroup}"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="2">
-                                        <TextBlock Text="Apps (; sep)" FontSize="9" Foreground="#777"/>
-                                        <TextBox Text="{Binding NewRuleApps}"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" Margin="2">
-                                        <TextBlock Text="Hosts (; sep)" FontSize="9" Foreground="#777"/>
-                                        <TextBox Text="{Binding NewRuleHosts}"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="3" Margin="2">
-                                        <TextBlock Text="Action" FontSize="9" Foreground="#777"/>
-                                        <ComboBox ItemsSource="{Binding ActionTypes}" SelectedItem="{Binding NewRuleAction}"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="4" Margin="2" Visibility="{Binding NewRuleAction, Converter={StaticResource ActionToBlockVisConverter}}">
-                                        <TextBlock Text="Block Dir" FontSize="9" Foreground="#777"/>
-                                        <ComboBox ItemsSource="{Binding BlockDirectionTypes}" SelectedItem="{Binding NewRuleBlockDirection}"/>
-                                    </StackPanel>
-
-                                    <StackPanel Grid.Column="5" Margin="2" Width="120" Visibility="{Binding IsNewRuleProxyRequired, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Text="Select Proxy" FontSize="9" Foreground="#777"/>
-                                        <ComboBox ItemsSource="{Binding Proxies}" SelectedItem="{Binding NewRuleSelectedProxy}" DisplayMemberPath="IpAddress"/>
-                                    </StackPanel>
-
-                                    <StackPanel Grid.Column="6" Orientation="Horizontal" VerticalAlignment="Bottom">
-                                        <Button Content="Add" Command="{Binding AddRuleCommand}" Style="{StaticResource AccentBtn}" Width="50"/>
-                                        <Button Content="Del" Command="{Binding RemoveRuleCommand}" Background="#A03333" Width="40" Margin="5,0,0,0"/>
-                                    </StackPanel>
-                                </Grid>
+                                <TextBlock Grid.Row="1" Text="Select a process to view connections" 
+                                       VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#555"
+                                       Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}"/>
                             </Grid>
-                        </GroupBox>
-                    </Grid>
-                </TabItem>
+                        </Grid>
+                    </TabItem>
 
-                <TabItem Header="MONITOR">
-                    <Grid Margin="10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="3*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="2*" />
-                        </Grid.ColumnDefinitions>
-
-                        <Grid Grid.Column="0">
+                    <TabItem Header="CONNECTION LOGS">
+                        <Grid>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                             </Grid.RowDefinitions>
-
-                            <Border Grid.Row="0" Background="#252526" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5" Margin="0,0,0,10">
-                                <StackPanel>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                        <TextBlock Text="Period: " VerticalAlignment="Center" Foreground="#AAA" Margin="0,0,5,0"/>
-                                        <ComboBox ItemsSource="{Binding TrafficPeriodModes}" SelectedItem="{Binding SelectedPeriodMode}" Width="120" Margin="0,0,10,0"/>
-                                        <Button Content="Apply" Command="{Binding ApplyFilterCommand}" Width="60" Style="{StaticResource AccentBtn}"/>
-                                    </StackPanel>
-
-                                    <StackPanel Orientation="Horizontal" Visibility="{Binding IsDateRangeVisible, Converter={StaticResource BoolToVis}}">
-                                        <DatePicker SelectedDate="{Binding FilterDateStart}" Width="100" Margin="0,0,5,0"/>
-                                        <TextBox Text="{Binding FilterTimeStart}" Width="40" Margin="0,0,5,0" ToolTip="Start Time (HH:mm)"/>
-                                        <TextBlock Text="-" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                                        <DatePicker SelectedDate="{Binding FilterDateEnd}" Width="100" Margin="0,0,5,0"/>
-                                        <TextBox Text="{Binding FilterTimeEnd}" Width="40" ToolTip="End Time (HH:mm)"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-
-                            <TextBlock Grid.Row="1" Text="Traffic Overview" FontWeight="Bold" Foreground="#999" Margin="0,0,0,10"/>
-
-                            <DataGrid Grid.Row="2" ItemsSource="{Binding MonitoredProcesses}" 
-                                      SelectedItem="{Binding SelectedMonitorProcess}"
-                                      AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" 
-                                      Foreground="White" BorderThickness="0" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#333">
+                            <Button Content="Clear Logs" Command="{Binding ClearLogsCommand}" HorizontalAlignment="Right" Margin="10"/>
+                            <DataGrid Grid.Row="1" ItemsSource="{Binding Logs}" SelectedItem="{Binding SelectedLogItem}" AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" Foreground="White" BorderThickness="0" GridLinesVisibility="None">
                                 <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="80"/>
+
                                     <DataGridTemplateColumn Header="App" Width="40">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <Image Source="{Binding Icon}" Width="16" Height="16"/>
+                                                <Image Source="{Binding AppIcon}" Width="16" Height="16"/>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                    <DataGridTextColumn Header="Process Name" Binding="{Binding ProcessName}" Width="*" FontWeight="Bold"/>
-                                    <DataGridTextColumn Header="DL Speed" Binding="{Binding DownloadSpeedFormatted}" Width="80" Foreground="#55FF55"/>
-                                    <DataGridTextColumn Header="UL Speed" Binding="{Binding UploadSpeedFormatted}" Width="80" Foreground="#55AAFF"/>
-                                    <DataGridTextColumn Header="Total DL" Binding="{Binding TotalDownloadFormatted}" Width="80"/>
-                                    <DataGridTextColumn Header="Total UL" Binding="{Binding TotalUploadFormatted}" Width="80"/>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                        </Grid>
 
-                        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" Background="#333" Margin="5,0"/>
-
-                        <Grid Grid.Column="2">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,10" 
-                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                <TextBlock Text="Details for: " FontWeight="Bold" Foreground="#999"/>
-                                <TextBlock Text="{Binding SelectedMonitorProcess.ProcessName}" FontWeight="Bold" Foreground="White" Margin="5,0,0,0"/>
-                            </StackPanel>
-
-                            <DataGrid Grid.Row="1" ItemsSource="{Binding SelectedMonitorProcess.Connections}" 
-                                      AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" 
-                                      Foreground="White" BorderThickness="0" GridLinesVisibility="None"
-                                      Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                <DataGrid.Resources>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="VerticalAlignment" Value="Center"/>
-                                    </Style>
-                                </DataGrid.Resources>
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Time" Binding="{Binding TimeStr}" Width="60" Foreground="#888"/>
+                                    <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150"/>
                                     <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
-                                    <DataGridTextColumn Header="Traffic" Binding="{Binding TrafficFormatted}" Width="90" Foreground="#AAA" FontSize="10"/>
-                                    <DataGridTemplateColumn Header="Route" Width="80">
+
+                                    <DataGridTemplateColumn Header="Result" Width="150">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal">
-                                                    <Image Source="{Binding FlagUrl}" Width="16" Height="12" Margin="0,0,5,0" 
-                                                           Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
-                                                    <TextBlock Text="{Binding Status}" Foreground="{Binding Color}" FontSize="10" VerticalAlignment="Center"/>
+                                                    <Image Source="{Binding CountryFlagUrl}" Width="20" Height="15" Margin="0,0,5,0" RenderOptions.BitmapScalingMode="HighQuality"
+                                                        Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                    <TextBlock Text="{Binding Result}" Foreground="{Binding Color}" FontWeight="Bold" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                    <DataGridTemplateColumn Header="Action" Width="60">
+
+                                    <DataGridTemplateColumn Header="Actions" Width="100">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                                 <Button Content="➕ Rule" 
-                                                        Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
-                                                        CommandParameter="{Binding}"
-                                                        Style="{StaticResource ActionButtonStyle}"
-                                                        Padding="2"/>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
-
-                            <TextBlock Grid.Row="1" Text="Select a process to view connections" 
-                                       VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#555"
-                                       Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}"/>
-                        </Grid>
-                    </Grid>
-                </TabItem>
-
-                <TabItem Header="CONNECTION LOGS">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <Button Content="Clear Logs" Command="{Binding ClearLogsCommand}" HorizontalAlignment="Right" Margin="10"/>
-                        <DataGrid Grid.Row="1" ItemsSource="{Binding Logs}" SelectedItem="{Binding SelectedLogItem}" AutoGenerateColumns="False" Background="#1E1E1E" RowBackground="#252526" Foreground="White" BorderThickness="0" GridLinesVisibility="None">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="80"/>
-
-                                <DataGridTemplateColumn Header="App" Width="40">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Image Source="{Binding AppIcon}" Width="16" Height="16"/>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-
-                                <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150"/>
-                                <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="*"/>
-
-                                <DataGridTemplateColumn Header="Result" Width="150">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Image Source="{Binding CountryFlagUrl}" Width="20" Height="15" Margin="0,0,5,0" RenderOptions.BitmapScalingMode="HighQuality"
-                                                       Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
-                                                <TextBlock Text="{Binding Result}" Foreground="{Binding Color}" FontWeight="Bold" VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-
-                                <DataGridTemplateColumn Header="Actions" Width="100">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Button Content="➕ Rule" 
                                                     Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
                                                     CommandParameter="{Binding}"
                                                     Style="{StaticResource ActionButtonStyle}"
                                                     HorizontalAlignment="Center"
                                                     Margin="0"/>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
 
-                            </DataGrid.Columns>
-                        </DataGrid>
-                    </Grid>
-                </TabItem>
-            </TabControl>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
         </Grid>
 
         <Grid x:Name="RuleModalOverlay" Grid.RowSpan="2" Background="#CC000000" Visibility="{Binding IsModalVisible, Converter={StaticResource BoolToVis}}" Panel.ZIndex="999" d:IsHidden="True">

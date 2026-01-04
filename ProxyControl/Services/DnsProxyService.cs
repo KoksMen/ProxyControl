@@ -14,9 +14,8 @@ namespace ProxyControl.Services
     public class DnsProxyService
     {
         private const int LocalDnsPort = 53;
-        private const string RemoteDnsHost = "8.8.8.8"; // Google DNS
-        private const int RemoteDnsPort = 53;
-        private const string FallbackDns = "8.8.8.8";
+        private int RemoteDnsPort = 53;
+        private string _remoteDnsHost = "8.8.8.8"; // Default
 
         private UdpClient? _udpListener;
         private bool _isRunning;
@@ -28,8 +27,6 @@ namespace ProxyControl.Services
         private string? _blackListProxyId;
         private RuleMode _currentMode;
 
-        // --- Connection Pooling ---
-        // Ключ: ID прокси. Значение: Пул соединений (Bag быстрее Queue для пулинга)
         private readonly ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>> _connectionPool
             = new ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>>();
 
@@ -61,7 +58,6 @@ namespace ProxyControl.Services
                 catch { return false; }
             }
         }
-        // --------------------------
 
         public DnsProxyService()
         {
@@ -85,7 +81,16 @@ namespace ProxyControl.Services
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
 
-            // При изменении конфига чистим пул, так как настройки прокси могли измениться
+            // Fix 3: Use configured DNS host
+            if (!string.IsNullOrWhiteSpace(config.DnsHost))
+            {
+                _remoteDnsHost = config.DnsHost;
+            }
+            else
+            {
+                _remoteDnsHost = "8.8.8.8";
+            }
+
             ClearConnectionPool();
         }
 
@@ -115,7 +120,6 @@ namespace ProxyControl.Services
 
                 Task.Run(ListenLoop, _cts.Token);
 
-                // Задача очистки старых соединений
                 Task.Run(async () =>
                 {
                     while (_isRunning)
@@ -152,7 +156,6 @@ namespace ProxyControl.Services
                     var active = new List<PooledTcpClient>();
                     while (bag.TryTake(out var conn))
                     {
-                        // Удаляем соединения, которые простаивали > 60 сек или разорваны
                         if ((DateTime.Now - conn.LastUsed).TotalSeconds < 60 && conn.IsConnected())
                         {
                             active.Add(conn);
@@ -162,7 +165,6 @@ namespace ProxyControl.Services
                             conn.Dispose();
                         }
                     }
-                    // Возвращаем живые обратно
                     foreach (var c in active) bag.Add(c);
                 }
             }
@@ -210,7 +212,6 @@ namespace ProxyControl.Services
         {
             var pool = _connectionPool.GetOrAdd(proxy.Id, _ => new ConcurrentBag<PooledTcpClient>());
 
-            // 1. Пытаемся взять из пула
             while (pool.TryTake(out var conn))
             {
                 if (conn.IsConnected())
@@ -220,7 +221,6 @@ namespace ProxyControl.Services
                 conn.Dispose();
             }
 
-            // 2. Если пул пуст - создаем новое соединение с Handshake
             var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync(proxy.IpAddress, proxy.Port);
             var stream = tcpClient.GetStream();
@@ -232,8 +232,8 @@ namespace ProxyControl.Services
                 auth = $"Proxy-Authorization: Basic {creds}\r\n";
             }
 
-            // Выполняем HTTP CONNECT Handshake
-            string connectReq = $"CONNECT {RemoteDnsHost}:{RemoteDnsPort} HTTP/1.1\r\nHost: {RemoteDnsHost}:{RemoteDnsPort}\r\n{auth}\r\n";
+            // Fix 3: Use _remoteDnsHost
+            string connectReq = $"CONNECT {_remoteDnsHost}:{RemoteDnsPort} HTTP/1.1\r\nHost: {_remoteDnsHost}:{RemoteDnsPort}\r\n{auth}\r\n";
             byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
             await stream.WriteAsync(reqBytes, 0, reqBytes.Length);
 
@@ -271,15 +271,12 @@ namespace ProxyControl.Services
 
             try
             {
-                // Попытка 1
                 conn = await GetConnectionAsync(proxy);
                 await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
                 ReturnConnection(proxy, conn);
             }
             catch
             {
-                // Если произошла ошибка (например, сокет отвалился в момент взятия из пула),
-                // выбрасываем старое соединение и пробуем создать новое ОДИН раз
                 conn?.Dispose();
                 retry = true;
             }
@@ -288,7 +285,6 @@ namespace ProxyControl.Services
             {
                 try
                 {
-                    // Попытка 2 (всегда создаст новое, т.к. пул скорее всего пуст или мы его пропустим)
                     conn = await GetConnectionAsync(proxy);
                     await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
                     ReturnConnection(proxy, conn);
@@ -304,7 +300,6 @@ namespace ProxyControl.Services
         {
             var stream = conn.Stream;
 
-            // DNS over TCP: 2 байта длины (Big Endian) перед пакетом
             byte[] lengthPrefix = BitConverter.GetBytes((ushort)dnsQuery.Length);
             if (BitConverter.IsLittleEndian) Array.Reverse(lengthPrefix);
 
@@ -336,7 +331,8 @@ namespace ProxyControl.Services
                     udpForwarder.Client.ReceiveTimeout = 2000;
                     udpForwarder.Client.SendTimeout = 2000;
 
-                    await udpForwarder.SendAsync(dnsQuery, dnsQuery.Length, FallbackDns, 53);
+                    // Fix 3: Use _remoteDnsHost instead of FallbackDns constant
+                    await udpForwarder.SendAsync(dnsQuery, dnsQuery.Length, _remoteDnsHost, 53);
 
                     var result = await udpForwarder.ReceiveAsync();
                     if (result.Buffer != null && result.Buffer.Length > 0 && _udpListener != null)
@@ -419,27 +415,56 @@ namespace ProxyControl.Services
             try
             {
                 int offset = 12;
-                StringBuilder sb = new StringBuilder();
-                while (offset < data.Length)
-                {
-                    byte len = data[offset];
-                    if (len == 0) break;
-                    if ((len & 0xC0) == 0xC0) break;
-
-                    offset++;
-                    if (sb.Length > 0) sb.Append(".");
-
-                    if (offset + len > data.Length) break;
-
-                    sb.Append(Encoding.ASCII.GetString(data, offset, len));
-                    offset += len;
-                }
-                return sb.ToString();
+                if (data.Length <= offset) return "";
+                return ParseName(data, ref offset);
             }
             catch
             {
                 return "";
             }
+        }
+
+        private string ParseName(byte[] data, ref int offset)
+        {
+            StringBuilder sb = new StringBuilder();
+            int jumpOffset = -1;
+            int steps = 0;
+
+            while (true)
+            {
+                if (steps++ > 20) break;
+                if (offset >= data.Length) break;
+
+                byte len = data[offset];
+
+                if (len == 0)
+                {
+                    offset++;
+                    break;
+                }
+
+                if ((len & 0xC0) == 0xC0)
+                {
+                    if (offset + 1 >= data.Length) break;
+
+                    int pointer = ((len & 0x3F) << 8) | data[offset + 1];
+                    if (jumpOffset == -1) jumpOffset = offset + 2;
+
+                    offset = pointer;
+                    continue;
+                }
+
+                offset++;
+                if (sb.Length > 0) sb.Append(".");
+
+                if (offset + len > data.Length) break;
+
+                sb.Append(Encoding.ASCII.GetString(data, offset, len));
+                offset += len;
+            }
+
+            if (jumpOffset != -1) offset = jumpOffset;
+            return sb.ToString();
         }
 
         private async Task<int> ReadExactAsync(NetworkStream stream, byte[] buffer, int length)

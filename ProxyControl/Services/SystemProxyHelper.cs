@@ -25,85 +25,89 @@ namespace ProxyControl.Services
 
         private static readonly string[] NetworkInterfaces = { "Wi-Fi", "Ethernet", "Ethernet 2", "Беспроводная сеть", "Подключение по локальной сети" };
 
-        // --- Caching Variables ---
         private static readonly object _cacheLock = new object();
         private static Dictionary<int, int> _pidCache = new Dictionary<int, int>();
         private static DateTime _lastCacheUpdate = DateTime.MinValue;
-        private const int CacheDurationMs = 250;
-        // -------------------------
+        private const int CacheDurationMs = 500;
+
+        // Task coalescing: If multiple threads request refresh, they await the SAME task.
+        private static Task<Dictionary<int, int>>? _refreshTask;
 
         public static int GetPidByPort(int port, bool forceRefresh = false)
         {
-            if (!forceRefresh)
-            {
-                lock (_cacheLock)
-                {
-                    if ((DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
-                    {
-                        // Если PID == 0, считаем что "нет данных", и не возвращаем его из кэша,
-                        // чтобы дать шанс реальному обновлению (forceRefresh) найти процесс.
-                        if (_pidCache.TryGetValue(port, out int cachedPid) && cachedPid > 0)
-                        {
-                            return cachedPid;
-                        }
-                    }
-                }
-            }
+            Dictionary<int, int>? cacheSnapshot = null;
 
-            return RefreshAndGetPid(port);
-        }
-
-        private static int RefreshAndGetPid(int port)
-        {
             lock (_cacheLock)
             {
-                if ((DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
+                // Return immediately if cache is fresh enough and contains the key (unless force refresh)
+                if (!forceRefresh && (DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
                 {
-                    // Double-check: если другой поток обновил кэш, и нашел валидный PID
-                    if (_pidCache.TryGetValue(port, out int existingPid) && existingPid > 0) return existingPid;
-                }
-
-                int bufferSize = 0;
-                // ipVersion: 2 = AF_INET (IPv4)
-                GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
-
-                IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
-                var newCache = new Dictionary<int, int>();
-
-                try
-                {
-                    if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0) == 0)
+                    if (_pidCache.TryGetValue(port, out int cachedPid) && cachedPid > 0)
                     {
-                        int rowCount = Marshal.ReadInt32(tcpTablePtr);
-                        IntPtr rowPtr = tcpTablePtr + 4;
-
-                        for (int i = 0; i < rowCount; i++)
-                        {
-                            // dwLocalPort at offset 8
-                            int localPort = Marshal.ReadInt32(rowPtr + 8);
-                            // Network byte order swap for port (16 bit relevant part)
-                            localPort = ((localPort & 0xFF00) >> 8) | ((localPort & 0xFF) << 8);
-
-                            // PID at offset 20
-                            int pid = Marshal.ReadInt32(rowPtr + 20);
-
-                            // Кэшируем даже 0, но GetPidByPort будет игнорировать 0 при чтении
-                            newCache[localPort] = pid;
-
-                            rowPtr += 24;
-                        }
+                        return cachedPid;
                     }
                 }
-                finally
+
+                // Get or start the refresh task
+                if (_refreshTask == null || _refreshTask.IsCompleted)
                 {
-                    Marshal.FreeHGlobal(tcpTablePtr);
+                    _refreshTask = Task.Run(() => BuildTcpTableSnapshot());
                 }
-
-                _pidCache = newCache;
-                _lastCacheUpdate = DateTime.UtcNow;
-
-                return _pidCache.TryGetValue(port, out int resultPid) ? resultPid : 0;
             }
+
+            try
+            {
+                // Await the shared refresh task
+                cacheSnapshot = _refreshTask.GetAwaiter().GetResult();
+            }
+            catch
+            {
+                return 0;
+            }
+
+            lock (_cacheLock)
+            {
+                _pidCache = cacheSnapshot;
+                _lastCacheUpdate = DateTime.UtcNow;
+                return _pidCache.TryGetValue(port, out int pid) ? pid : 0;
+            }
+        }
+
+        private static Dictionary<int, int> BuildTcpTableSnapshot()
+        {
+            int bufferSize = 0;
+            GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, false, 2, 5, 0);
+
+            IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
+            var newCache = new Dictionary<int, int>(100);
+
+            try
+            {
+                if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, false, 2, 5, 0) == 0)
+                {
+                    int rowCount = Marshal.ReadInt32(tcpTablePtr);
+                    IntPtr rowPtr = tcpTablePtr + 4;
+
+                    for (int i = 0; i < rowCount; i++)
+                    {
+                        // dwLocalPort at offset 8
+                        int localPort = Marshal.ReadInt32(rowPtr + 8);
+                        localPort = ((localPort & 0xFF00) >> 8) | ((localPort & 0xFF) << 8);
+
+                        // PID at offset 20
+                        int pid = Marshal.ReadInt32(rowPtr + 20);
+
+                        newCache[localPort] = pid;
+
+                        rowPtr += 24;
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(tcpTablePtr);
+            }
+            return newCache;
         }
 
         public static void SetSystemProxy(bool enable, string host, int port)
