@@ -556,7 +556,7 @@
                                             <DataTemplate>
                                                 <StackPanel Orientation="Horizontal">
                                                     <Image Source="{Binding FlagUrl}" Width="16" Height="12" Margin="0,0,5,0" 
-                                            Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                           Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
                                                     <TextBlock Text="{Binding Status}" Foreground="{Binding Color}" FontSize="10" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </DataTemplate>
@@ -610,7 +610,7 @@
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
                                                 <Image Source="{Binding CountryFlagUrl}" Width="20" Height="15" Margin="0,0,5,0" RenderOptions.BitmapScalingMode="HighQuality"
-                                                                Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
+                                                       Visibility="{Binding CountryFlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}"/>
                                                 <TextBlock Text="{Binding Result}" Foreground="{Binding Color}" FontWeight="Bold" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </DataTemplate>
@@ -731,6 +731,10 @@
 
                         <TextBlock Text="Password (Optional)" Foreground="#AAA" Margin="0,0,0,5"/>
                         <TextBox Text="{Binding ProxyModalPass}" Margin="0,0,0,15" Padding="5"/>
+
+                        <CheckBox Content="Use TLS (Modern Secure Proxy)" IsChecked="{Binding ProxyModalUseTls}" Foreground="White" Margin="0,0,0,5"/>
+                        <CheckBox Content="Use SSL (Legacy/Compat Mode)" IsChecked="{Binding ProxyModalUseSsl}" Foreground="White" Margin="0,0,0,15"/>
+
                     </StackPanel>
 
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,25,0,0">

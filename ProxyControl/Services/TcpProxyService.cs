@@ -10,6 +10,8 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Net.Security;
+using System.Security.Authentication;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -40,7 +42,6 @@ namespace ProxyControl.Services
         private readonly TrafficMonitorService _trafficMonitor;
         private const int LocalPort = 8000;
         private const int BufferSize = 8192;
-        // Лимит размера заголовка для защиты и парсинга (16 KB)
         private const int MaxHeaderSize = 16 * 1024;
 
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
@@ -66,6 +67,7 @@ namespace ProxyControl.Services
 
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
         {
+            // Обновляем список прокси, создавая копии, чтобы избежать проблем с многопоточностью при изменении UI
             _localProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
@@ -74,7 +76,9 @@ namespace ProxyControl.Services
                 Username = p.Username,
                 Password = p.Password,
                 IsEnabled = p.IsEnabled,
-                CountryCode = p.CountryCode
+                CountryCode = p.CountryCode,
+                UseTls = p.UseTls,
+                UseSsl = p.UseSsl
             }).ToList();
 
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
@@ -83,7 +87,13 @@ namespace ProxyControl.Services
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
 
-            DisconnectAllClients();
+            // Принудительно разрываем соединения, чтобы новые правила вступили в силу.
+            // Обернуто в try-catch для безопасности.
+            try
+            {
+                DisconnectAllClients();
+            }
+            catch { }
         }
 
         private void DisconnectAllClients()
@@ -122,6 +132,7 @@ namespace ProxyControl.Services
             catch
             {
                 _isRunning = false;
+                throw; // Rethrow to let ViewModel know start failed
             }
         }
 
@@ -167,11 +178,10 @@ namespace ProxyControl.Services
                 while (totalBytesRead < MaxHeaderSize)
                 {
                     int bytesRead = await stream.ReadAsync(buffer, totalBytesRead, buffer.Length - totalBytesRead, token);
-                    if (bytesRead == 0) break; // Connection closed
+                    if (bytesRead == 0) break;
 
                     totalBytesRead += bytesRead;
 
-                    // Ищем конец заголовков \r\n\r\n
                     int searchStart = Math.Max(0, totalBytesRead - bytesRead - 3);
                     headerEndIndex = FindHeaderEnd(buffer, searchStart, totalBytesRead);
 
@@ -227,19 +237,13 @@ namespace ProxyControl.Services
 
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
 
-                // --- ИСПРАВЛЕНИЕ 1 и 3: Цикл повторных попыток определения PID ---
-                // Операционная система может не успеть обновить таблицу TCP мгновенно.
-                // Пробуем 5 раз с паузой 20мс (итого до 100мс задержки, что незаметно, но надежно).
                 int pid = 0;
                 for (int i = 0; i < 5; i++)
                 {
-                    // Первый раз (i=0) пробуем из кэша, далее - forceRefresh
                     pid = SystemProxyHelper.GetPidByPort(clientPort, forceRefresh: i > 0);
                     if (pid > 0) break;
-
                     if (i < 4) await Task.Delay(20);
                 }
-                // ------------------------------------------------------------------
 
                 string processName = _processMonitor.GetProcessName(pid);
 
@@ -274,7 +278,6 @@ namespace ProxyControl.Services
 
                 var decision = ResolveAction(processName, targetHost);
 
-                // Determine display status
                 string logResult = "Direct";
                 string logColor = "#AAAAAA";
 
@@ -316,7 +319,6 @@ namespace ProxyControl.Services
                     CountryFlagUrl = flagUrl
                 });
 
-                // 1. Полная блокировка (Исправление 2: Теперь правило сработает, т.к. processName определен)
                 if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) return;
 
                 ProxyItem? targetProxy = decision.Proxy;
@@ -327,7 +329,32 @@ namespace ProxyControl.Services
                 if (targetProxy != null)
                 {
                     await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
-                    var remoteStream = remoteServer.GetStream();
+
+                    Stream remoteStream = remoteServer.GetStream();
+
+                    if (targetProxy.UseTls || targetProxy.UseSsl)
+                    {
+                        var protocols = SslProtocols.None;
+                        if (targetProxy.UseTls)
+                        {
+                            protocols = SslProtocols.Tls12 | SslProtocols.Tls13;
+                        }
+                        else if (targetProxy.UseSsl)
+                        {
+                            protocols = SslProtocols.Tls | SslProtocols.Tls11;
+                        }
+
+                        var sslStream = new SslStream(remoteStream, false, (s, c, ch, e) => true);
+                        try
+                        {
+                            await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, protocols, false);
+                            remoteStream = sslStream;
+                        }
+                        catch
+                        {
+                            return;
+                        }
+                    }
 
                     string auth = "";
                     if (!string.IsNullOrEmpty(targetProxy.Username))
@@ -338,6 +365,7 @@ namespace ProxyControl.Services
 
                     string connectReq = $"CONNECT {targetHost}:{targetPort} HTTP/1.1\r\nHost: {targetHost}:{targetPort}\r\n{auth}\r\n";
                     byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
+
                     await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
 
                     byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
@@ -374,7 +402,6 @@ namespace ProxyControl.Services
                 }
                 else
                 {
-                    // Direct connection
                     await remoteServer.ConnectAsync(targetHost, targetPort, ctx.Cts.Token);
                     var remoteStream = remoteServer.GetStream();
 
@@ -409,7 +436,7 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task BridgeStreams(NetworkStream clientStream, NetworkStream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
+        private async Task BridgeStreams(NetworkStream clientStream, Stream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
         {
             var uploadTask = (blockDir == BlockDirection.Outbound)
                 ? DiscardAsync(clientStream, token)
@@ -422,7 +449,7 @@ namespace ProxyControl.Services
             await Task.WhenAny(uploadTask, downloadTask);
         }
 
-        private async Task DiscardAsync(NetworkStream source, CancellationToken token)
+        private async Task DiscardAsync(Stream source, CancellationToken token)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(1024);
             try
@@ -433,7 +460,7 @@ namespace ProxyControl.Services
             finally { ArrayPool<byte>.Shared.Return(buffer); }
         }
 
-        private async Task CopyAndTrackAsync(NetworkStream source, NetworkStream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
+        private async Task CopyAndTrackAsync(Stream source, Stream destination, string processName, bool isDownload, ConnectionHistoryItem? historyItem, CancellationToken token)
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             try
@@ -512,10 +539,9 @@ namespace ProxyControl.Services
 
         private (RuleAction Action, ProxyItem? Proxy, BlockDirection BlockDir) ResolveAction(string app, string host)
         {
-            // Строгое сравнение для поиска Main Proxy
             var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
 
-            if (_currentMode == RuleMode.BlackList) // Black List
+            if (_currentMode == RuleMode.BlackList)
             {
                 foreach (var rule in _localBlackList)
                 {
@@ -538,7 +564,7 @@ namespace ProxyControl.Services
                 if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                 return (RuleAction.Direct, null, BlockDirection.Both);
             }
-            else // White List
+            else
             {
                 foreach (var rule in _localWhiteList)
                 {
@@ -551,20 +577,13 @@ namespace ProxyControl.Services
 
                         if (rule.ProxyId != null)
                         {
-                            // ИСПРАВЛЕНИЕ 1: Использование OrdinalIgnoreCase для ID и корректный фоллбек
                             var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
 
-                            // Если выбран конкретный прокси и он активен - используем его
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p, BlockDirection.Both);
 
-                            // Если прокси не найден или выключен, но правило сработало - 
-                            // логичнее использовать Main Proxy, чем Direct (чтобы не допустить утечки),
-                            // либо Direct, если такова логика. 
-                            // В оригинале был fallback на MainProxy. Восстанавливаем и усиливаем логику:
                             if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                         }
 
-                        // Если ID прокси не задан, но правило сработало - используем Main Proxy
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy, BlockDirection.Both);
                     }
                 }
@@ -614,11 +633,21 @@ namespace ProxyControl.Services
             long ping = 0;
             double speedMbps = 0;
 
+            string scheme = "http";
+            if (proxy.UseTls || proxy.UseSsl) scheme = "https";
+
+            var proxyUri = new WebProxy($"{scheme}://{proxy.IpAddress}:{proxy.Port}");
+
             var handler = new HttpClientHandler
             {
-                Proxy = new WebProxy(proxy.IpAddress, proxy.Port),
+                Proxy = proxyUri,
                 UseProxy = true
             };
+
+            if (proxy.UseTls || proxy.UseSsl)
+            {
+                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+            }
 
             if (!string.IsNullOrEmpty(proxy.Username))
             {
@@ -631,7 +660,7 @@ namespace ProxyControl.Services
                 {
                     client.Timeout = TimeSpan.FromSeconds(10);
                     var sw = Stopwatch.StartNew();
-                    var response = await client.GetAsync("http://www.google.com/generate_204");
+                    var response = await client.GetAsync("https://www.google.com/generate_204");
                     sw.Stop();
                     ping = sw.ElapsedMilliseconds;
                     connectionSuccess = response.IsSuccessStatusCode;
@@ -648,9 +677,13 @@ namespace ProxyControl.Services
             {
                 var speedHandler = new HttpClientHandler
                 {
-                    Proxy = new WebProxy(proxy.IpAddress, proxy.Port),
+                    Proxy = proxyUri,
                     UseProxy = true
                 };
+                if (proxy.UseTls || proxy.UseSsl)
+                {
+                    speedHandler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                }
                 if (!string.IsNullOrEmpty(proxy.Username)) speedHandler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
 
                 using (var speedClient = new HttpClient(speedHandler))

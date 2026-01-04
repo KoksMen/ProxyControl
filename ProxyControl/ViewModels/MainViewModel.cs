@@ -28,6 +28,7 @@ namespace ProxyControl.ViewModels
 
         private AppConfig _config;
         private CancellationTokenSource _enforceCts;
+        private CancellationTokenSource? _saveDebounceCts; // Для оптимизации сохранения
         private bool _suppressSave = false;
 
         public ObservableCollection<ProxyItem> Proxies { get; set; } = new ObservableCollection<ProxyItem>();
@@ -240,6 +241,32 @@ namespace ProxyControl.ViewModels
         private string? _proxyModalPass;
         public string? ProxyModalPass { get => _proxyModalPass; set { _proxyModalPass = value; OnPropertyChanged(); } }
 
+        // --- Security Fields in Modal ---
+        private bool _proxyModalUseTls = false;
+        public bool ProxyModalUseTls
+        {
+            get => _proxyModalUseTls;
+            set
+            {
+                _proxyModalUseTls = value;
+                if (_proxyModalUseTls) ProxyModalUseSsl = false; // Mutually exclusive
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _proxyModalUseSsl = false;
+        public bool ProxyModalUseSsl
+        {
+            get => _proxyModalUseSsl;
+            set
+            {
+                _proxyModalUseSsl = value;
+                if (_proxyModalUseSsl) ProxyModalUseTls = false; // Mutually exclusive
+                OnPropertyChanged();
+            }
+        }
+        // ------------------------------
+
         private ProxyItem? _editingProxyItem;
 
         // --- End Modal Fields ---
@@ -277,7 +304,7 @@ namespace ProxyControl.ViewModels
                 _isAutoStart = value;
                 if (!_suppressSave)
                     _settingsService.SetAutoStart(value);
-                SaveSettings();
+                RequestSaveSettings();
                 OnPropertyChanged();
             }
         }
@@ -289,7 +316,7 @@ namespace ProxyControl.ViewModels
             set
             {
                 _checkUpdateOnStartup = value;
-                SaveSettings();
+                RequestSaveSettings();
                 OnPropertyChanged();
             }
         }
@@ -314,7 +341,7 @@ namespace ProxyControl.ViewModels
                 ReloadRulesForCurrentMode();
                 OnPropertyChanged();
                 ApplyConfig();
-                SaveSettings();
+                RequestSaveSettings();
             }
         }
 
@@ -334,7 +361,7 @@ namespace ProxyControl.ViewModels
                     if (result == MessageBoxResult.Yes)
                     {
                         _config.EnableDnsProtection = true;
-                        SaveSettings();
+                        RequestSaveSettings();
                         SystemProxyHelper.RestartAsAdmin();
                         Application.Current.Shutdown();
                         return;
@@ -348,12 +375,8 @@ namespace ProxyControl.ViewModels
 
                 _config.EnableDnsProtection = value;
                 OnPropertyChanged();
-
-                // При отключении галочки или изменении - обновляем сервис
-                // Если value = false, это вызовет Stop(), который теперь корректно сбрасывает DNS
                 UpdateDnsServiceState();
-
-                SaveSettings();
+                RequestSaveSettings();
             }
         }
 
@@ -372,7 +395,7 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged();
                 ReloadRulesForCurrentMode();
                 ApplyConfig();
-                SaveSettings();
+                RequestSaveSettings();
             }
         }
 
@@ -446,7 +469,7 @@ namespace ProxyControl.ViewModels
 
             PasteProxyCommand = new RelayCommand(_ => PasteProxy());
             RemoveProxyCommand = new RelayCommand(_ => RemoveProxy());
-            SaveChangesCommand = new RelayCommand(_ => SaveSettings());
+            SaveChangesCommand = new RelayCommand(_ => RequestSaveSettings());
             CheckProxyCommand = new RelayCommand(_ => CheckSelectedProxy());
             AddRuleCommand = new RelayCommand(_ => AddRule());
             RemoveRuleCommand = new RelayCommand(_ => RemoveRule());
@@ -579,6 +602,8 @@ namespace ProxyControl.ViewModels
                 ProxyModalPort = 8080;
                 ProxyModalUser = "";
                 ProxyModalPass = "";
+                ProxyModalUseTls = false;
+                ProxyModalUseSsl = false;
             }
             else
             {
@@ -587,6 +612,8 @@ namespace ProxyControl.ViewModels
                 ProxyModalPort = item.Port;
                 ProxyModalUser = item.Username;
                 ProxyModalPass = item.Password;
+                ProxyModalUseTls = item.UseTls;
+                ProxyModalUseSsl = item.UseSsl;
             }
             IsProxyModalVisible = true;
         }
@@ -601,6 +628,8 @@ namespace ProxyControl.ViewModels
                     Port = ProxyModalPort,
                     Username = ProxyModalUser,
                     Password = ProxyModalPass,
+                    UseTls = ProxyModalUseTls,
+                    UseSsl = ProxyModalUseSsl,
                     IsEnabled = true,
                     Status = "New"
                 };
@@ -614,12 +643,14 @@ namespace ProxyControl.ViewModels
                 _editingProxyItem.Port = ProxyModalPort;
                 _editingProxyItem.Username = ProxyModalUser;
                 _editingProxyItem.Password = ProxyModalPass;
+                _editingProxyItem.UseTls = ProxyModalUseTls;
+                _editingProxyItem.UseSsl = ProxyModalUseSsl;
                 _editingProxyItem.Status = "Updated";
                 _ = CheckSingleProxy(_editingProxyItem);
             }
 
             IsProxyModalVisible = false;
-            SaveSettings();
+            RequestSaveSettings();
         }
 
         private void OpenRuleModal(object obj)
@@ -680,7 +711,7 @@ namespace ProxyControl.ViewModels
                 RulesList.Add(rule);
             }
 
-            SaveSettings();
+            RequestSaveSettings();
             IsModalVisible = false;
         }
 
@@ -757,10 +788,11 @@ namespace ProxyControl.ViewModels
                 nameof(TrafficRule.BlockDirection),
                 nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port),
                 nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode),
+                nameof(ProxyItem.UseTls), nameof(ProxyItem.UseSsl),
                 nameof(TrafficRule.IconBase64)
             };
             if (triggers.Contains(e.PropertyName))
-                SaveSettings();
+                RequestSaveSettings();
         }
 
         private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -770,7 +802,7 @@ namespace ProxyControl.ViewModels
                 foreach (INotifyPropertyChanged item in e.NewItems) item.PropertyChanged += OnItemPropertyChanged;
             if (e.OldItems != null)
                 foreach (INotifyPropertyChanged item in e.OldItems) item.PropertyChanged -= OnItemPropertyChanged;
-            SaveSettings();
+            RequestSaveSettings();
         }
 
         private void SubscribeToItem(INotifyPropertyChanged item)
@@ -779,18 +811,48 @@ namespace ProxyControl.ViewModels
             item.PropertyChanged += OnItemPropertyChanged;
         }
 
-        private void SaveSettings()
+        // --- OPTIMIZED SAVE LOGIC (Fixing "Stopped Reacting" and Performance) ---
+        private void RequestSaveSettings()
         {
             if (_suppressSave) return;
-            var data = new AppSettings
+
+            // 1. Сначала ПРИМЕНЯЕМ настройки в сервис. Это обеспечивает мгновенную реакцию приложения.
+            // Даже если сохранение на диск зависнет или упадет, прокси будет работать с новыми правилами.
+            try
             {
-                IsAutoStart = IsAutoStart,
-                CheckUpdateOnStartup = CheckUpdateOnStartup,
-                Proxies = Proxies.ToList(),
-                Config = _config
-            };
-            _settingsService.Save(data);
-            ApplyConfig();
+                ApplyConfig();
+            }
+            catch (Exception ex)
+            {
+                // Логируем или игнорируем, но не даем приложению упасть
+                System.Diagnostics.Debug.WriteLine($"Error applying config: {ex.Message}");
+            }
+
+            // 2. Откладываем сохранение на диск (Debounce), чтобы не тормозить UI при частых изменениях
+            _saveDebounceCts?.Cancel();
+            _saveDebounceCts = new CancellationTokenSource();
+            var token = _saveDebounceCts.Token;
+
+            Task.Delay(500, token).ContinueWith(t =>
+            {
+                if (t.IsCanceled) return;
+
+                try
+                {
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        var data = new AppSettings
+                        {
+                            IsAutoStart = IsAutoStart,
+                            CheckUpdateOnStartup = CheckUpdateOnStartup,
+                            Proxies = Proxies.ToList(),
+                            Config = _config
+                        };
+                        _settingsService.Save(data);
+                    });
+                }
+                catch { } // Ошибки записи на диск не должны рушить приложение
+            });
         }
 
         private void ApplyConfig()
@@ -798,6 +860,7 @@ namespace ProxyControl.ViewModels
             _proxyService.UpdateConfig(_config, Proxies.ToList());
             _dnsProxyService.UpdateConfig(_config, Proxies.ToList());
         }
+        // -------------------------------------------------------------------------
 
         private void AddProxy()
         {
@@ -877,7 +940,7 @@ namespace ProxyControl.ViewModels
                     SelectedProxy = null;
 
                     ReloadRulesForCurrentMode();
-                    SaveSettings();
+                    RequestSaveSettings();
                 }
             }
         }
@@ -903,7 +966,44 @@ namespace ProxyControl.ViewModels
         private async void CheckSelectedProxy()
         {
             if (SelectedProxy != null)
+            {
                 await CheckSingleProxy(SelectedProxy);
+
+                if (SelectedProxy.Status == "Online")
+                {
+                    string encType = "ВЫКЛЮЧЕНО";
+                    string desc = "Используется стандартное соединение.";
+
+                    if (SelectedProxy.UseTls)
+                    {
+                        encType = "TLS (Modern) АКТИВНО";
+                        desc = "Трафик шифруется (TLS 1.2+).";
+                    }
+                    else if (SelectedProxy.UseSsl)
+                    {
+                        encType = "SSL (Legacy) АКТИВНО";
+                        desc = "Трафик шифруется (режим совместимости).";
+                    }
+
+                    MessageBox.Show(
+                        $"Прокси {SelectedProxy.IpAddress} доступен!\n\n🔐 Шифрование: {encType}\n{desc}",
+                        "Check Success",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                else
+                {
+                    MessageBox.Show(
+                        $"Прокси {SelectedProxy.IpAddress} недоступен или ошибка соединения.",
+                        "Check Failed",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Пожалуйста, выберите прокси из списка.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
 
         private void AddRule()
@@ -1040,16 +1140,24 @@ namespace ProxyControl.ViewModels
 
         private void ToggleService()
         {
-            IsProxyRunning = !IsProxyRunning;
-            if (IsProxyRunning)
+            try
             {
-                _proxyService.Start();
-                UpdateDnsServiceState();
+                IsProxyRunning = !IsProxyRunning;
+                if (IsProxyRunning)
+                {
+                    _proxyService.Start();
+                    UpdateDnsServiceState();
+                }
+                else
+                {
+                    _proxyService.Stop();
+                    _dnsProxyService.Stop();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                _proxyService.Stop();
-                _dnsProxyService.Stop();
+                IsProxyRunning = false; // Revert state on failure
+                MessageBox.Show($"Failed to toggle proxy service: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -1100,7 +1208,7 @@ namespace ProxyControl.ViewModels
                         ReloadRulesForCurrentMode();
 
                         _suppressSave = false;
-                        SaveSettings();
+                        RequestSaveSettings();
                         MessageBox.Show("Configuration imported successfully!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
 
                         Task.Run(async () =>
