@@ -8,27 +8,39 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace ProxyControl.Services
 {
     public class TrafficMonitorService
     {
-        // Для Live режима
         private readonly ConcurrentDictionary<string, ProcessTrafficData> _liveProcessStats
             = new ConcurrentDictionary<string, ProcessTrafficData>();
 
-        // Основная коллекция для биндинга (может содержать Live или History данные)
         public ObservableCollection<ProcessTrafficData> DisplayedProcessList { get; private set; }
             = new ObservableCollection<ProcessTrafficData>();
 
-        private Timer _speedTimer;
         private readonly string _logsPath;
-        private readonly object _logLock = new object();
 
-        // Флаг режима: true = показываем реальное время, false = историю
+        private readonly Channel<ConnectionHistoryItem> _logChannel;
+        private readonly CancellationTokenSource _servicesCts;
+
+        private readonly ConcurrentQueue<ConnectionHistoryItem> _pendingConnections = new ConcurrentQueue<ConnectionHistoryItem>();
+        private readonly ConcurrentDictionary<string, TrafficDelta> _pendingTraffic = new ConcurrentDictionary<string, TrafficDelta>();
+
+        private readonly DispatcherTimer _uiBatchTimer;
+        private const int UiRefreshRateMs = 250;
+
+        private class TrafficDelta
+        {
+            public long Down;
+            public long Up;
+        }
+
         public bool IsLiveMode { get; set; } = true;
 
         public TrafficMonitorService()
@@ -36,10 +48,16 @@ namespace ProxyControl.Services
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
 
-            _speedTimer = new Timer(UpdateSpeeds, null, 1000, 1000);
-        }
+            _logChannel = Channel.CreateUnbounded<ConnectionHistoryItem>();
+            _servicesCts = new CancellationTokenSource();
 
-        // --- Live Logic ---
+            Task.Run(() => LogWriterLoop(_servicesCts.Token));
+
+            _uiBatchTimer = new DispatcherTimer(DispatcherPriority.Background);
+            _uiBatchTimer.Interval = TimeSpan.FromMilliseconds(UiRefreshRateMs);
+            _uiBatchTimer.Tick += OnUiBatchTick;
+            _uiBatchTimer.Start();
+        }
 
         public ProcessTrafficData GetOrAddLiveProcess(string processName, ImageSource? icon)
         {
@@ -47,10 +65,9 @@ namespace ProxyControl.Services
             {
                 var newData = new ProcessTrafficData { ProcessName = name, Icon = icon };
 
-                // Если мы в Live режиме, добавляем сразу в список отображения
                 if (IsLiveMode)
                 {
-                    Application.Current.Dispatcher.Invoke(() =>
+                    Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (!DisplayedProcessList.Any(p => p.ProcessName == name))
                             DisplayedProcessList.Add(newData);
@@ -64,17 +81,18 @@ namespace ProxyControl.Services
         {
             if (_liveProcessStats.TryGetValue(processName, out var stats))
             {
-                if (isDownload)
-                {
-                    Interlocked.Add(ref stats.BytesDownLastSecond, bytes);
-                    stats.TotalDownload += bytes;
-                }
-                else
-                {
-                    Interlocked.Add(ref stats.BytesUpLastSecond, bytes);
-                    stats.TotalUpload += bytes;
-                }
+                if (isDownload) Interlocked.Add(ref stats.BytesDownLastSecond, bytes);
+                else Interlocked.Add(ref stats.BytesUpLastSecond, bytes);
             }
+
+            _pendingTraffic.AddOrUpdate(processName,
+                _ => new TrafficDelta { Down = isDownload ? bytes : 0, Up = isDownload ? 0 : bytes },
+                (_, delta) =>
+                {
+                    if (isDownload) Interlocked.Add(ref delta.Down, bytes);
+                    else Interlocked.Add(ref delta.Up, bytes);
+                    return delta;
+                });
         }
 
         public ConnectionHistoryItem CreateConnectionItem(string processName, ImageSource? icon, string host, string status, string details, string? flagUrl, string color)
@@ -90,27 +108,50 @@ namespace ProxyControl.Services
                 Color = color
             };
 
-            var stats = GetOrAddLiveProcess(processName, icon);
-
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                // Добавляем в Live список соединений
-                stats.Connections.Insert(0, item);
-                if (stats.Connections.Count > 200) stats.Connections.RemoveAt(stats.Connections.Count - 1);
-            });
-
+            GetOrAddLiveProcess(processName, icon);
+            _pendingConnections.Enqueue(item);
             return item;
         }
 
         public void CompleteConnection(ConnectionHistoryItem item)
         {
-            // Сохраняем завершенное соединение в лог файл
-            Task.Run(() => AppendLog(item));
+            _logChannel.Writer.TryWrite(item);
         }
 
-        private void UpdateSpeeds(object? state)
+        private void OnUiBatchTick(object? sender, EventArgs e)
         {
-            // Обновляем скорость только для Live статистики
+            if (!IsLiveMode) return;
+
+            bool hasNewConnections = !_pendingConnections.IsEmpty;
+            while (_pendingConnections.TryDequeue(out var item))
+            {
+                if (_liveProcessStats.TryGetValue(item.ProcessName, out var stats))
+                {
+                    stats.Connections.Insert(0, item);
+                    if (stats.Connections.Count > 200) stats.Connections.RemoveAt(stats.Connections.Count - 1);
+                }
+            }
+
+            foreach (var kvp in _liveProcessStats)
+            {
+                var processName = kvp.Key;
+                var stats = kvp.Value;
+
+                if (_pendingTraffic.TryRemove(processName, out var delta))
+                {
+                    stats.TotalDownload += delta.Down;
+                    stats.TotalUpload += delta.Up;
+                }
+            }
+
+            if ((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) % 1000 < UiRefreshRateMs * 1.5)
+            {
+                UpdateSpeeds();
+            }
+        }
+
+        private void UpdateSpeeds()
+        {
             foreach (var kvp in _liveProcessStats)
             {
                 var stats = kvp.Value;
@@ -122,27 +163,60 @@ namespace ProxyControl.Services
             }
         }
 
-        // --- Persistence Logic ---
-
-        private void AppendLog(ConnectionHistoryItem item)
+        // Fix 3.1: LogWriter uses a persistent FileStream to reduce IO overhead
+        private async Task LogWriterLoop(CancellationToken token)
         {
             try
             {
-                string fileName = $"log_{item.Timestamp:yyyy-MM-dd}.jsonl";
-                string fullPath = Path.Combine(_logsPath, fileName);
-                string json = JsonSerializer.Serialize(item);
+                string currentFileName = "";
+                FileStream? currentStream = null;
+                StreamWriter? currentWriter = null;
 
-                lock (_logLock)
+                while (await _logChannel.Reader.WaitToReadAsync(token))
                 {
-                    File.AppendAllText(fullPath, json + Environment.NewLine);
+                    while (_logChannel.Reader.TryRead(out var item))
+                    {
+                        try
+                        {
+                            string fileName = $"log_{item.Timestamp:yyyy-MM-dd}.jsonl";
+                            string fullPath = Path.Combine(_logsPath, fileName);
+
+                            if (currentFileName != fileName)
+                            {
+                                if (currentWriter != null)
+                                {
+                                    await currentWriter.DisposeAsync();
+                                    currentStream?.Dispose();
+                                }
+
+                                currentFileName = fileName;
+                                currentStream = new FileStream(fullPath, FileMode.Append, FileAccess.Write, FileShare.Read);
+                                currentWriter = new StreamWriter(currentStream) { AutoFlush = false };
+                            }
+
+                            string json = JsonSerializer.Serialize(item);
+                            if (currentWriter != null)
+                            {
+                                await currentWriter.WriteLineAsync(json);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // Flush batch
+                    if (currentWriter != null) await currentWriter.FlushAsync();
                 }
+
+                if (currentWriter != null) await currentWriter.DisposeAsync();
+                currentStream?.Dispose();
             }
-            catch { }
+            catch (OperationCanceledException) { }
         }
 
         public async Task LoadHistoryAsync(DateTime start, DateTime end, TimeSpan? startTime = null, TimeSpan? endTime = null)
         {
             IsLiveMode = false;
+            _uiBatchTimer.Stop();
 
             var resultDict = new Dictionary<string, ProcessTrafficData>();
 
@@ -158,15 +232,13 @@ namespace ProxyControl.Services
 
                     if (File.Exists(fullPath))
                     {
-                        var lines = File.ReadLines(fullPath);
-                        foreach (var line in lines)
+                        foreach (var line in File.ReadLines(fullPath))
                         {
                             try
                             {
                                 var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
                                 if (item != null)
                                 {
-                                    // Фильтрация по времени внутри дня
                                     if (startTime.HasValue && item.Timestamp.TimeOfDay < startTime.Value) continue;
                                     if (endTime.HasValue && item.Timestamp.TimeOfDay > endTime.Value) continue;
 
@@ -175,7 +247,6 @@ namespace ProxyControl.Services
                                         resultDict[item.ProcessName] = new ProcessTrafficData
                                         {
                                             ProcessName = item.ProcessName,
-                                            // Иконку пробуем найти в кэше Live или загрузить заново
                                             Icon = _liveProcessStats.TryGetValue(item.ProcessName, out var liveP) ? liveP.Icon : IconHelper.GetIconByProcessName(item.ProcessName)
                                         };
                                     }
@@ -183,10 +254,6 @@ namespace ProxyControl.Services
                                     var pData = resultDict[item.ProcessName];
                                     pData.TotalDownload += item.BytesDown;
                                     pData.TotalUpload += item.BytesUp;
-
-                                    // Добавляем в историю (в начало списка, чтобы новые были сверху)
-                                    // Так как мы читаем последовательно, лучше добавлять в конец, а потом развернуть, или Insert(0)
-                                    // Для производительности при чтении большого лога лучше Add и потом сортировка
                                     pData.Connections.Add(item);
                                 }
                             }
@@ -197,7 +264,6 @@ namespace ProxyControl.Services
                 }
             });
 
-            // Сортировка соединений по времени (новые сверху)
             foreach (var p in resultDict.Values)
             {
                 var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
@@ -218,6 +284,7 @@ namespace ProxyControl.Services
         public void SwitchToLiveMode()
         {
             IsLiveMode = true;
+            _uiBatchTimer.Start();
             Application.Current.Dispatcher.Invoke(() =>
             {
                 DisplayedProcessList.Clear();

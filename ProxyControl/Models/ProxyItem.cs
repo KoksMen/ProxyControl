@@ -14,9 +14,13 @@ namespace ProxyControl.Models
         private string _status = "Unknown"; // Online, Offline, Checking...
         private string _countryCode = "";
 
-        // Новые поля статистики
+        // Статистика
         private long _pingMs = 0;
         private double _speedMbps = 0;
+
+        // --- Encryption Flags (Mutually Exclusive usually) ---
+        private bool _useTls = false;
+        private bool _useSsl = false;
 
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
@@ -73,6 +77,31 @@ namespace ProxyControl.Models
             get => _speedMbps;
             set { _speedMbps = value; OnPropertyChanged(); OnPropertyChanged(nameof(SpeedFormatted)); }
         }
+
+        // --- TLS (Modern Security: 1.2, 1.3) ---
+        public bool UseTls
+        {
+            get => _useTls;
+            set
+            {
+                _useTls = value;
+                if (_useTls) UseSsl = false; // Взаимоисключение
+                OnPropertyChanged();
+            }
+        }
+
+        // --- SSL (Legacy/Compat Security: 1.0, 1.1, SSL3) ---
+        public bool UseSsl
+        {
+            get => _useSsl;
+            set
+            {
+                _useSsl = value;
+                if (_useSsl) UseTls = false; // Взаимоисключение
+                OnPropertyChanged();
+            }
+        }
+        // ----------------------------------------------------
 
         public string FlagUrl => !string.IsNullOrEmpty(CountryCode)
             ? $"https://flagcdn.com/w40/{CountryCode.ToLower()}.png"

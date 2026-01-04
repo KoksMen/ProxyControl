@@ -23,31 +23,82 @@ namespace ProxyControl.Services
         private const string RunOnceKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
         private const string AppName = "ProxyManagerSafetyNet";
 
-        // Список интерфейсов для сброса DNS
         private static readonly string[] NetworkInterfaces = { "Wi-Fi", "Ethernet", "Ethernet 2", "Беспроводная сеть", "Подключение по локальной сети" };
 
-        public static int GetPidByPort(int port)
-        {
-            int bufferSize = 0;
-            GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, true, 2, 5, 0);
+        private static readonly object _cacheLock = new object();
+        private static Dictionary<int, int> _pidCache = new Dictionary<int, int>();
+        private static DateTime _lastCacheUpdate = DateTime.MinValue;
+        private const int CacheDurationMs = 500;
 
-            IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
+        // Task coalescing: If multiple threads request refresh, they await the SAME task.
+        private static Task<Dictionary<int, int>>? _refreshTask;
+
+        public static int GetPidByPort(int port, bool forceRefresh = false)
+        {
+            Dictionary<int, int>? cacheSnapshot = null;
+
+            lock (_cacheLock)
+            {
+                // Return immediately if cache is fresh enough and contains the key (unless force refresh)
+                if (!forceRefresh && (DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
+                {
+                    if (_pidCache.TryGetValue(port, out int cachedPid) && cachedPid > 0)
+                    {
+                        return cachedPid;
+                    }
+                }
+
+                // Get or start the refresh task
+                if (_refreshTask == null || _refreshTask.IsCompleted)
+                {
+                    _refreshTask = Task.Run(() => BuildTcpTableSnapshot());
+                }
+            }
+
             try
             {
-                if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, true, 2, 5, 0) == 0)
+                // Await the shared refresh task
+                cacheSnapshot = _refreshTask.GetAwaiter().GetResult();
+            }
+            catch
+            {
+                return 0;
+            }
+
+            lock (_cacheLock)
+            {
+                _pidCache = cacheSnapshot;
+                _lastCacheUpdate = DateTime.UtcNow;
+                return _pidCache.TryGetValue(port, out int pid) ? pid : 0;
+            }
+        }
+
+        private static Dictionary<int, int> BuildTcpTableSnapshot()
+        {
+            int bufferSize = 0;
+            GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, false, 2, 5, 0);
+
+            IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
+            var newCache = new Dictionary<int, int>(100);
+
+            try
+            {
+                if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, false, 2, 5, 0) == 0)
                 {
                     int rowCount = Marshal.ReadInt32(tcpTablePtr);
                     IntPtr rowPtr = tcpTablePtr + 4;
 
                     for (int i = 0; i < rowCount; i++)
                     {
+                        // dwLocalPort at offset 8
                         int localPort = Marshal.ReadInt32(rowPtr + 8);
                         localPort = ((localPort & 0xFF00) >> 8) | ((localPort & 0xFF) << 8);
 
-                        if (localPort == port)
-                        {
-                            return Marshal.ReadInt32(rowPtr + 20);
-                        }
+                        // PID at offset 20
+                        int pid = Marshal.ReadInt32(rowPtr + 20);
+
+                        newCache[localPort] = pid;
+
                         rowPtr += 24;
                     }
                 }
@@ -56,7 +107,7 @@ namespace ProxyControl.Services
             {
                 Marshal.FreeHGlobal(tcpTablePtr);
             }
-            return 0;
+            return newCache;
         }
 
         public static void SetSystemProxy(bool enable, string host, int port)
@@ -114,12 +165,9 @@ namespace ProxyControl.Services
         {
             try
             {
-                // Формируем команду, которая сбросит прокси И сбросит DNS для основных интерфейсов
-                // Это сработает при следующей загрузке Windows, если приложение упало и не удалило этот ключ.
                 StringBuilder cmdBuilder = new StringBuilder();
                 cmdBuilder.Append("cmd /C \"reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\" /v ProxyEnable /t REG_DWORD /d 0 /f");
 
-                // Добавляем команды сброса DNS для каждого интерфейса
                 foreach (var iface in NetworkInterfaces)
                 {
                     cmdBuilder.Append($" & netsh interface ip set dns name=\\\"{iface}\\\" source=dhcp");
@@ -158,7 +206,6 @@ namespace ProxyControl.Services
 
             if (useLocalProxy)
             {
-                // Установка статического DNS (127.0.0.1)
                 string dnsServer = "127.0.0.1";
                 string source = "static";
                 foreach (var iface in NetworkInterfaces)
@@ -172,12 +219,10 @@ namespace ProxyControl.Services
             }
             else
             {
-                // Сброс на DHCP
                 RestoreSystemDns();
             }
         }
 
-        // Метод для явного сброса DNS
         public static void RestoreSystemDns()
         {
             if (!IsAdministrator()) return;
@@ -186,7 +231,6 @@ namespace ProxyControl.Services
             {
                 try
                 {
-                    // Команда source=dhcp НЕ должна содержать addr=...
                     RunNetsh($"interface ip set dns name=\"{iface}\" source=dhcp");
                 }
                 catch { }
