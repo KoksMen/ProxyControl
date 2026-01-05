@@ -15,7 +15,7 @@ namespace ProxyControl.Services
     {
         private const int LocalDnsPort = 53;
         private int RemoteDnsPort = 53;
-        private string _remoteDnsHost = "8.8.8.8"; // Default
+        private string _remoteDnsHost = "8.8.8.8";
 
         private UdpClient? _udpListener;
         private bool _isRunning;
@@ -45,8 +45,8 @@ namespace ProxyControl.Services
 
             public void Dispose()
             {
-                Stream?.Dispose();
-                Client?.Close();
+                try { Stream?.Dispose(); } catch { }
+                try { Client?.Close(); } catch { }
             }
 
             public bool IsConnected()
@@ -81,7 +81,7 @@ namespace ProxyControl.Services
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
 
-            // Fix 3: Use configured DNS host
+            // Применяем настройки DNS
             if (!string.IsNullOrWhiteSpace(config.DnsHost))
             {
                 _remoteDnsHost = config.DnsHost;
@@ -112,6 +112,8 @@ namespace ProxyControl.Services
 
             try
             {
+                // ИСПРАВЛЕНО: Вернул Loopback (127.0.0.1). 
+                // Any (0.0.0.0) часто блокируется фаерволом Windows для пользовательских приложений.
                 _udpListener = new UdpClient(new IPEndPoint(IPAddress.Loopback, LocalDnsPort));
                 _isRunning = true;
                 _cts = new CancellationTokenSource();
@@ -140,7 +142,7 @@ namespace ProxyControl.Services
         {
             _isRunning = false;
             _cts?.Cancel();
-            _udpListener?.Close();
+            try { _udpListener?.Close(); } catch { }
             _udpListener = null;
 
             ClearConnectionPool();
@@ -191,13 +193,24 @@ namespace ProxyControl.Services
             try
             {
                 string domain = ParseDomainFromQuery(dnsQuery);
+
+                // Fallback: Если парсер не справился, пробуем отправить "как есть"
+                if (string.IsNullOrEmpty(domain))
+                {
+                    await ForwardDnsDirectly(dnsQuery, clientEndpoint);
+                    return;
+                }
+
                 var decision = ResolveDnsAction(domain);
 
+                bool success = false;
                 if (decision.Action == RuleAction.Proxy && decision.Proxy != null && decision.Proxy.IsEnabled)
                 {
-                    await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
+                    success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
                 }
-                else
+
+                // Если правило не прокси или туннелирование не удалось -> отправляем напрямую
+                if (!success)
                 {
                     await ForwardDnsDirectly(dnsQuery, clientEndpoint);
                 }
@@ -222,7 +235,15 @@ namespace ProxyControl.Services
             }
 
             var tcpClient = new TcpClient();
-            await tcpClient.ConnectAsync(proxy.IpAddress, proxy.Port);
+            // Таймаут подключения 3 сек, чтобы не висеть долго
+            var connectTask = tcpClient.ConnectAsync(proxy.IpAddress, proxy.Port);
+            if (await Task.WhenAny(connectTask, Task.Delay(3000)) != connectTask)
+            {
+                tcpClient.Close();
+                throw new TimeoutException("Proxy connect timeout");
+            }
+            await connectTask;
+
             var stream = tcpClient.GetStream();
 
             string auth = "";
@@ -232,10 +253,10 @@ namespace ProxyControl.Services
                 auth = $"Proxy-Authorization: Basic {creds}\r\n";
             }
 
-            // Fix 3: Use _remoteDnsHost
             string connectReq = $"CONNECT {_remoteDnsHost}:{RemoteDnsPort} HTTP/1.1\r\nHost: {_remoteDnsHost}:{RemoteDnsPort}\r\n{auth}\r\n";
             byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
             await stream.WriteAsync(reqBytes, 0, reqBytes.Length);
+            await stream.FlushAsync();
 
             byte[] buffer = new byte[4096];
             int read = await stream.ReadAsync(buffer, 0, buffer.Length);
@@ -264,7 +285,8 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task TunnelDnsOverProxy(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
+        // Возвращает true, если успешно
+        private async Task<bool> TunnelDnsOverProxy(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
         {
             PooledTcpClient? conn = null;
             bool retry = false;
@@ -274,6 +296,7 @@ namespace ProxyControl.Services
                 conn = await GetConnectionAsync(proxy);
                 await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
                 ReturnConnection(proxy, conn);
+                return true;
             }
             catch
             {
@@ -288,12 +311,15 @@ namespace ProxyControl.Services
                     conn = await GetConnectionAsync(proxy);
                     await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
                     ReturnConnection(proxy, conn);
+                    return true;
                 }
                 catch
                 {
                     conn?.Dispose();
+                    return false; // Fail -> caller will fallback to direct
                 }
             }
+            return false;
         }
 
         private async Task PerformDnsTransaction(PooledTcpClient conn, byte[] dnsQuery, IPEndPoint clientEndpoint)
@@ -305,6 +331,7 @@ namespace ProxyControl.Services
 
             await stream.WriteAsync(lengthPrefix, 0, lengthPrefix.Length);
             await stream.WriteAsync(dnsQuery, 0, dnsQuery.Length);
+            await stream.FlushAsync();
 
             byte[] lenBuf = new byte[2];
             int lenRead = await ReadExactAsync(stream, lenBuf, 2);
@@ -326,22 +353,40 @@ namespace ProxyControl.Services
         {
             try
             {
-                using (var udpForwarder = new UdpClient())
+                // Используем try-catch внутри для повторной попытки
+                await AttemptDirectForward(dnsQuery, clientEndpoint, _remoteDnsHost);
+            }
+            catch
+            {
+                // Если основной DNS не ответил, можно попробовать Google как последний шанс, 
+                // но лучше просто выйти, чтобы браузер повторил сам.
+            }
+        }
+
+        private async Task AttemptDirectForward(byte[] dnsQuery, IPEndPoint clientEndpoint, string dnsServer)
+        {
+            using (var udpForwarder = new UdpClient())
+            {
+                udpForwarder.Client.ReceiveTimeout = 2000;
+                udpForwarder.Client.SendTimeout = 2000;
+
+                // Используем Connect, чтобы отфильтровать мусор
+                udpForwarder.Connect(dnsServer, 53);
+                await udpForwarder.SendAsync(dnsQuery, dnsQuery.Length);
+
+                var receiveTask = udpForwarder.ReceiveAsync();
+                var timeoutTask = Task.Delay(2000); // 2 сек таймаут
+
+                var completed = await Task.WhenAny(receiveTask, timeoutTask);
+                if (completed == receiveTask)
                 {
-                    udpForwarder.Client.ReceiveTimeout = 2000;
-                    udpForwarder.Client.SendTimeout = 2000;
-
-                    // Fix 3: Use _remoteDnsHost instead of FallbackDns constant
-                    await udpForwarder.SendAsync(dnsQuery, dnsQuery.Length, _remoteDnsHost, 53);
-
-                    var result = await udpForwarder.ReceiveAsync();
+                    var result = await receiveTask;
                     if (result.Buffer != null && result.Buffer.Length > 0 && _udpListener != null)
                     {
                         await _udpListener.SendAsync(result.Buffer, result.Buffer.Length, clientEndpoint);
                     }
                 }
             }
-            catch { }
         }
 
         private (RuleAction Action, ProxyItem? Proxy) ResolveDnsAction(string host)
@@ -414,7 +459,7 @@ namespace ProxyControl.Services
         {
             try
             {
-                int offset = 12;
+                int offset = 12; // Пропускаем заголовок
                 if (data.Length <= offset) return "";
                 return ParseName(data, ref offset);
             }
@@ -443,6 +488,7 @@ namespace ProxyControl.Services
                     break;
                 }
 
+                // Обработка сжатия (0xC0)
                 if ((len & 0xC0) == 0xC0)
                 {
                     if (offset + 1 >= data.Length) break;
