@@ -1,4 +1,4 @@
-﻿using ProxyControl.Helpers;
+using ProxyControl.Helpers;
 using ProxyControl.Models;
 using System;
 using System.Buffers;
@@ -84,7 +84,8 @@ namespace ProxyControl.Services
                 IsEnabled = p.IsEnabled,
                 CountryCode = p.CountryCode,
                 UseTls = p.UseTls,
-                UseSsl = p.UseSsl
+                UseSsl = p.UseSsl,
+                Type = p.Type // Add Type copy
             }).ToList();
 
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
@@ -317,6 +318,13 @@ namespace ProxyControl.Services
 
                 if (bytesRead == 0) return;
 
+                if (bytesRead > 0 && buffer[0] == 0x05)
+                {
+                    // SOCKS5 detected
+                    await HandleSocks5ServerAsync(clientStream, buffer, bytesRead, client, processName, ctx.Cts.Token);
+                    return;
+                }
+
                 if (!TryGetTargetHost(headerStr, out string targetHost, out int targetPort, out bool isConnectMethod))
                 {
                     return;
@@ -374,80 +382,117 @@ namespace ProxyControl.Services
 
                 if (targetProxy != null)
                 {
-                    await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
-
-                    Stream remoteStream = remoteServer.GetStream();
-
-                    if (targetProxy.UseTls || targetProxy.UseSsl)
+                    if (targetProxy.Type == ProxyType.Socks5)
                     {
-                        var protocols = SslProtocols.None;
-                        if (targetProxy.UseTls)
-                        {
-                            protocols = SslProtocols.Tls12 | SslProtocols.Tls13;
-                        }
-                        else if (targetProxy.UseSsl)
-                        {
-                            protocols = SslProtocols.Tls | SslProtocols.Tls11;
-                        }
-
-                        // Fix 1: Always return true to ignore certificate errors for proxies
-                        var sslStream = new SslStream(remoteStream, false, (s, c, ch, e) => true);
-
+                        await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
                         try
                         {
-                            await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, protocols, false);
-                            remoteStream = sslStream;
+                            await Socks5Client.ConnectAsync(remoteServer, targetProxy, targetHost, targetPort, ctx.Cts.Token);
                         }
                         catch
                         {
                             return;
                         }
-                    }
 
-                    string auth = "";
-                    if (!string.IsNullOrEmpty(targetProxy.Username))
-                    {
-                        string creds = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{targetProxy.Username}:{targetProxy.Password}"));
-                        auth = $"Proxy-Authorization: Basic {creds}\r\n";
-                    }
+                        Stream remoteStream = remoteServer.GetStream();
 
-                    string connectReq = $"CONNECT {targetHost}:{targetPort} HTTP/1.1\r\nHost: {targetHost}:{targetPort}\r\n{auth}\r\n";
-                    byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
-
-                    await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
-                    await remoteStream.FlushAsync(); // Ensure request is sent
-
-                    byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
-                    try
-                    {
-                        int respLen = await remoteStream.ReadAsync(proxyRespBuffer, 0, proxyRespBuffer.Length, ctx.Cts.Token);
-                        string proxyResp = Encoding.ASCII.GetString(proxyRespBuffer, 0, respLen);
-
-                        if (!proxyResp.Contains("200")) return;
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.Return(proxyRespBuffer);
-                    }
-
-                    if (isConnectMethod)
-                    {
-                        byte[] ok = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\n");
-                        await clientStream.WriteAsync(ok, 0, ok.Length, ctx.Cts.Token);
-                    }
-                    else
-                    {
-                        if (decision.BlockDir != BlockDirection.Outbound)
+                        if (isConnectMethod)
                         {
-                            await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
-                            if (historyItem != null)
+                            byte[] ok = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\n");
+                            await clientStream.WriteAsync(ok, 0, ok.Length, ctx.Cts.Token);
+                        }
+                        else
+                        {
+                            if (decision.BlockDir != BlockDirection.Outbound)
                             {
-                                historyItem.BytesUp += bytesRead;
-                                _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                                await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                                if (historyItem != null)
+                                {
+                                    historyItem.BytesUp += bytesRead;
+                                    _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                                }
                             }
                         }
+                        await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
                     }
-                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
+                    else // HTTP Proxy
+                    {
+                        // Existing HTTP Proxy Logic
+                        await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
+
+                        Stream remoteStream = remoteServer.GetStream();
+
+                        if (targetProxy.UseTls || targetProxy.UseSsl)
+                        {
+                            var protocols = SslProtocols.None;
+                            if (targetProxy.UseTls)
+                            {
+                                protocols = SslProtocols.Tls12 | SslProtocols.Tls13;
+                            }
+                            else if (targetProxy.UseSsl)
+                            {
+                                protocols = SslProtocols.Tls | SslProtocols.Tls11;
+                            }
+
+                            // Fix 1: Always return true to ignore certificate errors for proxies
+                            var sslStream = new SslStream(remoteStream, false, (s, c, ch, e) => true);
+
+                            try
+                            {
+                                await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, protocols, false);
+                                remoteStream = sslStream;
+                            }
+                            catch
+                            {
+                                return;
+                            }
+                        }
+
+                        string auth = "";
+                        if (!string.IsNullOrEmpty(targetProxy.Username))
+                        {
+                            string creds = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{targetProxy.Username}:{targetProxy.Password}"));
+                            auth = $"Proxy-Authorization: Basic {creds}\r\n";
+                        }
+
+                        string connectReq = $"CONNECT {targetHost}:{targetPort} HTTP/1.1\r\nHost: {targetHost}:{targetPort}\r\n{auth}\r\n";
+                        byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
+
+                        await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
+                        await remoteStream.FlushAsync(); // Ensure request is sent
+
+                        byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
+                        try
+                        {
+                            int respLen = await remoteStream.ReadAsync(proxyRespBuffer, 0, proxyRespBuffer.Length, ctx.Cts.Token);
+                            string proxyResp = Encoding.ASCII.GetString(proxyRespBuffer, 0, respLen);
+
+                            if (!proxyResp.Contains("200")) return;
+                        }
+                        finally
+                        {
+                            ArrayPool<byte>.Shared.Return(proxyRespBuffer);
+                        }
+
+                        if (isConnectMethod)
+                        {
+                            byte[] ok = Encoding.ASCII.GetBytes("HTTP/1.1 200 Connection Established\r\n\r\n");
+                            await clientStream.WriteAsync(ok, 0, ok.Length, ctx.Cts.Token);
+                        }
+                        else
+                        {
+                            if (decision.BlockDir != BlockDirection.Outbound)
+                            {
+                                await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                                if (historyItem != null)
+                                {
+                                    historyItem.BytesUp += bytesRead;
+                                    _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                                }
+                            }
+                        }
+                        await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
+                    }
                 }
                 else
                 {
@@ -711,82 +756,123 @@ namespace ProxyControl.Services
             double speedMbps = 0;
             string sslError = "None";
 
-            string scheme = "http";
-            if (proxy.UseTls || proxy.UseSsl) scheme = "https";
-
-            var proxyUri = new WebProxy($"{scheme}://{proxy.IpAddress}:{proxy.Port}");
-
-            var handler = new HttpClientHandler
+            if (proxy.Type == ProxyType.Socks5)
             {
-                Proxy = proxyUri,
-                UseProxy = true
-            };
-
-            if (proxy.UseTls || proxy.UseSsl)
-            {
-                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+                // SOCKS5 Check logic
+                try
                 {
-                    sslError = errors.ToString();
-                    return true;
-                };
-            }
+                    using (var client = new TcpClient())
+                    {
+                        var sw = Stopwatch.StartNew();
+                        await Socks5Client.ConnectAsync(client, proxy, "www.google.com", 80, CancellationToken.None);
 
-            if (!string.IsNullOrEmpty(proxy.Username))
-            {
-                handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
-            }
+                        // Simple HTTP check over SOCKS5
+                        var stream = client.GetStream();
+                        byte[] req = Encoding.ASCII.GetBytes("GET /generate_204 HTTP/1.1\r\nHost: www.google.com\r\n\r\n");
+                        await stream.WriteAsync(req, 0, req.Length);
 
-            try
-            {
-                using (var client = new HttpClient(handler))
+                        byte[] respBuf = new byte[1024];
+                        int r = await stream.ReadAsync(respBuf, 0, respBuf.Length);
+                        string resp = Encoding.ASCII.GetString(respBuf, 0, r);
+
+                        sw.Stop();
+                        ping = sw.ElapsedMilliseconds;
+                        connectionSuccess = resp.Contains("204");
+
+                        // Speed Test (approx)
+                        // For speed test we would need a larger download, simplified here or ignored
+                        // Just setting same ping for now
+                    }
+                }
+                catch (Exception ex)
                 {
-                    client.Timeout = TimeSpan.FromSeconds(10);
-                    var sw = Stopwatch.StartNew();
-                    var response = await client.GetAsync("https://www.google.com/generate_204");
-                    sw.Stop();
-                    ping = sw.ElapsedMilliseconds;
-                    connectionSuccess = response.IsSuccessStatusCode;
+                    connectionSuccess = false;
+                    sslError = ex.Message;
                 }
             }
-            catch (Exception ex)
+            else
             {
-                connectionSuccess = false;
-                if (sslError == "None") sslError = ex.Message;
-            }
+                // HTTP/HTTPS Logic
+                // ... (Original Code) ...
+                string scheme = "http";
+                if (proxy.UseTls || proxy.UseSsl) scheme = "https";
 
-            if (!connectionSuccess) return (false, "", 0, 0, sslError);
+                var proxyUri = new WebProxy($"{scheme}://{proxy.IpAddress}:{proxy.Port}");
 
-            try
-            {
-                var speedHandler = new HttpClientHandler
+                var handler = new HttpClientHandler
                 {
                     Proxy = proxyUri,
                     UseProxy = true
                 };
+
                 if (proxy.UseTls || proxy.UseSsl)
                 {
-                    speedHandler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                    handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+                    {
+                        sslError = errors.ToString();
+                        return true;
+                    };
                 }
-                if (!string.IsNullOrEmpty(proxy.Username)) speedHandler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
 
-                using (var speedClient = new HttpClient(speedHandler))
+                if (!string.IsNullOrEmpty(proxy.Username))
                 {
-                    speedClient.Timeout = TimeSpan.FromSeconds(15);
-                    string testUrl = "https://code.jquery.com/jquery-3.6.0.min.js";
-
-                    var sw = Stopwatch.StartNew();
-                    var data = await speedClient.GetByteArrayAsync(testUrl);
-                    sw.Stop();
-
-                    double seconds = sw.Elapsed.TotalSeconds;
-                    double bits = data.Length * 8;
-                    double mbps = (bits / 1000000) / seconds;
-                    speedMbps = Math.Round(mbps, 2);
+                    handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
                 }
-            }
-            catch
-            {
-                speedMbps = 0;
+
+                try
+                {
+                    using (var client = new HttpClient(handler))
+                    {
+                        client.Timeout = TimeSpan.FromSeconds(10);
+                        var sw = Stopwatch.StartNew();
+                        var response = await client.GetAsync("https://www.google.com/generate_204");
+                        sw.Stop();
+                        ping = sw.ElapsedMilliseconds;
+                        connectionSuccess = response.IsSuccessStatusCode;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    connectionSuccess = false;
+                    if (sslError == "None") sslError = ex.Message;
+                }
+
+                // Speed test for HTTP...
+                if (connectionSuccess)
+                {
+                    try
+                    {
+                        var speedHandler = new HttpClientHandler
+                        {
+                            Proxy = proxyUri,
+                            UseProxy = true
+                        };
+                        if (proxy.UseTls || proxy.UseSsl)
+                        {
+                            speedHandler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                        }
+                        if (!string.IsNullOrEmpty(proxy.Username)) speedHandler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
+
+                        using (var speedClient = new HttpClient(speedHandler))
+                        {
+                            speedClient.Timeout = TimeSpan.FromSeconds(15);
+                            string testUrl = "https://code.jquery.com/jquery-3.6.0.min.js";
+
+                            var sw = Stopwatch.StartNew();
+                            var data = await speedClient.GetByteArrayAsync(testUrl);
+                            sw.Stop();
+
+                            double seconds = sw.Elapsed.TotalSeconds;
+                            double bits = data.Length * 8;
+                            double mbps = (bits / 1000000) / seconds;
+                            speedMbps = Math.Round(mbps, 2);
+                        }
+                    }
+                    catch
+                    {
+                        speedMbps = 0;
+                    }
+                }
             }
 
             string country = "";
@@ -806,6 +892,205 @@ namespace ProxyControl.Services
             catch { }
 
             return (connectionSuccess, country, ping, speedMbps, sslError);
+        }
+
+        // --- SOCKS5 Server Logic ---
+
+        private async Task HandleSocks5ServerAsync(NetworkStream stream, byte[] initialBuffer, int initialLength, TcpClient client, string processName, CancellationToken token)
+        {
+            // 1. Handshake
+            if (initialBuffer[0] != 0x05) return;
+
+            // We accept NoAuth (0x00)
+            byte[] greetingResp = { 0x05, 0x00 };
+            await stream.WriteAsync(greetingResp, 0, greetingResp.Length, token);
+
+            // 2. Request
+            byte[] reqBuf = new byte[1024];
+            int read = await stream.ReadAsync(reqBuf, 0, reqBuf.Length, token);
+            if (read < 4) return;
+
+            byte ver = reqBuf[0];
+            byte cmd = reqBuf[1]; // 0x01=CONNECT, 0x03=UDP ASSOCIATE
+            byte atyp = reqBuf[3];
+
+            if (ver != 0x05) return;
+
+            string targetHost = "";
+            int targetPort = 0;
+
+            int offset = 4;
+            if (atyp == 0x01) // IPv4
+            {
+                if (read < offset + 4 + 2) return;
+                var ip = new IPAddress(reqBuf[offset..(offset + 4)]);
+                targetHost = ip.ToString();
+                offset += 4;
+            }
+            else if (atyp == 0x03) // Domain
+            {
+                int len = reqBuf[offset];
+                offset++;
+                if (read < offset + len + 2) return;
+                targetHost = Encoding.ASCII.GetString(reqBuf, offset, len);
+                offset += len;
+            }
+            else if (atyp == 0x04) // IPv6
+            {
+                if (read < offset + 16 + 2) return;
+                var ip = new IPAddress(reqBuf[offset..(offset + 16)]);
+                targetHost = ip.ToString();
+                offset += 16;
+            }
+
+            // Port
+            targetPort = (reqBuf[offset] << 8) | reqBuf[offset + 1];
+
+            if (cmd == 0x01) // CONNECT
+            {
+                await HandleSocks5Connect(stream, targetHost, targetPort, processName, client, token);
+            }
+            else if (cmd == 0x03) // UDP ASSOCIATE
+            {
+                await HandleSocks5UdpAssociate(stream, processName, token);
+            }
+            else
+            {
+                // Command not supported
+                byte[] rep = { 0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                await stream.WriteAsync(rep, 0, rep.Length, token);
+            }
+        }
+
+        private async Task HandleSocks5Connect(NetworkStream stream, string targetHost, int targetPort, string processName, TcpClient client, CancellationToken token)
+        {
+             var decision = ResolveAction(processName, targetHost);
+             ConnectionHistoryItem? historyItem = null;
+
+             string logResult = "SOCKS5 Direct";
+             string logColor = "#AAAAAA";
+
+             if (decision.Action == RuleAction.Block)
+             {
+                 logResult = "BLOCKED"; logColor = "#FF5555";
+             }
+             else if (decision.Proxy != null)
+             {
+                 logResult = $"Proxy: {decision.Proxy.IpAddress}"; logColor = "#55FF55";
+             }
+            
+             string? flagUrl = null;
+             if (decision.Proxy != null && !string.IsNullOrEmpty(decision.Proxy.CountryCode))
+                 flagUrl = $"https://flagcdn.com/w40/{decision.Proxy.CountryCode.ToLower()}.png";
+            
+             string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "";
+             historyItem = _trafficMonitor.CreateConnectionItem(processName, null, targetHost, decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(), details, flagUrl, logColor);
+             
+             if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both)
+             {
+                 byte[] rep = { 0x05, 0x02, 0x00, 0x01, 0,0,0,0, 0,0 }; // 0x02 = Not allowed
+                 await stream.WriteAsync(rep, 0, rep.Length, token);
+                 return;
+             }
+
+             // Reply Success
+             byte[] successRep = { 0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+             try {
+                await stream.WriteAsync(successRep, 0, successRep.Length, token);
+             } catch { return; }
+
+             using (var remote = new TcpClient())
+             {
+                try {
+                    Stream? remoteStream = null;
+
+                    if (decision.Proxy != null)
+                    {
+                        if (decision.Proxy.Type == ProxyType.Socks5)
+                        {
+                             await remote.ConnectAsync(decision.Proxy.IpAddress, decision.Proxy.Port, token);
+                             await Socks5Client.ConnectAsync(remote, decision.Proxy, targetHost, targetPort, token);
+                             remoteStream = remote.GetStream();
+                        }
+                        else
+                        {
+                            await remote.ConnectAsync(decision.Proxy.IpAddress, decision.Proxy.Port, token);
+                            remoteStream = remote.GetStream();
+                            
+                             if (decision.Proxy.UseTls || decision.Proxy.UseSsl)
+                            {
+                                var ssl = new SslStream(remoteStream, false, (s, c, ch, e) => true);
+                                await ssl.AuthenticateAsClientAsync(decision.Proxy.IpAddress);
+                                remoteStream = ssl;
+                            }
+                            
+                            string auth = "";
+                            if (!string.IsNullOrEmpty(decision.Proxy.Username))
+                            {
+                                string creds = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{decision.Proxy.Username}:{decision.Proxy.Password}"));
+                                auth = $"Proxy-Authorization: Basic {creds}\r\n";
+                            }
+                            
+                             string connectReq = $"CONNECT {targetHost}:{targetPort} HTTP/1.1\r\nHost: {targetHost}:{targetPort}\r\n{auth}\r\n";
+                             byte[] rb = Encoding.ASCII.GetBytes(connectReq);
+                             await remoteStream.WriteAsync(rb, 0, rb.Length, token);
+                             await remoteStream.FlushAsync();
+                             
+                             byte[] rbo = new byte[1024];
+                             await remoteStream.ReadAsync(rbo, 0, rbo.Length, token); 
+                        }
+                    }
+                    else
+                    {
+                        await remote.ConnectAsync(targetHost, targetPort, token);
+                        remoteStream = remote.GetStream();
+                    }
+
+                    if (remoteStream != null)
+                        await BridgeStreams(stream, remoteStream, processName, historyItem, decision.BlockDir, token);
+                } catch (Exception ex) {
+                    System.Diagnostics.Debug.WriteLine($"S5 Connect Error: {ex.Message}");
+                }
+             }
+        }
+
+        private async Task HandleSocks5UdpAssociate(NetworkStream stream, string processName, CancellationToken token)
+        {
+            try
+            {
+                using (var udpListener = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
+                {
+                    int assignedPort = ((IPEndPoint)udpListener.Client.LocalEndPoint).Port;
+
+                    byte[] portBytes = BitConverter.GetBytes((ushort)assignedPort);
+                    if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
+                    
+                    byte[] rep = { 0x05, 0x00, 0x00, 0x01, 127,0,0,1 };
+                    await stream.WriteAsync(rep, 0, rep.Length, token);
+                    await stream.WriteAsync(portBytes, 0, 2, token);
+                    
+                     _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Active", $"Loc:{assignedPort}", null, "#00FFFF");
+
+                    var relayTask = RunUdpRelay(udpListener, processName, token);
+                    var tcpHoldTask = stream.ReadAsync(new byte[1], 0, 1, token);
+
+                    await Task.WhenAny(relayTask, tcpHoldTask);
+                }
+            }
+            catch {}
+        }
+
+        private async Task RunUdpRelay(UdpClient listener, string processName, CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+               try {
+                   var res = await listener.ReceiveAsync();
+                   byte[] data = Socks5Client.UnpackUdp(res.Buffer);
+                   if (data.Length == 0) continue;
+                   _trafficMonitor.AddLiveTraffic(processName, data.Length, false);
+               } catch { break; }
+            }
         }
     }
 }

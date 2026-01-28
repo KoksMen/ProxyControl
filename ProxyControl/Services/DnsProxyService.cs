@@ -26,6 +26,7 @@ namespace ProxyControl.Services
         private List<TrafficRule> _localWhiteList = new List<TrafficRule>();
         private string? _blackListProxyId;
         private RuleMode _currentMode;
+        private readonly TrafficMonitorService _trafficMonitor;
 
         private readonly ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>> _connectionPool
             = new ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>>();
@@ -59,8 +60,9 @@ namespace ProxyControl.Services
             }
         }
 
-        public DnsProxyService()
+        public DnsProxyService(TrafficMonitorService trafficMonitor)
         {
+            _trafficMonitor = trafficMonitor;
         }
 
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
@@ -73,7 +75,8 @@ namespace ProxyControl.Services
                 Username = p.Username,
                 Password = p.Password,
                 IsEnabled = p.IsEnabled,
-                CountryCode = p.CountryCode
+                CountryCode = p.CountryCode,
+                Type = p.Type // Copy type
             }).ToList();
 
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
@@ -204,13 +207,30 @@ namespace ProxyControl.Services
                 var decision = ResolveDnsAction(domain);
 
                 bool success = false;
-                if (decision.Action == RuleAction.Proxy && decision.Proxy != null && decision.Proxy.IsEnabled)
+
+                string logResult = "Direct";
+                string logColor = "#AAAAAA";
+
+                if (decision.Action == RuleAction.Block)
                 {
+                    // Block
+                    logResult = "BLOCKED";
+                    logColor = "#FF5555";
+                }
+                else if (decision.Action == RuleAction.Proxy && decision.Proxy != null && decision.Proxy.IsEnabled)
+                {
+                    logResult = $"Proxy: {decision.Proxy.IpAddress}";
+                    logColor = "#55FF55";
                     success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
                 }
 
+                // Log to Traffic Monitor
+                // DNS is usually "svchost" or "System", but we can try to find process or just say "DNS"
+                // Ideally we map port to PID but for UDP 53 it's tricky.
+                _trafficMonitor.CreateConnectionItem("DNS System", null, domain, logResult, "UDP 53", null, logColor);
+
                 // Если правило не прокси или туннелирование не удалось -> отправляем напрямую
-                if (!success)
+                if (!success && decision.Action != RuleAction.Block)
                 {
                     await ForwardDnsDirectly(dnsQuery, clientEndpoint);
                 }
@@ -287,6 +307,65 @@ namespace ProxyControl.Services
 
         // Возвращает true, если успешно
         private async Task<bool> TunnelDnsOverProxy(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
+        {
+            if (proxy.Type == ProxyType.Socks5)
+            {
+                // Для SOCKS5 используем UDP Associate (лучше для DNS)
+                return await TunnelDnsSocks5Udp(dnsQuery, clientEndpoint, proxy);
+            }
+
+            // Для HTTP прокси используем TCP connect (существующая логика)
+            return await TunnelDnsHttpTcp(dnsQuery, clientEndpoint, proxy);
+        }
+
+        private async Task<bool> TunnelDnsSocks5Udp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
+        {
+            try
+            {
+                // UDP Associate требует TCP контрольного соединения
+                // В идеале мы должны кэшировать это соединение (Client + RelayEndpoint)
+                // Но для простоты пока создаем на каждый запрос (можно оптимизировать позже, если будет медленно)
+                // TODO: Optimize by pooling SOCKS5 control connections
+
+                using (var cts = new CancellationTokenSource(3000)) // 3 сек таймаут
+                {
+                    var (controlClient, relayEp) = await Socks5Client.UdpAssociateAsync(proxy, cts.Token);
+
+                    using (controlClient)
+                    using (var udpClient = new UdpClient())
+                    {
+                        udpClient.Client.ReceiveTimeout = 2000;
+                        udpClient.Client.SendTimeout = 2000;
+
+                        // Pack DNS query into SOCKS5 UDP header
+                        // Нам нужно знать куда отправлять. Для DNS это _remoteDnsHost:RemoteDnsPort
+                        byte[] packed = Socks5Client.PackUdp(dnsQuery, _remoteDnsHost, RemoteDnsPort);
+
+                        await udpClient.SendAsync(packed, packed.Length, relayEp);
+
+                        var recvTask = udpClient.ReceiveAsync();
+                        if (await Task.WhenAny(recvTask, Task.Delay(2000)) == recvTask)
+                        {
+                            var result = await recvTask;
+                            byte[] unpacked = Socks5Client.UnpackUdp(result.Buffer);
+
+                            if (unpacked.Length > 0 && _udpListener != null)
+                            {
+                                await _udpListener.SendAsync(unpacked, unpacked.Length, clientEndpoint);
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"SOCKS5 UDP DNS Error: {ex.Message}");
+            }
+            return false;
+        }
+
+        private async Task<bool> TunnelDnsHttpTcp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
         {
             PooledTcpClient? conn = null;
             bool retry = false;

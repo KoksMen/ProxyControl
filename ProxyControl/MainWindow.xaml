@@ -208,7 +208,12 @@
                                         <Image Grid.Column="1" Source="{Binding FlagUrl}" Width="20" Height="15" Margin="0,0,5,0" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
 
                                         <StackPanel Grid.Column="2">
-                                            <TextBlock Text="{Binding IpAddress, TargetNullValue='(No IP)'}" FontWeight="Bold"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Background="#444" CornerRadius="2" Padding="3,0" Margin="0,0,5,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Type}" FontSize="9" Foreground="#EEE" FontWeight="Bold"/>
+                                                </Border>
+                                                <TextBlock Text="{Binding IpAddress, TargetNullValue='(No IP)'}" FontWeight="Bold"/>
+                                            </StackPanel>
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="{Binding Port, StringFormat=Port: {0}}" FontSize="10" Foreground="#AAA" Margin="0,0,5,0"/>
                                                 <TextBlock Text="{Binding PingFormatted}" FontSize="10" Foreground="#55AAFF" Margin="0,0,5,0"/>
@@ -718,6 +723,9 @@
                     <TextBlock Text="{Binding ProxyModalTitle}" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,20" HorizontalAlignment="Center"/>
 
                     <StackPanel Grid.Row="1">
+                        <TextBlock Text="Proxy Type" Foreground="#AAA" Margin="0,0,0,5"/>
+                        <ComboBox ItemsSource="{Binding ProxyTypes}" SelectedItem="{Binding ProxyModalType}" Margin="0,0,0,15" Padding="5"/>
+
                         <Grid Margin="0,0,0,15">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="2*"/>

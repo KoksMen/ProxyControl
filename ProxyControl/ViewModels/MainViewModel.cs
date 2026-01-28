@@ -258,6 +258,13 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        private ProxyType _proxyModalType = ProxyType.Http;
+        public ProxyType ProxyModalType
+        {
+            get => _proxyModalType;
+            set { _proxyModalType = value; OnPropertyChanged(); }
+        }
+
         private ProxyItem? _editingProxyItem;
 
         private string _searchText = "";
@@ -429,6 +436,7 @@ namespace ProxyControl.ViewModels
         public Array ModeTypes => Enum.GetValues(typeof(RuleMode));
         public Array TrafficPeriodModes => Enum.GetValues(typeof(TrafficPeriodMode));
         public Array BlockDirectionTypes => Enum.GetValues(typeof(BlockDirection));
+        public Array ProxyTypes => Enum.GetValues(typeof(ProxyType));
 
         public ProxyItem? SelectedBlackListMainProxy
         {
@@ -487,7 +495,7 @@ namespace ProxyControl.ViewModels
         {
             _trafficMonitorService = new TrafficMonitorService();
             _proxyService = new TcpProxyService(_trafficMonitorService);
-            _dnsProxyService = new DnsProxyService();
+            _dnsProxyService = new DnsProxyService(_trafficMonitorService);
 
             _settingsService = new SettingsService();
             _updateService = new GithubUpdateService();
@@ -638,11 +646,13 @@ namespace ProxyControl.ViewModels
             {
                 ProxyModalTitle = "Add Proxy"; ProxyModalIp = ""; ProxyModalPort = 8080;
                 ProxyModalUser = ""; ProxyModalPass = ""; ProxyModalUseTls = false; ProxyModalUseSsl = false;
+                ProxyModalType = ProxyType.Http;
             }
             else
             {
                 ProxyModalTitle = "Edit Proxy"; ProxyModalIp = item.IpAddress; ProxyModalPort = item.Port;
                 ProxyModalUser = item.Username; ProxyModalPass = item.Password; ProxyModalUseTls = item.UseTls; ProxyModalUseSsl = item.UseSsl;
+                ProxyModalType = item.Type;
             }
             IsProxyModalVisible = true;
         }
@@ -651,13 +661,14 @@ namespace ProxyControl.ViewModels
         {
             if (_editingProxyItem == null)
             {
-                var newProxy = new ProxyItem { IpAddress = ProxyModalIp, Port = ProxyModalPort, Username = ProxyModalUser, Password = ProxyModalPass, UseTls = ProxyModalUseTls, UseSsl = ProxyModalUseSsl, IsEnabled = true, Status = "New" };
+                var newProxy = new ProxyItem { IpAddress = ProxyModalIp, Port = ProxyModalPort, Username = ProxyModalUser, Password = ProxyModalPass, UseTls = ProxyModalUseTls, UseSsl = ProxyModalUseSsl, IsEnabled = true, Status = "New", Type = ProxyModalType };
                 Proxies.Add(newProxy); SelectedProxy = newProxy; _ = CheckSingleProxy(newProxy);
             }
             else
             {
                 _editingProxyItem.IpAddress = ProxyModalIp; _editingProxyItem.Port = ProxyModalPort; _editingProxyItem.Username = ProxyModalUser;
                 _editingProxyItem.Password = ProxyModalPass; _editingProxyItem.UseTls = ProxyModalUseTls; _editingProxyItem.UseSsl = ProxyModalUseSsl;
+                _editingProxyItem.Type = ProxyModalType;
                 _editingProxyItem.Status = "Updated"; _ = CheckSingleProxy(_editingProxyItem);
             }
             IsProxyModalVisible = false; RequestSaveSettings();
