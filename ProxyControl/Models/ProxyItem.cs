@@ -4,6 +4,13 @@ using System.Runtime.CompilerServices;
 
 namespace ProxyControl.Models
 {
+    public enum ProxyType
+    {
+        Http,
+        Socks4, // Placeholder for future
+        Socks5
+    }
+
     public class ProxyItem : INotifyPropertyChanged
     {
         private string _ipAddress = "";
@@ -13,6 +20,7 @@ namespace ProxyControl.Models
         private bool _isEnabled;
         private string _status = "Unknown"; // Online, Offline, Checking...
         private string _countryCode = "";
+        private ProxyType _proxyType = ProxyType.Http;
 
         // Статистика
         private long _pingMs = 0;
@@ -64,6 +72,12 @@ namespace ProxyControl.Models
         {
             get => _countryCode;
             set { _countryCode = value; OnPropertyChanged(); OnPropertyChanged(nameof(FlagUrl)); }
+        }
+
+        public ProxyType Type
+        {
+            get => _proxyType;
+            set { _proxyType = value; OnPropertyChanged(); }
         }
 
         public long PingMs
