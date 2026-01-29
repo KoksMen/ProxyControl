@@ -1228,6 +1228,12 @@ namespace ProxyControl.Services
             }
         }
 
+        private class UdpState
+        {
+            public IPEndPoint? ClientEndpoint;
+            public TaskCompletionSource<bool> ClientReady = new TaskCompletionSource<bool>();
+        }
+
         private async Task HandleSocks5UdpAssociate(NetworkStream stream, string processName, CancellationToken token)
         {
             TcpClient? upstreamControl = null;
@@ -1235,29 +1241,24 @@ namespace ProxyControl.Services
 
             try
             {
-                // Determine which proxy to use
-                var decision = ResolveAction(processName, ""); // Target host is unknown (0.0.0.0) at this stage
+                var decision = ResolveAction(processName, "");
                 ProxyItem? targetProxy = decision.Proxy;
-
                 IPEndPoint? upstreamRelayEp = null;
 
                 if (targetProxy != null && targetProxy.Type == ProxyType.Socks5)
                 {
-                    // Connect to Upstream Proxy and request UDP Associate
                     var result = await Socks5Client.UdpAssociateAsync(targetProxy, token);
                     upstreamControl = result.ControlClient;
                     upstreamRelayEp = result.UdpRelay;
-                    upstreamUdp = new UdpClient(); // Client to talk to Upstream Relay
+                    upstreamUdp = new UdpClient();
                 }
 
                 using (var localUdpListener = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)))
                 {
                     int assignedPort = ((IPEndPoint)localUdpListener.Client.LocalEndPoint).Port;
 
-                    // Reply to Client: Success (0x00) + Bind IP/Port
                     byte[] portBytes = BitConverter.GetBytes((ushort)assignedPort);
                     if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
-
                     byte[] rep = { 0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1 };
                     await stream.WriteAsync(rep, 0, rep.Length, token);
                     await stream.WriteAsync(portBytes, 0, 2, token);
@@ -1265,56 +1266,41 @@ namespace ProxyControl.Services
                     string details = upstreamRelayEp != null ? $"-> {upstreamRelayEp}" : "Direct/Block";
                     var historyItem = _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Active", $"Loc:{assignedPort} {details}", null, "#00FFFF");
 
-                    // Start Bidirectional Relay
-                    var clientToUpstream = RunUdpClientToUpstream(localUdpListener, upstreamUdp, upstreamRelayEp, processName, historyItem, token);
-                    var upstreamToClient = RunUdpUpstreamToClient(localUdpListener, upstreamUdp, token);
+                    var state = new UdpState();
+                    var clientTask = RunUdpClientToUpstream(localUdpListener, upstreamUdp, upstreamRelayEp, processName, historyItem, state, token);
+                    var upstreamTask = RunUdpUpstreamToClient(localUdpListener, upstreamUdp, state, processName, historyItem, token);
 
-                    // Keep TCP Control Open
                     var tcpHoldTask = stream.ReadAsync(new byte[1], 0, 1, token);
                     var upstreamHoldTask = upstreamControl != null ? upstreamControl.GetStream().ReadAsync(new byte[1], 0, 1, token) : Task.Delay(-1, token);
 
-                    await Task.WhenAny(clientToUpstream, upstreamToClient, tcpHoldTask, upstreamHoldTask);
-
+                    await Task.WhenAny(clientTask, upstreamTask, tcpHoldTask, upstreamHoldTask);
                     if (historyItem != null) _trafficMonitor.CompleteConnection(historyItem);
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"UDP Assoc Error: {ex.Message}");
-            }
-            finally
-            {
-                upstreamControl?.Dispose();
-                upstreamUdp?.Dispose();
-            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"UDP Error: {ex}"); }
+            finally { upstreamControl?.Dispose(); upstreamUdp?.Dispose(); }
         }
 
-        private async Task RunUdpClientToUpstream(UdpClient localListener, UdpClient? upstreamUdp, IPEndPoint? upstreamRelay, string processName, ConnectionHistoryItem? history, CancellationToken token)
+        private async Task RunUdpClientToUpstream(UdpClient localListener, UdpClient? upstreamUdp, IPEndPoint? upstreamRelay, string processName, ConnectionHistoryItem? history, UdpState state, CancellationToken token)
         {
-            IPEndPoint? clientEp = null; // We verify sender? SOCKS5 says we should only accept from the client that requested.
-                                         // Simplified: Accept from any, but send replies to source.
-
             while (!token.IsCancellationRequested)
             {
                 try
                 {
                     var res = await localListener.ReceiveAsync(token);
-                    clientEp = res.RemoteEndPoint;
+
+                    // Capture Client Endpoint on first packet
+                    if (state.ClientEndpoint == null)
+                    {
+                        state.ClientEndpoint = res.RemoteEndPoint;
+                        state.ClientReady.TrySetResult(true);
+                    }
 
                     byte[] packet = res.Buffer;
-                    // SOCKS5 UDP Packet format: [RSV][FRAG][ATYP][DST.ADDR][DST.PORT][DATA]
-                    // We forward this AS IS to the Upstream Proxy if it exists.
-
                     if (upstreamUdp != null && upstreamRelay != null)
                     {
                         await upstreamUdp.SendAsync(packet, packet.Length, upstreamRelay);
                     }
-                    else
-                    {
-                        // Direct/Block not fully supported for UDP in this simplified proxy.
-                        // If null, we effectively drop it (Block).
-                    }
-
                     _trafficMonitor.AddLiveTraffic(processName, packet.Length, false);
                     if (history != null) history.BytesUp += packet.Length;
                 }
@@ -1322,36 +1308,24 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task RunUdpUpstreamToClient(UdpClient localListener, UdpClient? upstreamUdp, CancellationToken token)
+        private async Task RunUdpUpstreamToClient(UdpClient localListener, UdpClient? upstreamUdp, UdpState state, string processName, ConnectionHistoryItem? history, CancellationToken token)
         {
             if (upstreamUdp == null) return;
+
+            // Wait until we know who the client is
+            try { await state.ClientReady.Task.WaitAsync(token); } catch { return; }
 
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    // Receive from Upstream Proxy
                     var res = await upstreamUdp.ReceiveAsync(token);
-                    byte[] packet = res.Buffer;
-
-                    // Forward back to Local Client (We need to know Client EP?)
-                    // UdpClient doesn't know "who" it is talking to unless we saved it.
-                    // This is a limitation. SOCKS5 UDP Associate assumes 1-to-1 or Client sends first.
-                    // We assume Client sends first in Loop 1, but we can't easily share the variable `clientEp`.
-                    // Actually, `ReceiveAsync` matches 1 packet.
-                    // A proper implementation maps multiple clients.
-                    // But here, `HandleSocks5UdpAssociate` is per TCP connection (per client).
-                    // So we mostly serve ONE client.
-                    // BUT: localListener is bound to a port. But we don't know the Client's UDP port until they send something.
-                    // Hack: We can't send back until we know the client address.
-                    // Refactor: We need a shared state for ClientEndpoint.
-                    // However, we can't easily modify the signature in this Replace tool.
-                    // We will skip `upstreamToClient` logic for now OR try to capture it.
-
-                    // CRITICAL: We can't reply if we don't know where to send.
-                    // Most UDP flows (like QUIC or Games) initiate from Client.
-                    // So ClientToUpstream will run first.
-                    // We can use a shared thread-safe object to store the Client EP.
+                    if (state.ClientEndpoint != null)
+                    {
+                        await localListener.SendAsync(res.Buffer, res.Buffer.Length, state.ClientEndpoint);
+                        _trafficMonitor.AddLiveTraffic(processName, res.Buffer.Length, true);
+                        if (history != null) history.BytesDown += res.Buffer.Length;
+                    }
                 }
                 catch { break; }
             }
