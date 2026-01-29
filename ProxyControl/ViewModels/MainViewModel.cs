@@ -843,27 +843,58 @@ namespace ProxyControl.ViewModels
 
                 if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Basic shortcut resolution (without heavy COM if possible, or simple assumption)
-                    // For now, let's try to get target if possible, or just use filename without extension.
-                    // Resolving shortcut correctly usually requires Windows Script Host Object Model or IShellLink.
-                    // Simplify: Just take the name of the shortcut as the process name often matches the shortcut name?
-                    // Better: User wants the PROCESS name.
-                    // The most reliable way without adding COM reference is letting user type it or selecting .exe.
-                    // If they select .lnk, we might just strip extension. 
-                    // Let's warn if it's a shortcut but try to guess.
-
+                    // Resolve shortcut to get real .exe path and checking for extension
                     try
                     {
-                        // Attempt to resolve target using IWshRuntimeLibrary is standard but requires COM reference.
-                        // We will just use the file name without extension for now as a best guess 
-                        // and user can edit it.
+                        // PowerShell approach to resolve shortcut without adding COM reference
+                        // $sh = New-Object -ComObject WScript.Shell; $s = $sh.CreateShortcut('path'); $s.TargetPath
+                        var script = $"(New-Object -ComObject WScript.Shell).CreateShortcut('{path}').TargetPath";
+                        var psi = new System.Diagnostics.ProcessStartInfo("powershell", $"-NoProfile -Command \"{script}\"")
+                        {
+                            RedirectStandardOutput = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        using var p = System.Diagnostics.Process.Start(psi);
+                        if (p != null)
+                        {
+                            string output = p.StandardOutput.ReadToEnd().Trim();
+                            p.WaitForExit();
+
+                            if (!string.IsNullOrEmpty(output) && output.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                path = output; // Switch to the real path
+                                processName = System.IO.Path.GetFileName(path);
+                            }
+                            else
+                            {
+                                // usage of shortcut name but ensure we append .exe if it seems like an app
+                                processName = System.IO.Path.GetFileName(path); // will include .lnk
+                                                                                // But user likely wants internal name. "Google Chrome.lnk" -> "chrome.exe"
+                                                                                // If resolution failed, we can only guess.
+                                                                                // Let's stick to name without extension if resolution fails?
+                                                                                // User complaint: "file extension is not added".
+                                                                                // Maybe they just want "Chrome.exe" from "Chrome.lnk"? 
+                                                                                // Unlikely. Safe bet: if resolution fails, just use original file name + .exe?
+                                                                                // No, that's risky. "Firefox Link.lnk" -> "Firefox Link.exe".
+                                                                                // If resolution fails, assume user knows what they are doing or let them edit.
+                                processName = System.IO.Path.GetFileNameWithoutExtension(path);
+                            }
+                        }
+                        else
+                        {
+                            processName = System.IO.Path.GetFileNameWithoutExtension(path);
+                        }
+                    }
+                    catch
+                    {
                         processName = System.IO.Path.GetFileNameWithoutExtension(path);
                     }
-                    catch { }
                 }
                 else
                 {
-                    processName = System.IO.Path.GetFileNameWithoutExtension(path);
+                    // It's a file, e.g. .exe
+                    processName = System.IO.Path.GetFileName(path); // Includes extension
                 }
 
                 if (IsModalVisible)
@@ -872,7 +903,7 @@ namespace ProxyControl.ViewModels
                 }
                 else
                 {
-                    // Assuming we are in "Add Rule" section since that's where the button will be
+                    // Assuming we are in "Add Rule" section
                     NewRuleApps = processName;
                 }
             }

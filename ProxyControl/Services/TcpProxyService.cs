@@ -415,6 +415,31 @@ namespace ProxyControl.Services
                         }
                         await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
                     }
+                    else if (targetProxy.Type == ProxyType.Socks4)
+                    {
+                        await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
+                        try
+                        {
+                            await Socks5Client.ConnectSocks4Async(remoteServer, targetProxy, targetHost, targetPort, ctx.Cts.Token);
+                        }
+                        catch
+                        {
+                            return;
+                        }
+
+                        Stream remoteStream = remoteServer.GetStream();
+
+                        if (decision.BlockDir != BlockDirection.Outbound)
+                        {
+                            await remoteStream.WriteAsync(buffer, 0, bytesRead, ctx.Cts.Token);
+                            if (historyItem != null)
+                            {
+                                historyItem.BytesUp += bytesRead;
+                                _trafficMonitor.AddLiveTraffic(processName, bytesRead, false);
+                            }
+                        }
+                        await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
+                    }
                     else // HTTP Proxy
                     {
                         // Existing HTTP Proxy Logic
