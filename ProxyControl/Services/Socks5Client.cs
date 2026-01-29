@@ -132,7 +132,7 @@ namespace ProxyControl.Services
                     header.Add(0x01); // IPv4
                     header.AddRange(ip.GetAddressBytes());
                 }
-                else
+                else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
                 {
                     header.Add(0x04); // IPv6
                     header.AddRange(ip.GetAddressBytes());
@@ -331,6 +331,70 @@ namespace ProxyControl.Services
                 if (read == 0) throw new Exception("Unexpected End of Stream in SOCKS5 handshake");
                 total += read;
             }
+        }
+
+        public static async Task ConnectSocks4Async(TcpClient client, ProxyItem proxy, string targetHost, int targetPort, CancellationToken token)
+        {
+            if (!client.Connected)
+                await client.ConnectAsync(proxy.IpAddress, proxy.Port, token);
+
+            var stream = client.GetStream();
+
+            // SOCKS4 Request
+            // VN(1) | CD(1) | DSTPORT(2) | DSTIP(4) | USERID | NULL
+            // VN=4, CD=1 (Connect)
+
+            // Resolve target host if it's a domain, SOCKS4 supports only IPv4 (SOCKS4a supports domain but let's stick to SOCKS4 for now or try SOCKS4a logic if needed)
+            // SOCKS4a uses 0.0.0.x IP and appends domain at end.
+            // Let's implement standard SOCKS4 first which requires IP.
+
+            IPAddress targetIp;
+            if (!IPAddress.TryParse(targetHost, out targetIp))
+            {
+                // Try DNS resolve
+                var ips = await Dns.GetHostAddressesAsync(targetHost, token);
+                // Prefer IPv4
+                targetIp = null;
+                foreach (var ip in ips)
+                {
+                    if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        targetIp = ip;
+                        break;
+                    }
+                }
+                if (targetIp == null) throw new Exception("Host resolution failed or no IPv4 address for SOCKS4");
+            }
+
+            byte[] ipBytes = targetIp.GetAddressBytes();
+            byte[] portBytes = BitConverter.GetBytes((ushort)targetPort);
+            if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
+
+            string userId = proxy.Username ?? "";
+            byte[] userBytes = Encoding.ASCII.GetBytes(userId);
+
+            List<byte> request = new List<byte>();
+            request.Add(0x04); // VN
+            request.Add(0x01); // CD = Connect
+            request.AddRange(portBytes);
+            request.AddRange(ipBytes);
+            request.AddRange(userBytes);
+            request.Add(0x00); // Null terminator
+
+            await stream.WriteAsync(request.ToArray(), 0, request.Count, token);
+
+            // Read Reply
+            // VN(1) | CD(1) | DSTPORT(2) | DSTIP(4)
+            byte[] reply = new byte[8];
+            await ReadExactAsync(stream, reply, 8, token);
+
+            // Valid Reply: VN=0, CD=90 (Request granted)
+            if (reply[1] != 90)
+            {
+                throw new Exception($"SOCKS4 Connect failed with code: {reply[1]}");
+            }
+
+            // Success
         }
     }
 }

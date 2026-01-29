@@ -154,6 +154,14 @@ namespace ProxyControl.ViewModels
             get => _newRuleSelectedProxy;
             set { _newRuleSelectedProxy = value; OnPropertyChanged(); }
         }
+
+        private bool _newRuleIsRegex;
+        public bool NewRuleIsRegex
+        {
+            get => _newRuleIsRegex;
+            set { _newRuleIsRegex = value; OnPropertyChanged(); }
+        }
+
         public bool IsNewRuleProxyRequired => NewRuleAction == RuleAction.Proxy;
 
         private bool _isModalVisible;
@@ -490,6 +498,8 @@ namespace ProxyControl.ViewModels
         public ICommand TraySelectProxyCommand { get; }
         public ICommand TraySetBlackListModeCommand { get; }
         public ICommand TraySetWhiteListModeCommand { get; }
+        public ICommand SelectProcessFileCommand { get; }
+        public ICommand CheckProxyUdpCommand { get; }
 
         public MainViewModel()
         {
@@ -558,6 +568,9 @@ namespace ProxyControl.ViewModels
             TraySelectProxyCommand = new RelayCommand(p => SelectedBlackListMainProxy = (ProxyItem)p);
             TraySetBlackListModeCommand = new RelayCommand(_ => IsBlackListMode = true);
             TraySetWhiteListModeCommand = new RelayCommand(_ => IsBlackListMode = false);
+
+            SelectProcessFileCommand = new RelayCommand(_ => SelectProcessFile());
+            CheckProxyUdpCommand = new RelayCommand(_ => CheckSelectedProxyUdp());
 
             // --- SAFELY INITIALIZE ---
             try
@@ -788,6 +801,80 @@ namespace ProxyControl.ViewModels
                 Application.Current.Dispatcher.Invoke(() => { SelectedProxy.Status = result.IsSuccess ? "Online" : "Offline"; SelectedProxy.PingMs = result.Ping; SelectedProxy.SpeedMbps = result.Speed; if (!string.IsNullOrEmpty(result.CountryCode)) SelectedProxy.CountryCode = result.CountryCode; });
                 if (SelectedProxy.Status == "Online") MessageBox.Show($"Proxy {SelectedProxy.IpAddress} Online!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                 else MessageBox.Show($"Proxy {SelectedProxy.IpAddress} Offline.\nError: {result.SslError}", "Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void CheckSelectedProxyUdp()
+        {
+            if (SelectedProxy != null)
+            {
+                if (SelectedProxy.Type != ProxyType.Socks5)
+                {
+                    MessageBox.Show("UDP Check is only supported for SOCKS5 proxies.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                Application.Current.Dispatcher.Invoke(() => SelectedProxy.Status = "Checking UDP...");
+                bool success = await Task.Run(() => _proxyService.CheckProxyUdp(SelectedProxy));
+
+                Application.Current.Dispatcher.Invoke(() => SelectedProxy.Status = success ? "UDP OK" : "UDP Failed");
+
+                if (success) MessageBox.Show($"Proxy {SelectedProxy.IpAddress} supports UDP Associate!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                else MessageBox.Show($"Proxy {SelectedProxy.IpAddress} UDP Check Failed.", "Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                // Refresh standard status after textual change
+                await Task.Delay(2000);
+                CheckSelectedProxy();
+            }
+        }
+
+        private void SelectProcessFile()
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Filter = "Executables (*.exe)|*.exe|Shortcuts (*.lnk)|*.lnk|All files (*.*)|*.*",
+                Title = "Select Application"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                string path = openFileDialog.FileName;
+                string processName = "";
+
+                if (path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Basic shortcut resolution (without heavy COM if possible, or simple assumption)
+                    // For now, let's try to get target if possible, or just use filename without extension.
+                    // Resolving shortcut correctly usually requires Windows Script Host Object Model or IShellLink.
+                    // Simplify: Just take the name of the shortcut as the process name often matches the shortcut name?
+                    // Better: User wants the PROCESS name.
+                    // The most reliable way without adding COM reference is letting user type it or selecting .exe.
+                    // If they select .lnk, we might just strip extension. 
+                    // Let's warn if it's a shortcut but try to guess.
+
+                    try
+                    {
+                        // Attempt to resolve target using IWshRuntimeLibrary is standard but requires COM reference.
+                        // We will just use the file name without extension for now as a best guess 
+                        // and user can edit it.
+                        processName = System.IO.Path.GetFileNameWithoutExtension(path);
+                    }
+                    catch { }
+                }
+                else
+                {
+                    processName = System.IO.Path.GetFileNameWithoutExtension(path);
+                }
+
+                if (IsModalVisible)
+                {
+                    ModalProcessName = processName;
+                }
+                else
+                {
+                    // Assuming we are in "Add Rule" section since that's where the button will be
+                    NewRuleApps = processName;
+                }
             }
         }
 

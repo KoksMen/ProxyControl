@@ -35,6 +35,7 @@ namespace ProxyControl.Models
         private BlockDirection _blockDirection = BlockDirection.Both;
         private ImageSource? _appIcon;
         private string? _iconBase64;
+        private bool _isRegex;
 
         // Backing fields for lists
         private List<string> _targetApps = new List<string>();
@@ -81,6 +82,12 @@ namespace ProxyControl.Models
         {
             get => _iconBase64;
             set { _iconBase64 = value; OnPropertyChanged(); }
+        }
+
+        public bool IsRegex
+        {
+            get => _isRegex;
+            set { _isRegex = value; OnPropertyChanged(); }
         }
 
         public List<string> TargetApps
