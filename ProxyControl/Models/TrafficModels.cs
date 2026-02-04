@@ -128,6 +128,20 @@ namespace ProxyControl.Models
         public string? FlagUrl { get; set; }
         public string Color { get; set; } = "White";
 
+        // Traffic type for Monitor display
+        public TrafficType Type { get; set; } = TrafficType.TCP;
+
+        [JsonIgnore]
+        public string TypeIcon => Type switch
+        {
+            TrafficType.TCP => "🔵",
+            TrafficType.UDP => "🟢",
+            TrafficType.DNS => "🟡",
+            TrafficType.HTTPS => "🔒",
+            TrafficType.WebSocket => "🔄",
+            _ => "⚪"
+        };
+
         public long BytesDown
         {
             get => _bytesDown;

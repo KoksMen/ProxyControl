@@ -13,6 +13,20 @@ namespace ProxyControl
         public MainWindow()
         {
             InitializeComponent();
+
+            if (DataContext is MainViewModel vm)
+            {
+                vm.RequestShowNotification += (tag, url, size) =>
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        vm.LatestVersion = tag;
+                        var toast = new Views.UpdateToast();
+                        toast.DataContext = vm; // ensure ViewModel context for commands
+                        TrayIcon.ShowCustomBalloon(toast, System.Windows.Controls.Primitives.PopupAnimation.Slide, 8000);
+                    });
+                };
+            }
         }
 
         // Перехватываем событие закрытия окна

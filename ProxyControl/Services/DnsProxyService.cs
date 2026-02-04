@@ -26,6 +26,7 @@ namespace ProxyControl.Services
         private List<TrafficRule> _localWhiteList = new List<TrafficRule>();
         private string? _blackListProxyId;
         private RuleMode _currentMode;
+        private bool _isWebRtcBlockingEnabled = true;
         private readonly TrafficMonitorService _trafficMonitor;
 
         private readonly ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>> _connectionPool
@@ -83,6 +84,7 @@ namespace ProxyControl.Services
             _localWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
+            _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
 
             // Применяем настройки DNS
             if (!string.IsNullOrWhiteSpace(config.DnsHost))
@@ -204,6 +206,15 @@ namespace ProxyControl.Services
                     return;
                 }
 
+                // WebRTC Protection: Block STUN/TURN server DNS resolution (if enabled)
+                if (_isWebRtcBlockingEnabled && IsStunServer(domain))
+                {
+                    AppLoggerService.Instance.Warning("WebRTC", $"DNS blocked STUN/TURN: {domain}");
+                    _trafficMonitor.CreateConnectionItem("DNS System", null, domain, "BLOCKED (STUN)", "WebRTC Protection", null, "#FF5555");
+                    // Don't respond - let it timeout (blocks WebRTC ICE candidate gathering)
+                    return;
+                }
+
                 var decision = ResolveDnsAction(domain);
 
                 bool success = false;
@@ -221,7 +232,8 @@ namespace ProxyControl.Services
                 {
                     logResult = $"Proxy: {decision.Proxy.IpAddress}";
                     logColor = "#55FF55";
-                    success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
+                    // DISABLED BY USER REQUEST
+                    // success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
                 }
 
                 // Log to Traffic Monitor
@@ -239,6 +251,42 @@ namespace ProxyControl.Services
             {
                 System.Diagnostics.Debug.WriteLine($"DNS Handle Error: {ex.Message}");
             }
+        }
+
+        // STUN server detection (same logic as TcpProxyService)
+        private bool IsStunServer(string host)
+        {
+            var lower = host.ToLowerInvariant();
+
+            // Common STUN/TURN servers
+            if (lower.Contains("stun.l.google.com") ||
+                lower.Contains("stun1.l.google.com") ||
+                lower.Contains("stun2.l.google.com") ||
+                lower.Contains("stun3.l.google.com") ||
+                lower.Contains("stun4.l.google.com") ||
+                lower.Contains("stun.services.mozilla.com") ||
+                lower.Contains("stun.stunprotocol.org") ||
+                lower.Contains("stun.cloudflare.com") ||
+                lower.Contains("turn.cloudflare.com"))
+            {
+                return true;
+            }
+
+            // Pattern matching
+            if (lower.StartsWith("stun.") || lower.StartsWith("turn.") ||
+                lower.Contains(".stun.") || lower.Contains(".turn.") ||
+                lower.EndsWith(".stun") || lower.EndsWith(".turn"))
+            {
+                return true;
+            }
+
+            // Block common WebRTC relay patterns
+            if (lower.Contains("webrtc") && (lower.Contains("relay") || lower.Contains("ice")))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private async Task<PooledTcpClient> GetConnectionAsync(ProxyItem proxy)

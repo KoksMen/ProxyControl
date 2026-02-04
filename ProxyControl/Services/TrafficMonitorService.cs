@@ -67,7 +67,7 @@ namespace ProxyControl.Services
 
                 if (IsLiveMode)
                 {
-                    Application.Current.Dispatcher.BeginInvoke(() =>
+                    Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
                     {
                         if (!DisplayedProcessList.Any(p => p.ProcessName == name))
                             DisplayedProcessList.Add(newData);
@@ -271,7 +271,7 @@ namespace ProxyControl.Services
                 foreach (var s in sorted) p.Connections.Add(s);
             }
 
-            Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
             {
                 DisplayedProcessList.Clear();
                 foreach (var p in resultDict.Values)
@@ -285,7 +285,7 @@ namespace ProxyControl.Services
         {
             IsLiveMode = true;
             _uiBatchTimer.Start();
-            Application.Current.Dispatcher.Invoke(() =>
+            Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
             {
                 DisplayedProcessList.Clear();
                 foreach (var p in _liveProcessStats.Values)

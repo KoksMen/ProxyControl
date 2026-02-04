@@ -26,8 +26,10 @@ namespace ProxyControl.Models
     {
         public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
         public Guid? BlackListSelectedProxyId { get; set; }
+        public string? TunProxyId { get; set; }
 
         public bool EnableDnsProtection { get; set; } = false;
+        public bool IsWebRtcBlockingEnabled { get; set; } = true;
 
         // Выбранный тип провайдера
         public DnsProviderType DnsProvider { get; set; } = DnsProviderType.Google;

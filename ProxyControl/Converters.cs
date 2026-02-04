@@ -138,14 +138,50 @@ namespace ProxyControl
         public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
         {
             if (values.Length < 2) return false;
-            // Сравниваем ID прокси (строки или Guid)
+            if (values[0] == null && values[1] == null) return true;
             if (values[0] == null || values[1] == null) return false;
-            return values[0].ToString() == values[1].ToString();
+
+            // Check for direct object equality first
+            if (values[0].Equals(values[1])) return true;
+
+            // Fallback for strings or value types if needed, but avoid ToString on complex objects
+            if (values[0] is string s1 && values[1] is string s2) return s1 == s2;
+
+            return false;
         }
 
         public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
         {
             throw new NotImplementedException();
+        }
+    }
+
+    public class ActionToProxyVisConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is RuleAction action && action == RuleAction.Proxy)
+                return Visibility.Visible;
+            return Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class StringEqualsConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value == null || parameter == null) return false;
+            return value.ToString().Equals(parameter.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return value is bool b && b ? parameter : Binding.DoNothing;
         }
     }
 }
