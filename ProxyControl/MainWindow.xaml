@@ -1564,7 +1564,6 @@
                                                                     <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="Auto" />
-                                                                    <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
 
                                                                 <!--  Icon  -->
@@ -1574,18 +1573,47 @@
                                                                     FontSize="18"
                                                                     Text="{Binding Icon}" />
 
-                                                                <!--  Name  -->
-                                                                <TextBlock
+                                                                <!--  Name & Buttons Stack  -->
+                                                                <StackPanel
                                                                     Grid.Column="1"
                                                                     Margin="12,0,0,0"
-                                                                    VerticalAlignment="Center"
-                                                                    FontSize="13"
-                                                                    FontWeight="Medium"
-                                                                    Foreground="#E4E4E7"
-                                                                    Text="{Binding GroupName}"
-                                                                    TextTrimming="CharacterEllipsis" />
+                                                                    VerticalAlignment="Center">
+                                                                    <TextBlock
+                                                                        FontSize="13"
+                                                                        FontWeight="Medium"
+                                                                        Foreground="#E4E4E7"
+                                                                        Text="{Binding GroupName}"
+                                                                        TextTrimming="CharacterEllipsis" />
 
-                                                                <!--  Badge  -->
+                                                                    <!--  Action Buttons Moved Below Name  -->
+                                                                    <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
+                                                                        <Button
+                                                                            Padding="4,2"
+                                                                            Background="Transparent"
+                                                                            BorderThickness="0"
+                                                                            Command="{Binding DataContext.EditGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            CommandParameter="{Binding GroupName}"
+                                                                            Content="✏️"
+                                                                            Cursor="Hand"
+                                                                            FontSize="11"
+                                                                            Foreground="#AAA"
+                                                                            ToolTip="Rename Group" />
+                                                                        <Button
+                                                                            Margin="8,0,0,0"
+                                                                            Padding="4,2"
+                                                                            Background="Transparent"
+                                                                            BorderThickness="0"
+                                                                            Command="{Binding DataContext.RemoveGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            CommandParameter="{Binding GroupName}"
+                                                                            Content="🗑️"
+                                                                            Cursor="Hand"
+                                                                            FontSize="11"
+                                                                            Foreground="#EF4444"
+                                                                            ToolTip="Delete Group" />
+                                                                    </StackPanel>
+                                                                </StackPanel>
+
+                                                                <!--  Rule Count Badge  -->
                                                                 <Border
                                                                     Grid.Column="2"
                                                                     Margin="0,0,5,0"
@@ -1598,37 +1626,6 @@
                                                                         Foreground="White"
                                                                         Text="{Binding RuleCount}" />
                                                                 </Border>
-
-                                                                <!--  Action Buttons  -->
-                                                                <StackPanel
-                                                                    Grid.Column="3"
-                                                                    Margin="0,0,0,0"
-                                                                    HorizontalAlignment="Right"
-                                                                    VerticalAlignment="Center"
-                                                                    Orientation="Horizontal">
-                                                                    <Button
-                                                                        Padding="4"
-                                                                        Background="Transparent"
-                                                                        BorderThickness="0"
-                                                                        Command="{Binding DataContext.EditGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                        CommandParameter="{Binding GroupName}"
-                                                                        Content="✏️"
-                                                                        Cursor="Hand"
-                                                                        FontSize="12"
-                                                                        Foreground="#AAA"
-                                                                        ToolTip="Rename Group" />
-                                                                    <Button
-                                                                        Padding="4"
-                                                                        Background="Transparent"
-                                                                        BorderThickness="0"
-                                                                        Command="{Binding DataContext.RemoveGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                        CommandParameter="{Binding GroupName}"
-                                                                        Content="🗑️"
-                                                                        Cursor="Hand"
-                                                                        FontSize="12"
-                                                                        Foreground="#EF4444"
-                                                                        ToolTip="Delete Group" />
-                                                                </StackPanel>
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>
@@ -1985,11 +1982,11 @@
                                                                         FontSize="12"
                                                                         FontWeight="SemiBold"
                                                                         Foreground="#E4E4E7"
-                                                                        Text="{Binding TargetApps, Converter={StaticResource ListToStr}}" />
+                                                                        Text="{Binding TargetHosts, Converter={StaticResource ListToStr}}" />
                                                                     <TextBlock
                                                                         FontSize="10"
                                                                         Foreground="#71717A"
-                                                                        Text="{Binding TargetHosts, Converter={StaticResource ListToStr}}" />
+                                                                        Text="{Binding TargetApps, Converter={StaticResource ListToStr}}" />
                                                                 </StackPanel>
                                                                 <!--  Inline Action Edit  -->
                                                                 <ComboBox
