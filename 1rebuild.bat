@@ -1,0 +1,1 @@
+dotnet clean && dotnet build && pause

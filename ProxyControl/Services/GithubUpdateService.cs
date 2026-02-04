@@ -15,14 +15,17 @@ namespace ProxyControl.Services
         private const string RepoOwner = "KoksMen";
         private const string RepoName = "ProxyControl";
 
+        public event Action<string, string>? OnMessage;
+        public event Action<string, string, long>? OnUpdateAvailable; // Tag, Url, Size
+
         // Обновленная сигнатура: Title, Details, Percent
-        public async Task CheckAndInstallUpdate(Action<string, string, int> onProgress, Action onCompleted, bool silent = false)
+        public async Task CheckAndInstallUpdate(Action<string, string, int>? onProgress = null, Action? onCompleted = null, bool silent = false)
         {
             try
             {
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "1.9.1"));
+                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "2.1.0"));
 
                     string url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
                     var response = await client.GetStringAsync(url);
@@ -47,15 +50,18 @@ namespace ProxyControl.Services
                                     fileSize = sizeProp.GetInt64();
                                 }
 
-                                if (MessageBox.Show($"New version {tagName} is available!\nUpdate now?", "Update Found", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                                if (OnUpdateAvailable != null)
                                 {
-                                    await PerformUpdate(downloadUrl, fileSize, onProgress, onCompleted);
+                                    OnUpdateAvailable.Invoke(tagName, downloadUrl, fileSize);
+                                    return; // ViewModel will call PerformUpdate
                                 }
                             }
                         }
-                        else if (!silent)
+
+                        // If we are here, either latest <= current OR no assets OR OnUpdateAvailable is null
+                        if (!silent)
                         {
-                            MessageBox.Show("You are using the latest version.", "Check for Updates");
+                            OnMessage?.Invoke("Check for Updates", "You are using the latest version.");
                         }
                     }
                 }
@@ -63,7 +69,9 @@ namespace ProxyControl.Services
             catch (Exception ex)
             {
                 if (!silent)
-                    MessageBox.Show($"Update check failed: {ex.Message}", "Error");
+                {
+                    OnMessage?.Invoke("Error", $"Update check failed: {ex.Message}");
+                }
             }
         }
 
@@ -77,7 +85,7 @@ namespace ProxyControl.Services
             catch { return new Version(1, 0, 0); }
         }
 
-        private async Task PerformUpdate(string url, long expectedSize, Action<string, string, int> onProgress, Action onCompleted)
+        public async Task PerformUpdate(string url, long expectedSize, Action<string, string, int> onProgress, Action onCompleted)
         {
             try
             {
@@ -173,7 +181,7 @@ del ""%~f0""
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Update process failed: {ex.Message}");
+                OnMessage?.Invoke("Error", $"Update process failed: {ex.Message}");
             }
         }
 

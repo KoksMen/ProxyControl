@@ -6,16 +6,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-	<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-	<Version>1.9.1</Version>
-	<ApplicationIcon>proxy.ico</ApplicationIcon>
-	<Company>KoksMen</Company>
-	<Authors>KoksMen</Authors>
-	<Title>Proxy Control</Title>
-	<Product>Proxy Control</Product>
-	<PackageId>Proxy Control</PackageId>
-	<Copyright>KoksMen</Copyright>
-	<PackageIcon>unnamed.png</PackageIcon>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <Version>2.1.0</Version>
+    <ApplicationIcon>proxy.ico</ApplicationIcon>
+    <Company>KoksMen</Company>
+    <Authors>KoksMen</Authors>
+    <Title>Proxy Control</Title>
+    <Product>Proxy Control</Product>
+    <PackageId>Proxy Control</PackageId>
+    <Copyright>KoksMen</Copyright>
+    <PackageIcon>unnamed.png</PackageIcon>
   </PropertyGroup>
 
   <ItemGroup>

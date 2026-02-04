@@ -26,6 +26,15 @@ namespace ProxyControl.Models
         Outbound
     }
 
+    public enum TrafficType
+    {
+        TCP,
+        UDP,
+        DNS,
+        HTTPS,
+        WebSocket
+    }
+
     public class TrafficRule : INotifyPropertyChanged
     {
         private bool _isEnabled;
@@ -134,8 +143,83 @@ namespace ProxyControl.Models
         public ImageSource? AppIcon { get; set; }
         public string? CountryFlagUrl { get; set; }
 
+        // Traffic type (TCP, UDP, DNS, HTTPS)
+        public TrafficType Type { get; set; } = TrafficType.TCP;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string TypeIcon => Type switch
+        {
+            TrafficType.TCP => "🔵",
+            TrafficType.UDP => "🟢",
+            TrafficType.DNS => "🟡",
+            TrafficType.HTTPS => "🔒",
+            TrafficType.WebSocket => "🔄",
+            _ => "⚪"
+        };
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string TypeStr => Type.ToString();
+
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    // Grid-based Rules UI models
+    public class RuleGroupInfo
+    {
+        public string GroupName { get; set; } = "General";
+        public int RuleCount { get; set; }
+        public int AppCount { get; set; }
+        public List<TrafficRule> Rules { get; set; } = new();
+
+        public string GradientStart => GetGradientStart(GroupName);
+        public string GradientEnd => GetGradientEnd(GroupName);
+        public string Icon { get; set; } = "📁";
+
+        public RuleGroupInfo()
+        {
+            Icon = GetDefaultIcon(GroupName);
+        }
+
+        // Helpers for defaults (can be moved or kept here)
+        public static string GetGradientStart(string group) => group switch
+        {
+            "General" => "#6366F1",
+            "Gaming" => "#EC4899",
+            "Streaming" => "#F59E0B",
+            "Social" => "#10B981",
+            "Work" => "#3B82F6",
+            _ => "#8B5CF6"
+        };
+
+        public static string GetGradientEnd(string group) => group switch
+        {
+            "General" => "#8B5CF6",
+            "Gaming" => "#F43F5E",
+            "Streaming" => "#EF4444",
+            "Social" => "#14B8A6",
+            "Work" => "#6366F1",
+            _ => "#A855F7"
+        };
+
+        public static string GetDefaultIcon(string group) => group switch
+        {
+            "General" => "📁",
+            "Gaming" => "🎮",
+            "Streaming" => "📺",
+            "Social" => "💬",
+            "Work" => "💼",
+            "VPN" => "🔐",
+            _ => "📁"
+        };
+    }
+
+    public class AppRuleInfo
+    {
+        public string AppName { get; set; } = "*";
+        public int RuleCount { get; set; }
+        public string DisplayName => AppName == "*" ? "All Apps" : AppName;
+        public string Icon => AppName == "*" ? "🌐" : "📱";
     }
 }
