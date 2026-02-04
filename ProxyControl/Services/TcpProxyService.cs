@@ -392,7 +392,7 @@ namespace ProxyControl.Services
                 }
 
                 string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "";
-                historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(), details, flagUrl, logColor);
+                historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, logResult, details, flagUrl, logColor);
 
                 OnConnectionLog?.Invoke(new ConnectionLog
                 {

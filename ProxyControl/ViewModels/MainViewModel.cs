@@ -952,6 +952,7 @@ namespace ProxyControl.ViewModels
 
             ExitAppCommand = new RelayCommand(_ =>
             {
+                _proxyService.Stop(); // Changed from _dnsProxyService.Stop() to _proxyService.Stop()
                 _dnsProxyService.Stop();
                 SystemProxyHelper.RestoreSystemDns();
                 MainWindow.AllowClose = true;
