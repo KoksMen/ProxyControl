@@ -416,6 +416,11 @@ namespace ProxyControl.ViewModels
             set { _updateDetailText = value; OnPropertyChanged(); }
         }
 
+        public string? PendingUpdateUrl { get; set; }
+        public long PendingUpdateSize { get; set; }
+
+        public ICommand OpenUpdateModalCommand { get; }
+
         private string _newRuleApps = "*";
         public string NewRuleApps { get => _newRuleApps; set { _newRuleApps = value; OnPropertyChanged(); } }
 
@@ -987,6 +992,28 @@ namespace ProxyControl.ViewModels
             RemoveAppCommand = new RelayCommand(app => RequestConfirmDelete("App", app as string));
             SelectRuleCommand = new RelayCommand(r => SelectedRule = r as TrafficRule);
 
+            OpenUpdateModalCommand = new RelayCommand(async _ =>
+            {
+                // Restore Window
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    var win = Application.Current.MainWindow;
+                    if (win != null)
+                    {
+                        win.Show();
+                        if (win.WindowState == WindowState.Minimized) win.WindowState = WindowState.Normal;
+                        win.Topmost = true;  // Briefly force top logic if needed
+                        win.Activate();
+                        win.Topmost = false;
+                    }
+                });
+
+                if (!string.IsNullOrEmpty(PendingUpdateUrl))
+                {
+                    await ExecuteUpdate(PendingUpdateUrl, PendingUpdateSize);
+                }
+            });
+
 
             CloseConfirmModalCommand = new RelayCommand(_ => IsConfirmModalVisible = false);
             ConfirmActionCommand = new RelayCommand(_ =>
@@ -1104,6 +1131,9 @@ namespace ProxyControl.ViewModels
 
             if (useToast)
             {
+                // Store pending update info
+                PendingUpdateUrl = url;
+                PendingUpdateSize = size;
                 // Show toast notification
                 RequestShowNotification?.Invoke(tagName, url, size);
             }
@@ -1886,13 +1916,7 @@ namespace ProxyControl.ViewModels
             set { _latestVersion = value; OnPropertyChanged(); }
         }
 
-        // Command to be used by Toast
-        public ICommand OpenUpdateModalCommand => new RelayCommand(async _ =>
-        {
-            // Re-trigger update logic for the saved latest version
-            // For simplicity, we assume the toast is only shown when we have specific update info.
-            // But the Toast binding needs a command. 
-        });
+
 
     }
 

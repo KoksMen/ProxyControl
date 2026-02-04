@@ -118,7 +118,7 @@
                 Orientation="Horizontal">
                 <Button
                     Margin="0,0,8,0"
-                    Command="{Binding OpenUpdateModalCommand}"
+                    Click="OnUpdateClick"
                     Content="Update"
                     Style="{StaticResource ToastBtn}" />
                 <Button
