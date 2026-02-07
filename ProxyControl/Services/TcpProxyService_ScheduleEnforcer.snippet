@@ -1,0 +1,33 @@
+
+        private void StartScheduleEnforcer()
+        {
+            Task.Run(async () =>
+            {
+                while (_isRunning)
+                {
+                    try
+                    {
+                        await Task.Delay(5000); // Check every 5 seconds
+
+                        foreach (var kvp in _activeClients)
+                        {
+                            var ctx = kvp.Value;
+                            if (string.IsNullOrEmpty(ctx.AppName) || string.IsNullOrEmpty(ctx.Host)) continue;
+
+                            // Re-evaluate rule based on current time
+                            var decision = ResolveAction(ctx.AppName, ctx.Host);
+                            
+                            // If action is Block, kill the connection
+                            if (decision.Action == RuleAction.Block)
+                            {
+                                _logger.Debug("Schedule", $"Terminating active connection {ctx.AppName} -> {ctx.Host} due to schedule change.");
+                                ctx.Cts?.Cancel();
+                                ForceClose(ctx.Client);
+                                ForceClose(ctx.Remote);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            });
+        }

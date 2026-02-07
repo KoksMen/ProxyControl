@@ -24,12 +24,14 @@ namespace ProxyControl.Models
     // Конфигурация правил маршрутизации
     public class AppConfig
     {
+
         public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
         public Guid? BlackListSelectedProxyId { get; set; }
         public string? TunProxyId { get; set; }
 
         public bool EnableDnsProtection { get; set; } = false;
         public bool IsWebRtcBlockingEnabled { get; set; } = true;
+        public bool IsTunMode { get; set; } = false;
 
         // Выбранный тип провайдера
         public DnsProviderType DnsProvider { get; set; } = DnsProviderType.Google;
@@ -39,5 +41,14 @@ namespace ProxyControl.Models
 
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
+
+        public List<RulePreset> Presets { get; set; } = new List<RulePreset>();
+    }
+
+    public class RulePreset
+    {
+        public string Name { get; set; } = "New Preset";
+        public List<TrafficRule> Rules { get; set; } = new List<TrafficRule>();
+        public RuleMode Mode { get; set; } = RuleMode.BlackList;
     }
 }

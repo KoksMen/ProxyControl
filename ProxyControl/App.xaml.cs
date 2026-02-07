@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using ProxyControl.ViewModels;
 using System.Windows;
 
 namespace ProxyControl
@@ -107,6 +108,13 @@ namespace ProxyControl
             // --- Добавлено: Сброс DNS при выходе ---
             SystemProxyHelper.RestoreSystemDns();
             // ---------------------------------------
+
+            // --- TUN Cleanup ---
+            if (MainWindow is MainWindow mw && mw.DataContext is MainViewModel vm)
+            {
+                vm.Cleanup();
+            }
+            // -------------------
 
             base.OnExit(e);
         }

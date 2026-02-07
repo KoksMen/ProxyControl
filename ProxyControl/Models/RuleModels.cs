@@ -35,6 +35,8 @@ namespace ProxyControl.Models
         WebSocket
     }
 
+
+
     public class TrafficRule : INotifyPropertyChanged
     {
         private bool _isEnabled;
@@ -112,6 +114,52 @@ namespace ProxyControl.Models
                 _targetHosts = value ?? new List<string>();
                 OnPropertyChanged();
             }
+        }
+
+
+
+
+
+        private bool _isScheduleEnabled;
+        public bool IsScheduleEnabled
+        {
+            get => _isScheduleEnabled;
+            set { _isScheduleEnabled = value; OnPropertyChanged(); }
+        }
+
+        private TimeSpan? _scheduleStart;
+        public TimeSpan? ScheduleStart
+        {
+            get => _scheduleStart;
+            set { _scheduleStart = value; OnPropertyChanged(); }
+        }
+
+        private TimeSpan? _scheduleEnd;
+        public TimeSpan? ScheduleEnd
+        {
+            get => _scheduleEnd;
+            set { _scheduleEnd = value; OnPropertyChanged(); }
+        }
+
+        private DayOfWeek[] _scheduleDays = Array.Empty<DayOfWeek>();
+        public DayOfWeek[] ScheduleDays
+        {
+            get => _scheduleDays;
+            set { _scheduleDays = value; OnPropertyChanged(); }
+        }
+
+        private string _timeStart = "";
+        public string TimeStart
+        {
+            get => _timeStart;
+            set { _timeStart = value; OnPropertyChanged(); }
+        }
+
+        private string _timeEnd = "";
+        public string TimeEnd
+        {
+            get => _timeEnd;
+            set { _timeEnd = value; OnPropertyChanged(); }
         }
 
         [System.Text.Json.Serialization.JsonIgnore]
