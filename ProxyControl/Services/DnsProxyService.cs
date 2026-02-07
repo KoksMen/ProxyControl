@@ -24,6 +24,10 @@ namespace ProxyControl.Services
         private List<ProxyItem> _localProxies = new List<ProxyItem>();
         private List<TrafficRule> _localBlackList = new List<TrafficRule>();
         private List<TrafficRule> _localWhiteList = new List<TrafficRule>();
+
+        // Optimization: Fast lookup
+        private Dictionary<string, TrafficRule> _fastBlackListRules = new Dictionary<string, TrafficRule>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, TrafficRule> _fastWhiteListRules = new Dictionary<string, TrafficRule>(StringComparer.OrdinalIgnoreCase);
         private string? _blackListProxyId;
         private RuleMode _currentMode;
         private bool _isWebRtcBlockingEnabled = true;
@@ -82,6 +86,37 @@ namespace ProxyControl.Services
 
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
             _localWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
+
+            _fastBlackListRules.Clear();
+            foreach (var rule in _localBlackList)
+            {
+                if (rule.IsEnabled)
+                {
+                    foreach (var host in rule.TargetHosts)
+                    {
+                        if (host != "*" && !_fastBlackListRules.ContainsKey(host))
+                        {
+                            _fastBlackListRules[host] = rule;
+                        }
+                    }
+                }
+            }
+
+            _fastWhiteListRules.Clear();
+            foreach (var rule in _localWhiteList)
+            {
+                if (rule.IsEnabled)
+                {
+                    foreach (var host in rule.TargetHosts)
+                    {
+                        if (host != "*" && !_fastWhiteListRules.ContainsKey(host))
+                        {
+                            _fastWhiteListRules[host] = rule;
+                        }
+                    }
+                }
+            }
+
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
@@ -256,38 +291,28 @@ namespace ProxyControl.Services
         // STUN server detection (same logic as TcpProxyService)
         private bool IsStunServer(string host)
         {
-            var lower = host.ToLowerInvariant();
+            // Quick check: most hosts are NOT stun
+            if (host.Length < 4) return false;
 
-            // Common STUN/TURN servers
-            if (lower.Contains("stun.l.google.com") ||
-                lower.Contains("stun1.l.google.com") ||
-                lower.Contains("stun2.l.google.com") ||
-                lower.Contains("stun3.l.google.com") ||
-                lower.Contains("stun4.l.google.com") ||
-                lower.Contains("stun.services.mozilla.com") ||
-                lower.Contains("stun.stunprotocol.org") ||
-                lower.Contains("stun.cloudflare.com") ||
-                lower.Contains("turn.cloudflare.com"))
-            {
-                return true;
-            }
+            // Check for common STUN/TURN patterns
+            if (host.StartsWith("stun.", StringComparison.OrdinalIgnoreCase) ||
+                host.StartsWith("turn.", StringComparison.OrdinalIgnoreCase)) return true;
 
-            // Pattern matching
-            if (lower.StartsWith("stun.") || lower.StartsWith("turn.") ||
-                lower.Contains(".stun.") || lower.Contains(".turn.") ||
-                lower.EndsWith(".stun") || lower.EndsWith(".turn"))
-            {
-                return true;
-            }
+            if (host.IndexOf(".stun.", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (host.IndexOf(".turn.", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (host.EndsWith(".stun", StringComparison.OrdinalIgnoreCase)) return true;
+            if (host.EndsWith(".turn", StringComparison.OrdinalIgnoreCase)) return true;
 
             // Block common WebRTC relay patterns
-            if (lower.Contains("webrtc") && (lower.Contains("relay") || lower.Contains("ice")))
+            if (host.IndexOf("webrtc", StringComparison.OrdinalIgnoreCase) >= 0 &&
+               (host.IndexOf("relay", StringComparison.OrdinalIgnoreCase) >= 0 || host.IndexOf("ice", StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 return true;
             }
 
             return false;
         }
+
 
         private async Task<PooledTcpClient> GetConnectionAsync(ProxyItem proxy)
         {
@@ -522,6 +547,23 @@ namespace ProxyControl.Services
             {
                 var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
 
+                // Trusted 1: Exact Host Match (O(1))
+                if (_fastBlackListRules.TryGetValue(host, out var fastRule))
+                {
+                    if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
+                    {
+                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Direct, null);
+                        if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
+                        if (fastRule.ProxyId != null)
+                        {
+                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(fastRule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+                            return (RuleAction.Direct, null);
+                        }
+                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
+                    }
+                }
+
                 foreach (var rule in _localBlackList)
                 {
                     if (!rule.IsEnabled) continue;
@@ -544,6 +586,26 @@ namespace ProxyControl.Services
             }
             else // White List
             {
+                // Trusted 1: Exact Host Match (O(1))
+                if (_fastWhiteListRules.TryGetValue(host, out var fastRule))
+                {
+                    if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
+                    {
+                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Direct, null);
+                        if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
+                        if (fastRule.ProxyId != null)
+                        {
+                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(fastRule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+
+                            var mainProxyFallback = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
+                        }
+                        var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
+                    }
+                }
+
                 foreach (var rule in _localWhiteList)
                 {
                     if (!rule.IsEnabled) continue;

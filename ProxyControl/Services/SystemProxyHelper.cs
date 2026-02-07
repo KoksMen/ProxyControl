@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -71,6 +72,60 @@ namespace ProxyControl.Services
                 _lastCacheUpdate = DateTime.UtcNow;
                 return _pidCache.TryGetValue(port, out int pid) ? pid : 0;
             }
+        }
+
+        public static int GetPidByDestAddress(IPAddress destIp, int destPort)
+        {
+            // Note: We don't cache this as it changes frequently per connection attempt
+            return GetPidRelative(destIp, destPort);
+        }
+
+        private static int GetPidRelative(IPAddress destIp, int destPort)
+        {
+            int bufferSize = 0;
+            GetExtendedTcpTable(IntPtr.Zero, ref bufferSize, false, 2, 5, 0);
+
+            IntPtr tcpTablePtr = Marshal.AllocHGlobal(bufferSize);
+
+            try
+            {
+                if (GetExtendedTcpTable(tcpTablePtr, ref bufferSize, false, 2, 5, 0) == 0)
+                {
+                    int rowCount = Marshal.ReadInt32(tcpTablePtr);
+                    IntPtr rowPtr = tcpTablePtr + 4;
+
+                    byte[] targetIpBytes = destIp.GetAddressBytes();
+                    int targetIpInt = BitConverter.ToInt32(targetIpBytes, 0);
+
+                    for (int i = 0; i < rowCount; i++)
+                    {
+                        // dwRemoteAddr at offset 12
+                        int remoteAddr = Marshal.ReadInt32(rowPtr + 12);
+
+                        // dwRemotePort at offset 16
+                        int remotePort = Marshal.ReadInt32(rowPtr + 16);
+                        remotePort = ((remotePort & 0xFF00) >> 8) | ((remotePort & 0xFF) << 8);
+
+                        if (remoteAddr == targetIpInt && remotePort == destPort)
+                        {
+                            // dwState at offset 0
+                            int state = Marshal.ReadInt32(rowPtr);
+                            // MIB_TCP_STATE_SYN_SENT = 3, ESTABLISHED = 5
+                            // We might catch it in SYN_SENT in TUN mode
+
+                            // PID at offset 20
+                            return Marshal.ReadInt32(rowPtr + 20);
+                        }
+
+                        rowPtr += 24;
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(tcpTablePtr);
+            }
+            return 0;
         }
 
         private static Dictionary<int, int> BuildTcpTableSnapshot()
