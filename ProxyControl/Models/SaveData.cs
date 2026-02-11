@@ -26,7 +26,7 @@ namespace ProxyControl.Models
     {
 
         public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
-        public Guid? BlackListSelectedProxyId { get; set; }
+        public string? BlackListSelectedProxyId { get; set; }
         public string? TunProxyId { get; set; }
 
         public bool EnableDnsProtection { get; set; } = false;
