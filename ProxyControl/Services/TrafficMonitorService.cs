@@ -230,35 +230,59 @@ namespace ProxyControl.Services
                     string fileName = $"log_{current:yyyy-MM-dd}.jsonl";
                     string fullPath = Path.Combine(_logsPath, fileName);
 
+                    // Fix: Use FileStream with FileShare.ReadWrite to allow reading while logging is active
                     if (File.Exists(fullPath))
                     {
-                        foreach (var line in File.ReadLines(fullPath))
+                        try
                         {
-                            try
+                            using (var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                            using (var sr = new StreamReader(fs))
                             {
-                                var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
-                                if (item != null)
+                                string? line;
+                                while ((line = sr.ReadLine()) != null)
                                 {
-                                    if (startTime.HasValue && item.Timestamp.TimeOfDay < startTime.Value) continue;
-                                    if (endTime.HasValue && item.Timestamp.TimeOfDay > endTime.Value) continue;
-
-                                    if (!resultDict.ContainsKey(item.ProcessName))
+                                    try
                                     {
-                                        resultDict[item.ProcessName] = new ProcessTrafficData
+                                        var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
+                                        if (item != null)
                                         {
-                                            ProcessName = item.ProcessName,
-                                            Icon = _liveProcessStats.TryGetValue(item.ProcessName, out var liveP) ? liveP.Icon : IconHelper.GetIconByProcessName(item.ProcessName)
-                                        };
-                                    }
+                                            if (startTime.HasValue && item.Timestamp.TimeOfDay < startTime.Value) continue;
+                                            if (endTime.HasValue && item.Timestamp.TimeOfDay > endTime.Value) continue;
 
-                                    var pData = resultDict[item.ProcessName];
-                                    pData.TotalDownload += item.BytesDown;
-                                    pData.TotalUpload += item.BytesUp;
-                                    pData.Connections.Add(item);
+                                            ImageSource? icon = null;
+                                            if (_liveProcessStats.TryGetValue(item.ProcessName, out var liveP))
+                                            {
+                                                icon = liveP.Icon;
+                                            }
+                                            else
+                                            {
+                                                Application.Current.Dispatcher.Invoke(() =>
+                                                {
+                                                    icon = IconHelper.GetIconByProcessName(item.ProcessName);
+                                                });
+                                            }
+
+                                            if (!resultDict.ContainsKey(item.ProcessName))
+                                            {
+                                                resultDict[item.ProcessName] = new ProcessTrafficData
+                                                {
+                                                    ProcessName = item.ProcessName,
+                                                    Icon = icon
+                                                };
+                                            }
+
+                                            var pData = resultDict[item.ProcessName];
+                                            pData.TotalDownload += item.BytesDown;
+                                            pData.TotalUpload += item.BytesUp;
+                                            pData.Connections.Add(item);
+                                        }
+                                    }
+                                    catch { }
                                 }
                             }
-                            catch { }
                         }
+                        catch (IOException) { } // Ignore if file is completely locked
+                        catch (Exception) { }
                     }
                     current = current.AddDays(1);
                 }

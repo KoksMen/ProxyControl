@@ -16,9 +16,7 @@
     WindowStartupLocation="CenterScreen"
     mc:Ignorable="d">
 
-    <Window.DataContext>
-        <vm:MainViewModel />
-    </Window.DataContext>
+
 
     <Window.Resources>
         <local:BooleanToVisibilityConverter x:Key="BoolToVis" />
@@ -1361,7 +1359,7 @@
                                         Margin="15,0,0,0"
                                         VerticalAlignment="Center"
                                         Orientation="Horizontal"
-                                        ToolTip="Route ALL traffic through proxy (Virtual Network Interface). Only available for SOCKS5 Proxy.">
+                                        ToolTip="{Binding DashboardVM.TunAvailabilityMessage}">
                                         <TextBlock
                                             Margin="0,0,8,0"
                                             VerticalAlignment="Center"
@@ -1369,8 +1367,8 @@
                                             Foreground="{DynamicResource ForegroundMutedBrush}"
                                             Text="TUN Mode (VPN):" />
                                         <CheckBox
-                                            IsChecked="{Binding IsTunMode}"
-                                            IsEnabled="{Binding CanEnableTunMode}"
+                                            IsChecked="{Binding DashboardVM.IsTunMode}"
+                                            IsEnabled="{Binding DashboardVM.CanEnableTunMode}"
                                             Style="{StaticResource ToggleSwitchStyle}" />
 
                                         <!--  Optional Status Indicator  -->
@@ -1379,8 +1377,29 @@
                                             VerticalAlignment="Center"
                                             FontSize="11"
                                             FontWeight="SemiBold"
-                                            Foreground="{Binding IsTunMode, Converter={StaticResource StatusColor}}"
-                                            Text="{Binding TunModeStatus}" />
+                                            Text="{Binding DashboardVM.TunModeStatus}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding DashboardVM.IsTunMode}" Value="True">
+                                                            <Setter Property="Foreground" Value="#10B981" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding DashboardVM.IsTunMode}" Value="False">
+                                                            <Setter Property="Foreground" Value="#EF4444" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+
+                                        <!--  Availability Reason Text  -->
+                                        <TextBlock
+                                            Margin="10,0,0,0"
+                                            VerticalAlignment="Center"
+                                            FontSize="10"
+                                            Foreground="#F59E0B"
+                                            Text="{Binding DashboardVM.TunAvailabilityMessage}"
+                                            Visibility="{Binding DashboardVM.CanEnableTunMode}" />
                                     </StackPanel>
                                 </StackPanel>
                             </StackPanel>
@@ -1400,7 +1419,7 @@
                                     Padding="5"
                                     Background="#333"
                                     BorderThickness="0"
-                                    Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
+                                    Text="{Binding RulesVM.SearchText, UpdateSourceTrigger=PropertyChanged}" />
                             </Grid>
 
                             <!--  Presets Toolbar  -->
@@ -1499,7 +1518,7 @@
                                             Foreground="{DynamicResource ForegroundBrush}"
                                             Text="📁 Groups" />
                                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                            <ItemsControl ItemsSource="{Binding RuleGroups}">
+                                            <ItemsControl ItemsSource="{Binding RulesVM.RuleGroups}">
                                                 <ItemsControl.ItemsPanel>
                                                     <ItemsPanelTemplate>
                                                         <VirtualizingStackPanel />
@@ -1523,7 +1542,7 @@
                                                                             <DataTrigger.Binding>
                                                                                 <MultiBinding Converter="{StaticResource EqualityConverter}">
                                                                                     <Binding Path="GroupName" />
-                                                                                    <Binding Path="DataContext.SelectedGroupName" RelativeSource="{RelativeSource AncestorType=Window}" />
+                                                                                    <Binding Path="DataContext.RulesVM.SelectedGroupName" RelativeSource="{RelativeSource AncestorType=Window}" />
                                                                                 </MultiBinding>
                                                                             </DataTrigger.Binding>
                                                                             <Setter Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
@@ -1534,7 +1553,7 @@
                                                             </Border.Style>
                                                             <Border.InputBindings>
                                                                 <MouseBinding
-                                                                    Command="{Binding DataContext.SelectGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    Command="{Binding DataContext.RulesVM.SelectGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding GroupName}"
                                                                     MouseAction="LeftClick" />
                                                             </Border.InputBindings>
@@ -1570,7 +1589,7 @@
                                                                             Padding="4,2"
                                                                             Background="Transparent"
                                                                             BorderThickness="0"
-                                                                            Command="{Binding DataContext.EditGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            Command="{Binding DataContext.RulesVM.EditGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                             CommandParameter="{Binding GroupName}"
                                                                             Content="✏️"
                                                                             Cursor="Hand"
@@ -1582,7 +1601,7 @@
                                                                             Padding="4,2"
                                                                             Background="Transparent"
                                                                             BorderThickness="0"
-                                                                            Command="{Binding DataContext.RemoveGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                            Command="{Binding DataContext.RulesVM.RemoveGroupCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                             CommandParameter="{Binding GroupName}"
                                                                             Content="🗑️"
                                                                             Cursor="Hand"
@@ -1640,7 +1659,7 @@
                                                 Padding="6,3"
                                                 Background="Transparent"
                                                 BorderThickness="0"
-                                                Command="{Binding BackToGroupsCommand}"
+                                                Command="{Binding RulesVM.BackToGroupsCommand}"
                                                 Content="← Back"
                                                 Cursor="Hand"
                                                 FontSize="11"
@@ -1675,7 +1694,7 @@
                                                 VerticalAlignment="Center"
                                                 FontSize="12"
                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="{Binding SelectedGroupName, StringFormat='({0})'}" />
+                                                Text="{Binding RulesVM.SelectedGroupName, StringFormat='({0})'}" />
 
                                             <!--  Group Batch Actions  -->
                                             <StackPanel
@@ -1708,7 +1727,7 @@
                                             </StackPanel>
                                         </StackPanel>
                                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                            <ItemsControl ItemsSource="{Binding SelectedGroupApps}">
+                                            <ItemsControl ItemsSource="{Binding RulesVM.SelectedGroupApps}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
                                                         <Border
@@ -1727,7 +1746,7 @@
                                                                             <DataTrigger.Binding>
                                                                                 <MultiBinding Converter="{StaticResource EqualityConverter}">
                                                                                     <Binding Path="AppName" />
-                                                                                    <Binding Path="DataContext.SelectedAppName" RelativeSource="{RelativeSource AncestorType=Window}" />
+                                                                                    <Binding Path="DataContext.RulesVM.SelectedAppName" RelativeSource="{RelativeSource AncestorType=Window}" />
                                                                                 </MultiBinding>
                                                                             </DataTrigger.Binding>
                                                                             <Setter Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
@@ -1738,7 +1757,7 @@
                                                             </Border.Style>
                                                             <Border.InputBindings>
                                                                 <MouseBinding
-                                                                    Command="{Binding DataContext.SelectAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    Command="{Binding DataContext.RulesVM.SelectAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding AppName}"
                                                                     MouseAction="LeftClick" />
                                                             </Border.InputBindings>
@@ -1778,7 +1797,7 @@
                                                                         Padding="4"
                                                                         Background="Transparent"
                                                                         BorderThickness="0"
-                                                                        Command="{Binding DataContext.EditAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        Command="{Binding DataContext.RulesVM.EditAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding AppName}"
                                                                         Content="✏️"
                                                                         Cursor="Hand"
@@ -1789,7 +1808,7 @@
                                                                         Padding="4"
                                                                         Background="Transparent"
                                                                         BorderThickness="0"
-                                                                        Command="{Binding DataContext.RemoveAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                        Command="{Binding DataContext.RulesVM.RemoveAppCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding AppName}"
                                                                         Content="🗑️"
                                                                         Cursor="Hand"
@@ -1901,7 +1920,7 @@
                                         </StackPanel>
                                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                                             <ItemsControl
-                                                ItemsSource="{Binding SelectedGroupRules}"
+                                                ItemsSource="{Binding RulesVM.SelectedGroupRules}"
                                                 VirtualizingPanel.IsVirtualizing="True"
                                                 VirtualizingPanel.VirtualizationMode="Recycling">
                                                 <ItemsControl.ItemsPanel>
@@ -1927,7 +1946,7 @@
                                                                             <DataTrigger.Binding>
                                                                                 <MultiBinding Converter="{StaticResource EqualityConverter}">
                                                                                     <Binding Path="." />
-                                                                                    <Binding Path="DataContext.SelectedRule" RelativeSource="{RelativeSource AncestorType=Window}" />
+                                                                                    <Binding Path="DataContext.RulesVM.SelectedRule" RelativeSource="{RelativeSource AncestorType=Window}" />
                                                                                 </MultiBinding>
                                                                             </DataTrigger.Binding>
                                                                             <Setter Property="Background" Value="#3B3B42" />
@@ -1939,7 +1958,7 @@
                                                             </Border.Style>
                                                             <Border.InputBindings>
                                                                 <MouseBinding
-                                                                    Command="{Binding DataContext.SelectRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    Command="{Binding DataContext.RulesVM.SelectRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"
                                                                     MouseAction="LeftClick" />
                                                             </Border.InputBindings>
@@ -2007,7 +2026,7 @@
                                                                     Width="28"
                                                                     Height="28"
                                                                     Margin="0,0,4,0"
-                                                                    Command="{Binding DataContext.EditRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    Command="{Binding DataContext.RulesVM.EditRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"
                                                                     ToolTip="Edit Details">
                                                                     <Button.Style>
@@ -2043,7 +2062,7 @@
                                                                     Grid.Column="5"
                                                                     Width="28"
                                                                     Height="28"
-                                                                    Command="{Binding DataContext.RemoveRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    Command="{Binding DataContext.RulesVM.RemoveRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"
                                                                     ToolTip="Delete Rule">
                                                                     <Button.Style>
@@ -2089,7 +2108,7 @@
                                 <StackPanel HorizontalAlignment="Left" Orientation="Horizontal">
                                     <Button
                                         Padding="16,10"
-                                        Command="{Binding OpenRuleModalCommand}"
+                                        Command="{Binding RulesVM.OpenRuleModalCommand}"
                                         CommandParameter="{x:Null}"
                                         Style="{StaticResource AccentBtn}">
                                         <StackPanel Orientation="Horizontal">
@@ -2105,7 +2124,8 @@
                                         Margin="10,0,0,0"
                                         Background="#A03333"
                                         Command="{Binding OpenBulkDeleteModalCommand}"
-                                        Content="Del" />
+                                        Content="Del"
+                                        Visibility="Collapsed" />
                                 </StackPanel>
                             </Grid>
                         </Grid>
@@ -2152,7 +2172,7 @@
                                         <CheckBox
                                             Grid.Column="2"
                                             VerticalAlignment="Center"
-                                            IsChecked="{Binding IsAutoStart}"
+                                            IsChecked="{Binding SettingsVM.IsAutoStart}"
                                             Style="{StaticResource ToggleSwitchStyle}" />
                                     </Grid>
                                 </Border>
@@ -2188,7 +2208,7 @@
                                         <CheckBox
                                             Grid.Column="2"
                                             VerticalAlignment="Center"
-                                            IsChecked="{Binding CheckUpdateOnStartup}"
+                                            IsChecked="{Binding SettingsVM.CheckUpdateOnStartup}"
                                             Style="{StaticResource ToggleSwitchStyle}" />
                                     </Grid>
                                 </Border>
@@ -2225,12 +2245,12 @@
                                             <CheckBox
                                                 Grid.Column="2"
                                                 VerticalAlignment="Center"
-                                                IsChecked="{Binding IsDnsProtectionEnabled}"
+                                                IsChecked="{Binding SettingsVM.IsDnsProtectionEnabled}"
                                                 Style="{StaticResource ToggleSwitchStyle}" />
                                         </Grid>
 
                                         <!--  DNS Settings (Visible if Enabled)  -->
-                                        <StackPanel Margin="0,10,0,0" Visibility="{Binding IsDnsProtectionEnabled, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel Margin="0,10,0,0" Visibility="{Binding SettingsVM.IsDnsProtectionEnabled, Converter={StaticResource BoolToVis}}">
                                             <TextBlock
                                                 Margin="0,0,0,5"
                                                 Foreground="#AAA"
@@ -2242,14 +2262,14 @@
                                                 </Grid.ColumnDefinitions>
                                                 <ComboBox
                                                     DisplayMemberPath="."
-                                                    ItemsSource="{Binding DnsProviders}"
-                                                    SelectedItem="{Binding SelectedDnsProvider}" />
+                                                    ItemsSource="{Binding SettingsVM.DnsProviders}"
+                                                    SelectedItem="{Binding SettingsVM.SelectedDnsProvider}" />
                                                 <TextBox
                                                     Grid.Column="1"
                                                     Width="120"
                                                     Margin="10,0,0,0"
-                                                    IsEnabled="{Binding IsDnsCustom}"
-                                                    Text="{Binding DnsHost}"
+                                                    IsEnabled="{Binding SettingsVM.IsDnsCustom}"
+                                                    Text="{Binding SettingsVM.DnsHost}"
                                                     ToolTip="Custom DNS IP" />
                                             </Grid>
                                         </StackPanel>
@@ -2287,7 +2307,7 @@
                                         </StackPanel>
                                         <CheckBox
                                             Grid.Column="2"
-                                            IsChecked="{Binding IsWebRtcBlockingEnabled}"
+                                            IsChecked="{Binding SettingsVM.IsWebRtcBlockingEnabled}"
                                             Style="{StaticResource ToggleSwitchStyle}" />
                                     </Grid>
                                 </Border>
@@ -2314,7 +2334,7 @@
                                             Height="36"
                                             Background="#333"
                                             BorderThickness="0"
-                                            Command="{Binding ImportConfigCommand}"
+                                            Command="{Binding SettingsVM.ImportConfigCommand}"
                                             Content="Import Settings"
                                             Cursor="Hand"
                                             Foreground="White" />
@@ -2323,7 +2343,7 @@
                                             Height="36"
                                             Background="#333"
                                             BorderThickness="0"
-                                            Command="{Binding ExportConfigCommand}"
+                                            Command="{Binding SettingsVM.ExportConfigCommand}"
                                             Content="Export Settings"
                                             Cursor="Hand"
                                             Foreground="White" />
@@ -2353,7 +2373,7 @@
                                                 Padding="12,6"
                                                 Background="#2563EB"
                                                 BorderThickness="0"
-                                                Command="{Binding CheckUpdateCommand}"
+                                                Command="{Binding SettingsVM.CheckUpdateCommand}"
                                                 Content="Check Updates"
                                                 Cursor="Hand"
                                                 Foreground="White"
@@ -2371,11 +2391,11 @@
                                     <Button.Style>
                                         <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsProxyRunning}" Value="True">
+                                                <DataTrigger Binding="{Binding DashboardVM.IsProxyRunning}" Value="True">
                                                     <Setter Property="Content" Value="SYSTEM PROXY: ON" />
                                                     <Setter Property="Background" Value="#28A745" />
                                                 </DataTrigger>
-                                                <DataTrigger Binding="{Binding IsProxyRunning}" Value="False">
+                                                <DataTrigger Binding="{Binding DashboardVM.IsProxyRunning}" Value="False">
                                                     <Setter Property="Content" Value="SYSTEM PROXY: OFF" />
                                                     <Setter Property="Background" Value="#A03333" />
                                                 </DataTrigger>
@@ -2430,22 +2450,22 @@
                                             <ComboBox
                                                 Width="140"
                                                 Margin="0,0,10,0"
-                                                ItemsSource="{Binding TrafficPeriodModes}"
-                                                SelectedItem="{Binding SelectedPeriodMode}" />
+                                                ItemsSource="{Binding DashboardVM.TrafficPeriodModes}"
+                                                SelectedItem="{Binding DashboardVM.SelectedPeriodMode}" />
                                             <Button
                                                 Padding="12,6"
-                                                Command="{Binding ApplyFilterCommand}"
+                                                Command="{Binding DashboardVM.ApplyFilterCommand}"
                                                 Content="Apply"
                                                 Style="{StaticResource AccentBtn}" />
                                         </StackPanel>
                                         <StackPanel
                                             Margin="0,8,0,0"
                                             Orientation="Horizontal"
-                                            Visibility="{Binding IsDateRangeVisible, Converter={StaticResource BoolToVis}}">
+                                            Visibility="{Binding DashboardVM.IsDateRangeVisible, Converter={StaticResource BoolToVis}}">
                                             <DatePicker
                                                 Width="110"
                                                 Margin="0,0,8,0"
-                                                SelectedDate="{Binding FilterDateStart}" />
+                                                SelectedDate="{Binding DashboardVM.FilterDateStart}" />
                                             <TextBlock
                                                 VerticalAlignment="Center"
                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
@@ -2453,7 +2473,7 @@
                                             <DatePicker
                                                 Width="110"
                                                 Margin="8,0,0,0"
-                                                SelectedDate="{Binding FilterDateEnd}" />
+                                                SelectedDate="{Binding DashboardVM.FilterDateEnd}" />
                                         </StackPanel>
                                     </StackPanel>
 
@@ -2467,7 +2487,7 @@
 
                                     <!--  Process Cards  -->
                                     <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                                        <ItemsControl ItemsSource="{Binding MonitoredProcesses}">
+                                        <ItemsControl ItemsSource="{Binding DashboardVM.MonitoredProcesses}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border
@@ -2487,7 +2507,7 @@
                                                         </Border.Style>
                                                         <Border.InputBindings>
                                                             <MouseBinding
-                                                                Command="{Binding DataContext.SelectMonitorProcessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                Command="{Binding DataContext.DashboardVM.SelectMonitorProcessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
                                                                 MouseAction="LeftClick" />
                                                         </Border.InputBindings>
@@ -2565,7 +2585,7 @@
                                     <StackPanel
                                         Margin="0,0,0,16"
                                         Orientation="Horizontal"
-                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                        Visibility="{Binding DashboardVM.SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
                                         <TextBlock
                                             FontSize="16"
                                             FontWeight="SemiBold"
@@ -2576,15 +2596,15 @@
                                             VerticalAlignment="Center"
                                             FontSize="12"
                                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="{Binding SelectedMonitorProcess.ProcessName, StringFormat='({0})'}" />
+                                            Text="{Binding DashboardVM.SelectedMonitorProcess.ProcessName, StringFormat='({0})'}" />
                                     </StackPanel>
 
                                     <!--  Connection Cards  -->
                                     <ScrollViewer
                                         Grid.Row="1"
                                         VerticalScrollBarVisibility="Auto"
-                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                        <ItemsControl ItemsSource="{Binding SelectedMonitorProcess.Connections}">
+                                        Visibility="{Binding DashboardVM.SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                        <ItemsControl ItemsSource="{Binding DashboardVM.SelectedMonitorProcess.Connections}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border
@@ -2653,7 +2673,7 @@
                                                                 Grid.Column="2"
                                                                 Padding="8,4"
                                                                 VerticalAlignment="Center"
-                                                                Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                Command="{Binding DataContext.RulesVM.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
                                                                 Content="➕"
                                                                 FontSize="12"
@@ -2673,7 +2693,7 @@
                                         FontSize="13"
                                         Foreground="{DynamicResource ForegroundDisabledBrush}"
                                         Text="Select a process to view connections"
-                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}" />
+                                        Visibility="{Binding DashboardVM.SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}" />
                                 </Grid>
                             </Border>
                         </Grid>
@@ -2706,11 +2726,11 @@
                                             VerticalAlignment="Center"
                                             FontSize="12"
                                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="{Binding Logs.Count, StringFormat='{}{0} entries'}" />
+                                            Text="{Binding DashboardVM.Logs.Count, StringFormat='{}{0} entries'}" />
                                         <Button
                                             Margin="16,0,0,0"
                                             Padding="12,6"
-                                            Command="{Binding ClearLogsCommand}"
+                                            Command="{Binding DashboardVM.ClearLogsCommand}"
                                             Content="🗑️ Clear All">
                                             <Button.Style>
                                                 <Style TargetType="Button">
@@ -2746,7 +2766,7 @@
                                         VerticalScrollBarVisibility="Auto"
                                         VirtualizingPanel.IsVirtualizing="True"
                                         VirtualizingPanel.VirtualizationMode="Recycling">
-                                        <ItemsControl ItemsSource="{Binding Logs}" VirtualizingPanel.IsVirtualizing="True">
+                                        <ItemsControl ItemsSource="{Binding DashboardVM.Logs}" VirtualizingPanel.IsVirtualizing="True">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <VirtualizingStackPanel />
@@ -2841,7 +2861,7 @@
                                                                 Grid.Column="3"
                                                                 Padding="10,6"
                                                                 VerticalAlignment="Center"
-                                                                Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                Command="{Binding DataContext.RulesVM.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
                                                                 Content="➕ Rule"
                                                                 FontSize="11"
@@ -2897,7 +2917,7 @@
                         </StackPanel>
 
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl ItemsSource="{Binding AppLogs}">
+                            <ItemsControl ItemsSource="{Binding DashboardVM.AppLogs}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <StackPanel />
@@ -2984,7 +3004,7 @@
             Grid.RowSpan="2"
             Panel.ZIndex="999"
             d:IsHidden="True"
-            Visibility="{Binding IsModalVisible, Converter={StaticResource BoolToVis}}">
+            Visibility="{Binding RulesVM.IsModalVisible, Converter={StaticResource BoolToVis}}">
 
             <!--  Backdrop  -->
             <Border Background="#DD0A0A0D" />
@@ -3019,18 +3039,18 @@
                             FontSize="22"
                             FontWeight="SemiBold"
                             Foreground="White"
-                            Text="{Binding ModalTitle}" />
+                            Text="{Binding RulesVM.ModalTitle}" />
                         <TextBlock
                             Margin="0,6,0,0"
                             FontSize="13"
                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                            Text="{Binding ModalSubtitle}" />
+                            Text="{Binding RulesVM.ModalSubtitle}" />
                     </StackPanel>
 
                     <!--  Content  -->
                     <StackPanel Grid.Row="1">
                         <!--  Process Name with File Browser  -->
-                        <StackPanel Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                        <StackPanel Visibility="{Binding RulesVM.IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
                             <TextBlock
                                 Margin="0,0,0,8"
                                 FontSize="12"
@@ -3045,13 +3065,13 @@
                                 <TextBox
                                     Grid.Column="0"
                                     Padding="12,10"
-                                    Text="{Binding ModalProcessName, UpdateSourceTrigger=PropertyChanged}" />
+                                    Text="{Binding RulesVM.ModalProcessName, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button
                                     Grid.Column="1"
                                     MinWidth="80"
                                     Margin="8,0,0,0"
                                     Padding="12,8"
-                                    Command="{Binding BrowseAppCommand}"
+                                    Command="{Binding RulesVM.BrowseAppCommand}"
                                     Content="📁 Browse"
                                     FontSize="13"
                                     ToolTip="Browse .exe or .lnk file" />
@@ -3059,7 +3079,7 @@
                         </StackPanel>
 
                         <!--  Host Pattern  -->
-                        <StackPanel Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                        <StackPanel Visibility="{Binding RulesVM.IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
                             <TextBlock
                                 Margin="0,0,0,8"
                                 FontSize="12"
@@ -3069,7 +3089,7 @@
                             <TextBox
                                 Margin="0,0,0,16"
                                 Padding="12,10"
-                                Text="{Binding ModalHost, UpdateSourceTrigger=PropertyChanged}" />
+                                Text="{Binding RulesVM.ModalHost, UpdateSourceTrigger=PropertyChanged}" />
                         </StackPanel>
 
                         <!--  Group Selection  -->
@@ -3082,10 +3102,10 @@
                         <TextBox
                             Margin="0,0,0,16"
                             Padding="12,10"
-                            Text="{Binding ModalGroupName, UpdateSourceTrigger=PropertyChanged}" />
+                            Text="{Binding RulesVM.ModalGroupName, UpdateSourceTrigger=PropertyChanged}" />
 
                         <!--  Action and Mode Row  -->
-                        <Grid Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                        <Grid Margin="0,0,0,16" Visibility="{Binding RulesVM.IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="16" />
@@ -3102,8 +3122,8 @@
                                 <ComboBox
                                     MinHeight="40"
                                     Padding="12,10"
-                                    ItemsSource="{Binding ActionTypes}"
-                                    SelectedItem="{Binding ModalAction}" />
+                                    ItemsSource="{Binding RulesVM.ActionTypes}"
+                                    SelectedItem="{Binding RulesVM.ModalAction}" />
                             </StackPanel>
 
                             <StackPanel Grid.Column="2">
@@ -3116,14 +3136,14 @@
                                 <ComboBox
                                     MinHeight="40"
                                     Padding="12,10"
-                                    ItemsSource="{Binding ModeTypes}"
-                                    SelectedItem="{Binding ModalTargetMode}" />
+                                    ItemsSource="{Binding RulesVM.RuleModes}"
+                                    SelectedItem="{Binding RulesVM.ModalTargetMode}" />
                             </StackPanel>
                         </Grid>
 
                         <!--  Block Direction  -->
-                        <StackPanel Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
-                            <StackPanel Visibility="{Binding ModalAction, Converter={StaticResource ActionToBlockVisConverter}}">
+                        <StackPanel Margin="0,0,0,16" Visibility="{Binding RulesVM.IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                            <StackPanel Visibility="{Binding RulesVM.ModalAction, Converter={StaticResource ActionToBlockVisConverter}}">
                                 <TextBlock
                                     Margin="0,0,0,8"
                                     FontSize="12"
@@ -3133,21 +3153,21 @@
                                 <ComboBox
                                     MinHeight="40"
                                     Padding="12,10"
-                                    ItemsSource="{Binding BlockDirectionTypes}"
-                                    SelectedItem="{Binding ModalBlockDirection}" />
+                                    ItemsSource="{Binding RulesVM.BlockDirectionTypes}"
+                                    SelectedItem="{Binding RulesVM.ModalBlockDirection}" />
                             </StackPanel>
                         </StackPanel>
 
 
 
                         <!--  Schedule  -->
-                        <StackPanel Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                        <StackPanel Margin="0,0,0,16" Visibility="{Binding RulesVM.IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
                             <CheckBox
                                 Margin="0,0,0,8"
                                 Content="Enable Schedule"
                                 Foreground="{DynamicResource ForegroundBrush}"
-                                IsChecked="{Binding ModalIsScheduleEnabled}" />
-                            <Grid Visibility="{Binding ModalIsScheduleEnabled, Converter={StaticResource BoolToVis}}">
+                                IsChecked="{Binding RulesVM.ModalIsScheduleEnabled}" />
+                            <Grid Visibility="{Binding RulesVM.ModalIsScheduleEnabled, Converter={StaticResource BoolToVis}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="16" />
@@ -3161,7 +3181,7 @@
                                         Text="Start (HH:mm)" />
                                     <TextBox
                                         Padding="10"
-                                        Text="{Binding ModalTimeStart, UpdateSourceTrigger=PropertyChanged}"
+                                        Text="{Binding RulesVM.ModalTimeStart, UpdateSourceTrigger=PropertyChanged}"
                                         ToolTip="Start Time (e.g. 09:00)" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
@@ -3172,15 +3192,15 @@
                                         Text="End (HH:mm)" />
                                     <TextBox
                                         Padding="10"
-                                        Text="{Binding ModalTimeEnd, UpdateSourceTrigger=PropertyChanged}"
+                                        Text="{Binding RulesVM.ModalTimeEnd, UpdateSourceTrigger=PropertyChanged}"
                                         ToolTip="End Time (e.g. 17:00)" />
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
 
                         <!--  Proxy Selection  -->
-                        <StackPanel Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
-                            <StackPanel Visibility="{Binding IsModalProxyRequired, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Visibility="{Binding RulesVM.IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                            <StackPanel Visibility="{Binding RulesVM.IsModalProxyRequired, Converter={StaticResource BoolToVis}}">
                                 <TextBlock
                                     Margin="0,0,0,8"
                                     FontSize="12"
@@ -3191,7 +3211,7 @@
                                     MinHeight="40"
                                     Padding="12,10"
                                     ItemsSource="{Binding Proxies}"
-                                    SelectedItem="{Binding ModalSelectedProxy}">
+                                    SelectedItem="{Binding RulesVM.ModalSelectedProxy}">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
@@ -3226,13 +3246,13 @@
                             MinWidth="100"
                             Margin="0,0,12,0"
                             Padding="16,10"
-                            Command="{Binding CloseModalCommand}"
+                            Command="{Binding RulesVM.CancelRuleModalCommand}"
                             Content="Cancel" />
                         <Button
                             Grid.Column="2"
                             MinWidth="120"
                             Padding="16,10"
-                            Command="{Binding SaveModalRuleCommand}"
+                            Command="{Binding RulesVM.SaveRuleFromModalCommand}"
                             Content="💾 Save Rule"
                             Style="{StaticResource AccentBtn}" />
                     </Grid>
@@ -3364,107 +3384,7 @@
             </Border>
         </Grid>
 
-        <Grid
-            x:Name="DeleteModalOverlay"
-            Grid.RowSpan="2"
-            Panel.ZIndex="1100"
-            d:IsHidden="True"
-            Visibility="{Binding IsDeleteModalVisible, Converter={StaticResource BoolToVis}}">
-            <Border Background="#DD0A0A0D" />
-            <Border
-                Width="380"
-                Padding="24"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Background="{DynamicResource SurfaceMediumBrush}"
-                BorderBrush="#27272A"
-                BorderThickness="1"
-                CornerRadius="16">
-                <Border.Effect>
-                    <DropShadowEffect
-                        BlurRadius="40"
-                        Opacity="0.6"
-                        ShadowDepth="0"
-                        Color="Black" />
-                </Border.Effect>
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
 
-                    <StackPanel Margin="0,0,0,24">
-                        <TextBlock
-                            FontSize="20"
-                            FontWeight="SemiBold"
-                            Foreground="White"
-                            Text="🗑️ Delete Rules" />
-                        <TextBlock
-                            Margin="0,6,0,0"
-                            FontSize="13"
-                            Foreground="{DynamicResource ForegroundMutedBrush}"
-                            Text="Choose what you want to delete." />
-                    </StackPanel>
-
-                    <StackPanel Grid.Row="1" Margin="0,0,0,24">
-                        <Button
-                            Margin="0,0,0,10"
-                            Padding="16,10"
-                            HorizontalContentAlignment="Left"
-                            Command="{Binding DeleteAppRulesCommand}"
-                            IsEnabled="{Binding IsDeleteAppEnabled}"
-                            Style="{StaticResource AccentBtn}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="📱" />
-                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                    <TextBlock FontWeight="SemiBold" Text="Delete App Rules" />
-                                    <TextBlock
-                                        FontSize="11"
-                                        Opacity="0.8"
-                                        Text="{Binding SelectedAppName, StringFormat='All rules for {0}'}" />
-                                </StackPanel>
-                            </Grid>
-                        </Button>
-
-                        <Button
-                            Padding="16,10"
-                            HorizontalContentAlignment="Left"
-                            Command="{Binding DeleteGroupRulesCommand}"
-                            IsEnabled="{Binding IsDeleteGroupEnabled}"
-                            Style="{StaticResource AccentBtn}">
-                            <Button.Background>
-                                <SolidColorBrush Color="{DynamicResource SurfaceLight}" />
-                            </Button.Background>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="📁" />
-                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                    <TextBlock FontWeight="SemiBold" Text="Delete Group Rules" />
-                                    <TextBlock
-                                        FontSize="11"
-                                        Opacity="0.8"
-                                        Text="{Binding SelectedGroupName, StringFormat='All rules in {0}'}" />
-                                </StackPanel>
-                            </Grid>
-                        </Button>
-                    </StackPanel>
-
-                    <Button
-                        Grid.Row="2"
-                        Padding="12,8"
-                        Command="{Binding CloseDeleteModalCommand}"
-                        Content="Cancel" />
-                </Grid>
-            </Border>
-        </Grid>
 
 
 

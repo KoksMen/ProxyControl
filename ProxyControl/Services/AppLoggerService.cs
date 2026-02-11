@@ -1,3 +1,4 @@
+using Serilog;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -42,8 +43,8 @@ namespace ProxyControl.Services
         public static AppLoggerService Instance => _instance ??= new AppLoggerService();
 
         private readonly Channel<LogEntry> _logChannel;
-        private readonly string _logFilePath;
         private readonly object _uiLock = new object();
+        private readonly Serilog.ILogger _fileLogger;
 
         public ObservableCollection<LogEntry> LogEntries { get; } = new ObservableCollection<LogEntry>();
 
@@ -54,7 +55,14 @@ namespace ProxyControl.Services
         {
             var logsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
             if (!Directory.Exists(logsDir)) Directory.CreateDirectory(logsDir);
-            _logFilePath = Path.Combine(logsDir, $"app_{DateTime.Now:yyyy-MM-dd}.log");
+
+            // Configure Serilog
+            _fileLogger = new LoggerConfiguration()
+                .MinimumLevel.Debug()
+                .WriteTo.File(Path.Combine(logsDir, "app-.log"),
+                              rollingInterval: RollingInterval.Day,
+                              outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
+                .CreateLogger();
 
             _logChannel = Channel.CreateUnbounded<LogEntry>();
             Task.Run(ProcessLogQueue);
@@ -72,6 +80,23 @@ namespace ProxyControl.Services
         {
             if (level < MinLevel) return;
 
+            // Log to Serilog
+            switch (level)
+            {
+                case LogLevel.Debug:
+                    _fileLogger.ForContext("SourceContext", source).Debug(message);
+                    break;
+                case LogLevel.Info:
+                    _fileLogger.ForContext("SourceContext", source).Information(message);
+                    break;
+                case LogLevel.Warning:
+                    _fileLogger.ForContext("SourceContext", source).Warning(message);
+                    break;
+                case LogLevel.Error:
+                    _fileLogger.ForContext("SourceContext", source).Error(message);
+                    break;
+            }
+
             var entry = new LogEntry
             {
                 Timestamp = DateTime.Now,
@@ -87,17 +112,10 @@ namespace ProxyControl.Services
         {
             try
             {
-                await using var writer = new StreamWriter(_logFilePath, append: true) { AutoFlush = false };
-                int batchCount = 0;
-
                 while (await _logChannel.Reader.WaitToReadAsync())
                 {
                     while (_logChannel.Reader.TryRead(out var entry))
                     {
-                        // Write to file
-                        await writer.WriteLineAsync($"[{entry.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{entry.LevelStr}] [{entry.Source}] {entry.Message}");
-                        batchCount++;
-
                         // Update UI (throttled)
                         Application.Current?.Dispatcher?.BeginInvoke(DispatcherPriority.Background, () =>
                         {
@@ -110,13 +128,6 @@ namespace ProxyControl.Services
                                 }
                             }
                         });
-                    }
-
-                    // Flush periodically
-                    if (batchCount >= 10)
-                    {
-                        await writer.FlushAsync();
-                        batchCount = 0;
                     }
                 }
             }
