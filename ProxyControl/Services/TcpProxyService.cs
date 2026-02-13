@@ -154,7 +154,7 @@ namespace ProxyControl.Services
             _whiteListHosts = newWhiteListHosts;
             _fastWhiteListRules = newFastWhiteListRules;
 
-            _blackListProxyId = config.BlackListSelectedProxyId.ToString();
+            _blackListProxyId = config.BlackListSelectedProxyId;
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
             _isTunMode = config.IsTunMode;
@@ -163,7 +163,10 @@ namespace ProxyControl.Services
             {
                 DisconnectAllClients();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.Warning("Proxy", $"UpdateConfig cleanup error: {ex.Message}");
+            }
         }
 
         private void DisconnectAllClients()
@@ -176,7 +179,7 @@ namespace ProxyControl.Services
                     ForceClose(kvp.Value.Client);
                     ForceClose(kvp.Value.Remote);
                 }
-                catch { }
+                catch (Exception ex) { _logger.Debug("Proxy", $"Client close error: {ex.Message}"); }
             }
             _activeClients.Clear();
         }
@@ -184,7 +187,7 @@ namespace ProxyControl.Services
         private void ForceClose(TcpClient client)
         {
             if (client == null) return;
-            try { client.Close(); client.Dispose(); } catch { }
+            try { client.Close(); client.Dispose(); } catch (Exception ex) { _logger.Debug("Proxy", $"ForceClose error: {ex.Message}"); }
         }
 
         public void Start()
@@ -257,7 +260,10 @@ namespace ProxyControl.Services
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.Error("Schedule", $"Enforcer loop error: {ex.Message}");
+                    }
                 }
             });
         }
@@ -411,7 +417,7 @@ namespace ProxyControl.Services
                         processPath = proc.MainModule?.FileName;
                     }
                 }
-                catch { }
+                catch (Exception ex) { _logger.Debug("Proxy", $"Process lookup error for PID {pid}: {ex.Message}"); }
 
                 ImageSource? icon = null;
                 if (!string.IsNullOrEmpty(processPath))
@@ -646,7 +652,10 @@ namespace ProxyControl.Services
                     await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.Error("Proxy", $"HandleClient error: {ex.Message}");
+            }
             finally
             {
                 if (historyItem != null) _trafficMonitor.CompleteConnection(historyItem);
@@ -1336,6 +1345,7 @@ namespace ProxyControl.Services
             }
         }
 
+
         private async Task HandleSocks5Connect(NetworkStream stream, string targetHost, int targetPort, string processName, TcpClient client, CancellationToken token)
         {
             // For active TUN traffic, processName might be "sing-box" or unknown
@@ -1485,164 +1495,7 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task HandleSocks5UdpAssociate(NetworkStream stream, string processName, CancellationToken token)
-        {
-            TcpClient? proxyControlClient = null;
-            UdpClient? proxyUdpClient = null;
-            IPEndPoint? proxyUdpEndpoint = null;
 
-            // Map: Destination (Host:Port) -> Direct UdpClient
-            var directUdpClients = new ConcurrentDictionary<string, UdpClient>();
-
-            try
-            {
-                using (var localUdp = new UdpClient(new IPEndPoint(IPAddress.Any, 0)))
-                {
-                    int assignedPort = ((IPEndPoint)localUdp.Client.LocalEndPoint!).Port;
-
-                    // Get local IP for the reply (use loopback for local clients)
-                    var localIp = IPAddress.Loopback;
-                    byte[] ipBytes = localIp.GetAddressBytes();
-
-                    byte[] portBytes = BitConverter.GetBytes((ushort)assignedPort);
-                    if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
-
-                    // Send UDP ASSOCIATE reply
-                    byte[] rep = new byte[10];
-                    rep[0] = 0x05; // VER
-                    rep[1] = 0x00; // SUCCESS
-                    rep[2] = 0x00; // RSV
-                    rep[3] = 0x01; // ATYP = IPv4
-                    Buffer.BlockCopy(ipBytes, 0, rep, 4, 4);
-                    Buffer.BlockCopy(portBytes, 0, rep, 8, 2);
-
-                    await stream.WriteAsync(rep, 0, rep.Length, token);
-
-                    // Determine if we need to use a proxy for UDP
-                    var decision = ResolveAction(processName, "*"); // Check global UDP rule
-                    ProxyItem? udpProxy = decision.Proxy;
-
-                    // Fix: In BlackList mode, even if default is Direct, we might need Proxy for specific sites.
-                    if (udpProxy == null && _currentMode == RuleMode.BlackList && !string.IsNullOrEmpty(_blackListProxyId))
-                    {
-                        udpProxy = _localProxies.FirstOrDefault(p => p.Id == _blackListProxyId);
-                    }
-
-                    Task? proxyLoopTask = null;
-
-                    if (udpProxy != null && udpProxy.Type == ProxyType.Socks5)
-                    {
-                        try
-                        {
-                            var udpAssocResult = await Socks5Client.UdpAssociateAsync(udpProxy, token);
-                            proxyControlClient = udpAssocResult.ControlClient;
-                            proxyUdpEndpoint = udpAssocResult.UdpRelay;
-
-                            if (proxyUdpEndpoint.Address.Equals(IPAddress.Any) || proxyUdpEndpoint.Address.Equals(IPAddress.IPv6Any))
-                            {
-                                proxyUdpEndpoint = new IPEndPoint(IPAddress.Parse(udpProxy.IpAddress), proxyUdpEndpoint.Port);
-                            }
-
-                            proxyUdpClient = new UdpClient();
-                            proxyUdpClient.Connect(proxyUdpEndpoint);
-
-                            _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Proxied",
-                                $"via {udpProxy.IpAddress}:{proxyUdpEndpoint.Port}", null, "#55FF55");
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Failed to establish UDP proxy: {ex.Message}");
-                            _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Failed",
-                               $"Proxy Error: {ex.Message}", null, "#FF5555");
-                            return;
-                        }
-                    }
-
-                    // Background Task: Handle UDP Packets from Client
-                    var udpLoopTask = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            while (!token.IsCancellationRequested)
-                            {
-                                var result = await localUdp.ReceiveAsync(token);
-                                var clientEndpoint = result.RemoteEndPoint;
-
-                                // Parse SOCKS5 UDP header
-                                var (targetHost, targetPort, payload) = ParseUdpPacket(result.Buffer);
-                                if (payload.Length == 0 || string.IsNullOrEmpty(targetHost)) continue;
-
-                                _trafficMonitor.AddLiveTraffic(processName, payload.Length, false);
-
-                                // Check specific rule for this target
-                                var specificDecision = ResolveAction(processName, targetHost);
-                                if (specificDecision.Action == RuleAction.Block) continue;
-
-                                if (proxyUdpClient != null && proxyUdpEndpoint != null && specificDecision.Proxy != null)
-                                {
-                                    // Forward to Proxy (SOCKS5 UDP Encapsulated)
-                                    await proxyUdpClient.SendAsync(result.Buffer, result.Buffer.Length);
-
-                                    // Ensure we start the loop to receive FROM proxy (once)
-                                    if (proxyLoopTask == null)
-                                    {
-                                        proxyLoopTask = ReceiveFromProxyLoop(proxyUdpClient, localUdp, clientEndpoint, processName, token);
-                                    }
-                                }
-                                else
-                                {
-                                    // Direct Connection
-                                    string key = $"{targetHost}:{targetPort}";
-                                    if (!directUdpClients.TryGetValue(key, out var directClient))
-                                    {
-                                        directClient = new UdpClient();
-                                        try
-                                        {
-                                            IPAddress targetIp;
-                                            if (!IPAddress.TryParse(targetHost, out targetIp!))
-                                            {
-                                                var addresses = await Dns.GetHostAddressesAsync(targetHost, token);
-                                                targetIp = addresses.FirstOrDefault() ?? IPAddress.Loopback;
-                                            }
-                                            directClient.Connect(targetIp, targetPort);
-                                            directUdpClients[key] = directClient;
-
-                                            // Response Loop for Direct
-                                            _ = ReceiveDirectUdpLoop(directClient, localUdp, clientEndpoint, targetHost, targetPort, processName, token);
-                                        }
-                                        catch
-                                        {
-                                            directClient.Dispose();
-                                            continue;
-                                        }
-                                    }
-                                    await directClient.SendAsync(payload, payload.Length);
-                                }
-                            }
-                        }
-                        catch { }
-                    }, token);
-
-                    // TCP Keep-Alive Loop
-                    byte[] buf = new byte[1024];
-                    while (true)
-                    {
-                        int read = await stream.ReadAsync(buf, 0, buf.Length, token);
-                        if (read == 0) break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Error("Socks5", $"UDP Associate failed: {ex.Message}");
-            }
-            finally
-            {
-                proxyControlClient?.Close();
-                proxyUdpClient?.Close();
-                foreach (var c in directUdpClients.Values) try { c.Dispose(); } catch { }
-            }
-        }
 
         private (string Host, int Port, byte[] Payload) ParseUdpPacket(byte[] packet)
         {
@@ -1758,6 +1611,298 @@ namespace ProxyControl.Services
                     lineBuffer.Append(c);
                 }
             }
+        }
+        private async Task HandleSocks5UdpAssociate(NetworkStream stream, string processName, CancellationToken token)
+        {
+            using (var udpListener = new UdpClient(new IPEndPoint(IPAddress.Any, 0)))
+            {
+                var localEp = (IPEndPoint)udpListener.Client.LocalEndPoint;
+                int relayPort = localEp.Port;
+                string relayIp = "127.0.0.1";
+
+                byte[] addressBytes = IPAddress.Parse(relayIp).GetAddressBytes();
+                byte[] portBytes = new byte[2];
+                portBytes[0] = (byte)((relayPort >> 8) & 0xFF);
+                portBytes[1] = (byte)(relayPort & 0xFF);
+
+                byte[] response = new byte[4 + addressBytes.Length + 2];
+                response[0] = 0x05;
+                response[1] = 0x00;
+                response[2] = 0x00;
+                response[3] = 0x01;
+                Array.Copy(addressBytes, 0, response, 4, addressBytes.Length);
+                Array.Copy(portBytes, 0, response, 8, 2);
+
+                await stream.WriteAsync(response, 0, response.Length, token);
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        byte[] buffer = new byte[1];
+                        while (await stream.ReadAsync(buffer, 0, 1, token) > 0) { }
+                    }
+                    catch { }
+                    finally
+                    {
+                        udpListener.Close();
+                    }
+                }, token);
+
+                await RunUdpRelay(udpListener, processName, token);
+            }
+        }
+
+        private async Task RunUdpRelay(UdpClient udpListener, string processName, CancellationToken token)
+        {
+            var sessions = new ConcurrentDictionary<IPEndPoint, UdpClient>();
+
+            try
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                using (token.Register(() => tcs.TrySetResult(true)))
+                {
+                    while (!token.IsCancellationRequested)
+                    {
+                        var receiveTask = udpListener.ReceiveAsync();
+                        var completedTask = await Task.WhenAny(receiveTask, tcs.Task);
+
+                        if (completedTask == tcs.Task) break;
+
+                        var result = receiveTask.Result;
+                        byte[] buffer = result.Buffer;
+                        IPEndPoint clientEp = result.RemoteEndPoint;
+
+                        if (buffer.Length < 10) continue;
+                        if (buffer[0] != 0x00 || buffer[1] != 0x00) continue;
+                        if (buffer[2] != 0x00) continue;
+
+                        byte atyp = buffer[3];
+                        string targetHost = "";
+                        int targetPort = 0;
+                        int headerLen = 0;
+
+                        int offset = 4;
+                        if (atyp == 0x01)
+                        {
+                            var ip = new IPAddress(buffer[offset..(offset + 4)]);
+                            targetHost = ip.ToString();
+                            offset += 4;
+                        }
+                        else if (atyp == 0x03)
+                        {
+                            int len = buffer[offset];
+                            offset++;
+                            targetHost = Encoding.ASCII.GetString(buffer, offset, len);
+                            offset += len;
+                        }
+                        else if (atyp == 0x04)
+                        {
+                            var ip = new IPAddress(buffer[offset..(offset + 16)]);
+                            targetHost = ip.ToString();
+                            offset += 16;
+                        }
+
+                        targetPort = (buffer[offset] << 8) | buffer[offset + 1];
+                        offset += 2;
+                        headerLen = offset;
+
+                        byte[] payload = new byte[buffer.Length - headerLen];
+                        Array.Copy(buffer, headerLen, payload, 0, payload.Length);
+
+                        var decision = ResolveAction(processName, targetHost);
+
+                        if (!sessions.ContainsKey(clientEp))
+                        {
+                            string logResult = "UDP Direct";
+                            string logColor = "#AAAAAA";
+
+                            if (decision.Action == RuleAction.Block) { logResult = "UDP BLOCKED"; logColor = "#FF5555"; }
+                            else if (decision.Proxy != null) { logResult = $"UDP Proxy: {decision.Proxy.IpAddress}"; logColor = "#55FF55"; }
+
+                            string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "Direct";
+
+                            ImageSource? icon = null;
+                            if (!string.IsNullOrEmpty(processName)) icon = IconHelper.GetIconByProcessName(processName);
+
+                            _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, logResult, details, null, logColor);
+
+                            _logger.Debug("UDP", $"[{processName}] UDP {targetHost}:{targetPort} via {logResult}");
+                        }
+
+                        if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) continue;
+
+                        UdpClient? remoteClient;
+                        if (!sessions.TryGetValue(clientEp, out remoteClient))
+                        {
+                            // Pass decision.Proxy to create logic
+                            remoteClient = await CreateRemoteUdpClient(decision.Proxy, targetHost, targetPort);
+                            if (remoteClient != null)
+                            {
+                                sessions.TryAdd(clientEp, remoteClient);
+                                _ = HandleRemoteUdpReceive(remoteClient, udpListener, clientEp, decision.Proxy != null && decision.Proxy.Type == ProxyType.Socks5, token);
+                            }
+                        }
+
+                        if (remoteClient != null)
+                        {
+                            if (decision.Proxy != null && decision.Proxy.Type == ProxyType.Socks5)
+                            {
+                                await remoteClient.SendAsync(buffer, buffer.Length);
+                            }
+                            else
+                            {
+                                await remoteClient.SendAsync(payload, payload.Length);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error("UDP", $"Relay Error: {ex.Message}");
+            }
+            finally
+            {
+                foreach (var s in sessions.Values) s.Close();
+                sessions.Clear();
+            }
+        }
+
+        private async Task<UdpClient?> CreateRemoteUdpClient(ProxyItem? proxy, string targetHost, int targetPort)
+        {
+            try
+            {
+                if (proxy != null && proxy.Type == ProxyType.Socks5)
+                {
+                    var tcpCtrl = new TcpClient();
+                    await tcpCtrl.ConnectAsync(proxy.IpAddress, proxy.Port);
+                    var stream = tcpCtrl.GetStream();
+
+                    // 1. Initial Handshake (Method Selection)
+                    // We support No Auth (0x00) and User/Pass (0x02)
+                    byte[] methods = { 0x00, 0x02 };
+                    byte[] hello = new byte[2 + methods.Length];
+                    hello[0] = 0x05;
+                    hello[1] = (byte)methods.Length;
+                    Buffer.BlockCopy(methods, 0, hello, 2, methods.Length);
+
+                    await stream.WriteAsync(hello, 0, hello.Length);
+
+                    byte[] serverChoice = new byte[2];
+                    int read = await stream.ReadAsync(serverChoice, 0, 2);
+                    if (read < 2 || serverChoice[0] != 0x05) return null; // Invalid SOCKS5
+
+                    byte method = serverChoice[1];
+
+                    if (method == 0x02) // Username/Password Auth Required
+                    {
+                        if (string.IsNullOrEmpty(proxy.Username)) return null; // Auth required but no creds
+
+                        string user = proxy.Username ?? "";
+                        string pass = proxy.Password ?? "";
+
+                        byte[] userBytes = Encoding.UTF8.GetBytes(user);
+                        byte[] passBytes = Encoding.UTF8.GetBytes(pass);
+
+                        // Auth Request: VER(1) | ULEN(1) | USER | PLEN(1) | PASS
+                        byte[] authReq = new byte[3 + userBytes.Length + passBytes.Length];
+                        authReq[0] = 0x01;
+                        authReq[1] = (byte)userBytes.Length;
+                        Buffer.BlockCopy(userBytes, 0, authReq, 2, userBytes.Length);
+                        authReq[2 + userBytes.Length] = (byte)passBytes.Length;
+                        Buffer.BlockCopy(passBytes, 0, authReq, 3 + userBytes.Length, passBytes.Length);
+
+                        await stream.WriteAsync(authReq, 0, authReq.Length);
+
+                        // Auth Response: VER(1) | STATUS(1)
+                        byte[] authResp = new byte[2];
+                        read = await stream.ReadAsync(authResp, 0, 2);
+                        if (read < 2 || authResp[1] != 0x00) return null; // Auth Failed
+                    }
+                    else if (method == 0xFF) // No Acceptable Methods
+                    {
+                        return null;
+                    }
+
+                    // 2. UDP ASSOCIATE Request
+                    byte[] req = { 0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                    await stream.WriteAsync(req, 0, req.Length);
+
+                    byte[] rep = new byte[1024];
+                    read = await stream.ReadAsync(rep, 0, 10);
+                    if (read < 10 || rep[1] != 0x00) return null; // UDP Associate Failed
+
+                    int offset = 4;
+                    string relayIp = "";
+                    int relayPort = 0;
+                    if (rep[3] == 0x01) { relayIp = new IPAddress(rep[4..8]).ToString(); offset += 4; }
+                    else if (rep[3] == 0x03) { int len = rep[4]; relayIp = Encoding.ASCII.GetString(rep, 5, len); offset += 1 + len; }
+                    else if (rep[3] == 0x04) { relayIp = new IPAddress(rep[4..20]).ToString(); offset += 16; }
+
+                    relayPort = (rep[offset] << 8) | rep[offset + 1];
+
+                    // If Relay IP is 0.0.0.0, use the Proxy IP
+                    if (relayIp == "0.0.0.0") relayIp = proxy.IpAddress;
+
+                    // Keep-Alive
+                    _ = Task.Run(async () =>
+                    {
+                        try { while (true) { await Task.Delay(10000); await stream.WriteAsync(new byte[0], 0, 0); } } catch { }
+                    });
+
+                    var udp = new UdpClient();
+                    udp.Connect(relayIp, relayPort);
+                    return udp;
+                }
+                else
+                {
+                    // Direct
+                    var udp = new UdpClient();
+                    udp.Connect(targetHost, targetPort);
+                    return udp;
+                }
+            }
+            catch { return null; }
+        }
+
+        private async Task HandleRemoteUdpReceive(UdpClient remote, UdpClient localListener, IPEndPoint clientEp, bool isProxyWrapperUsed, CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    var res = await remote.ReceiveAsync();
+                    byte[] data = res.Buffer;
+
+                    if (isProxyWrapperUsed)
+                    {
+                        // Data from upstream proxy is ALREADY SOCKS5 wrapped.
+                        // Forward as is to client.
+                        await localListener.SendAsync(data, data.Length, clientEp);
+                    }
+                    else
+                    {
+                        // Data from Direct target is RAW.
+                        // We must WRAP it in SOCKS5 header for the client.
+                        // Header: RSV(2) FRAG(1) ATYP(1) ADDR(?) PORT(2) DATA
+                        // We don't know the source easily here without state, so we cheat and say from 0.0.0.0:0 
+                        // mostly irrelevant for client as it just wants payload usually? 
+                        // Actually WebRTC might care about Source IP matching Target IP.
+                        // We should ideally track original Target set.
+                        // For now, construct a dummy header or try to use remote endpoint.
+
+                        // Using Dummy 0.0.0.0:0 header for simplicity of relay
+                        byte[] header = { 0x00, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                        byte[] packet = new byte[header.Length + data.Length];
+                        Array.Copy(header, 0, packet, 0, header.Length);
+                        Array.Copy(data, 0, packet, header.Length, data.Length);
+
+                        await localListener.SendAsync(packet, packet.Length, clientEp);
+                    }
+                }
+            }
+            catch { }
         }
     }
 }

@@ -117,7 +117,7 @@ namespace ProxyControl.Services
                 }
             }
 
-            _blackListProxyId = config.BlackListSelectedProxyId.ToString();
+            _blackListProxyId = config.BlackListSelectedProxyId;
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
 

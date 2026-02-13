@@ -43,24 +43,68 @@ namespace ProxyControl.Services
         /// <summary>
         /// Start TUN mode - routes all traffic through local proxy
         /// </summary>
-        public async Task<bool> StartAsync(TunRulesConfig rulesConfig)
+        public async Task<bool> StartAsync(TunRulesConfig rulesConfig, Action<string>? progressCallback = null)
         {
-            if (_isRunning) return true;
+            if (_isRunning)
+            {
+                progressCallback?.Invoke("TUN service is already running.");
+                return true;
+            }
 
             try
             {
+                progressCallback?.Invoke("Checking sing-box executable...");
                 // Ensure sing-box exists
                 var singBoxPath = Path.Combine(_dataDir, SingBoxExe);
-                if (!File.Exists(singBoxPath))
+
+                // 1. Check if sing-box is in the application directory (where .exe is running)
+                var appDir = AppDomain.CurrentDomain.BaseDirectory;
+                var appDirSingBox = Path.Combine(appDir, SingBoxExe);
+
+                if (File.Exists(appDirSingBox))
                 {
-                    _logger.Info("TUN", "sing-box not found, downloading...");
-                    if (!await DownloadSingBoxAsync())
+                    try
                     {
-                        _logger.Error("TUN", "Failed to download sing-box");
-                        return false;
+                        if (!File.Exists(singBoxPath) || new FileInfo(appDirSingBox).Length != new FileInfo(singBoxPath).Length)
+                        {
+                            progressCallback?.Invoke($"Copying sing-box from {appDirSingBox}...");
+                            File.Copy(appDirSingBox, singBoxPath, true);
+                            _logger.Info("TUN", "Copied sing-box.exe from application directory.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        var msg = $"Failed to copy sing-box from app dir: {ex.Message}";
+                        _logger.Error("TUN", msg);
+                        progressCallback?.Invoke(msg);
                     }
                 }
 
+                if (!File.Exists(singBoxPath))
+                {
+                    _logger.Info("TUN", "sing-box not found, downloading...");
+                    progressCallback?.Invoke($"Downloading sing-box from {DownloadUrl}...");
+                    if (!await DownloadSingBoxAsync())
+                    {
+                        var msg = "Failed to download sing-box.";
+                        _logger.Error("TUN", msg);
+                        progressCallback?.Invoke(msg);
+
+                        // As a last ditch effort, check if we can run it from app dir directly if it exists there
+                        if (File.Exists(appDirSingBox))
+                        {
+                            singBoxPath = appDirSingBox;
+                            _logger.Info("TUN", "Falling back to sing-box in app directory.");
+                            progressCallback?.Invoke("Falling back to app directory executable.");
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                progressCallback?.Invoke("Generating configuration...");
                 // Generate config content first
                 var configPath = Path.Combine(_dataDir, ConfigFile);
                 var newJson = GenerateConfigJson(rulesConfig);
@@ -71,15 +115,21 @@ namespace ProxyControl.Services
                     string.Equals(newJson, currentJson, StringComparison.Ordinal))
                 {
                     _logger.Info("TUN", "Config unchanged, skipping restart.");
+                    progressCallback?.Invoke("Config unchanged. Service running.");
                     return true;
                 }
 
                 // Restart needed: Stop first if running
-                if (_isRunning) Stop();
+                if (_isRunning)
+                {
+                    progressCallback?.Invoke("Stopping existing process...");
+                    Stop();
+                }
 
                 File.WriteAllText(configPath, newJson);
                 _logger.Info("TUN", $"Config generated/updated.");
 
+                progressCallback?.Invoke("Starting sing-box process...");
                 // Start sing-box
                 var psi = new ProcessStartInfo
                 {
@@ -105,9 +155,19 @@ namespace ProxyControl.Services
                         _logger.Warning("TUN", e.Data);
                 };
 
-                _singBoxProcess.Start();
-                _singBoxProcess.BeginOutputReadLine();
-                _singBoxProcess.BeginErrorReadLine();
+                if (_singBoxProcess.Start())
+                {
+                    progressCallback?.Invoke("Process started. Waiting for initialization...");
+                    _singBoxProcess.BeginOutputReadLine();
+                    _singBoxProcess.BeginErrorReadLine();
+                }
+                else
+                {
+                    var msg = "Failed to start process (User declined admin prompt?).";
+                    _logger.Error("TUN", msg);
+                    progressCallback?.Invoke(msg);
+                    return false;
+                }
 
                 // Wait a bit to check if it started successfully
                 await Task.Delay(1500);
@@ -115,17 +175,21 @@ namespace ProxyControl.Services
                 if (_singBoxProcess.HasExited)
                 {
                     _logger.Error("TUN", $"sing-box exited with code {_singBoxProcess.ExitCode}");
+                    progressCallback?.Invoke($"Process exited processing with code {_singBoxProcess.ExitCode}. Check logs.");
                     return false;
                 }
 
                 _isRunning = true;
                 _logger.Info("TUN", $"TUN mode started.");
                 StatusChanged?.Invoke(true);
+                progressCallback?.Invoke("TUN mode started successfully.");
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.Error("TUN", $"Start failed: {ex.Message}");
+                var msg = $"Start failed: {ex.Message}";
+                _logger.Error("TUN", msg);
+                progressCallback?.Invoke(msg);
                 return false;
             }
         }
@@ -268,9 +332,14 @@ namespace ProxyControl.Services
                     // System rules for local/loopback must be added to prevent loops
                     routes.Insert(0, new { protocol = "dns", outbound = "dns-out" });
                     routes.Insert(1, new { port = 53, outbound = "dns-out" });
-                    routes.Insert(2, new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
-                    routes.Insert(3, new { port = new[] { 8000, 8080 }, outbound = "direct" });
-                    routes.Insert(4, new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
+                    // WebRTC Fix: Route UDP traffic to proxy-out (SOCKS5 UDP Relay)
+                    // This allows WebRTC to work via the proxy (if supported) or fail gracefully if not.
+                    // Blocking it caused STUN to fail completely, hiding the Public IP but breaking functionality.
+                    routes.Insert(2, new { protocol = "udp", outbound = "proxy-out" });
+
+                    routes.Insert(3, new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
+                    routes.Insert(4, new { port = new[] { 8000, 8080 }, outbound = "direct" });
+                    routes.Insert(5, new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
                 }
                 else
                 {
@@ -304,12 +373,12 @@ namespace ProxyControl.Services
                 {
                     servers = new object[]
                     {
-                        new { tag = "google", address = "8.8.8.8", detour = "direct" },
+                        new { tag = "google", address = "8.8.8.8", detour = "proxy-out" }, // Force DNS through proxy!
                         new { tag = "local", address = "local", detour = "direct" }
                     },
                     rules = new object[]
                     {
-                        new { outbound = "any", server = "google" }
+                        new { outbound = "any", server = "google" } // Default everything to remote DNS
                     },
                     strategy = "ipv4_only"
                 },
