@@ -225,6 +225,12 @@ namespace ProxyControl.Services
                     {
                         await Task.Delay(5000); // Check every 5 seconds
 
+
+                        if (!_isTunMode)
+                        {
+                            SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
+                        }
+
                         foreach (var kvp in _activeClients)
                         {
                             var ctx = kvp.Value;

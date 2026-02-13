@@ -8,6 +8,7 @@ using System.Security.Principal;
 using System.Net;
 using System.Text;
 using System.Threading.Tasks;
+using System.Net.NetworkInformation;
 
 namespace ProxyControl.Services
 {
@@ -24,7 +25,15 @@ namespace ProxyControl.Services
         private const string RunOnceKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
         private const string AppName = "ProxyManagerSafetyNet";
 
-        private static readonly string[] NetworkInterfaces = { "Wi-Fi", "Ethernet", "Ethernet 2", "Беспроводная сеть", "Подключение по локальной сети" };
+
+        private static IEnumerable<string> GetActiveEthernetInterfaces()
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                           (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet ||
+                            n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
+                .Select(n => n.Name);
+        }
 
         private static readonly object _cacheLock = new object();
         private static Dictionary<int, int> _pidCache = new Dictionary<int, int>();
@@ -198,6 +207,7 @@ namespace ProxyControl.Services
                     {
                         key.SetValue("ProxyEnable", 1);
                         key.SetValue("ProxyServer", $"{host}:{port}");
+                        key.SetValue("ProxyOverride", "<local>");
                         RefreshSettings();
                     }
                 }
@@ -223,7 +233,7 @@ namespace ProxyControl.Services
                 StringBuilder cmdBuilder = new StringBuilder();
                 cmdBuilder.Append("cmd /C \"reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\" /v ProxyEnable /t REG_DWORD /d 0 /f");
 
-                foreach (var iface in NetworkInterfaces)
+                foreach (var iface in GetActiveEthernetInterfaces())
                 {
                     cmdBuilder.Append($" & netsh interface ip set dns name=\\\"{iface}\\\" source=dhcp");
                 }
@@ -263,7 +273,7 @@ namespace ProxyControl.Services
             {
                 string dnsServer = "127.0.0.1";
                 string source = "static";
-                foreach (var iface in NetworkInterfaces)
+                foreach (var iface in GetActiveEthernetInterfaces())
                 {
                     try
                     {
@@ -282,7 +292,7 @@ namespace ProxyControl.Services
         {
             if (!IsAdministrator()) return;
 
-            foreach (var iface in NetworkInterfaces)
+            foreach (var iface in GetActiveEthernetInterfaces())
             {
                 try
                 {
