@@ -339,15 +339,19 @@ namespace ProxyControl.ViewModels
             }
         }
 
-        private bool _isProxyRunning = true;
+        private bool _isProxyRunning = false;
         public bool IsProxyRunning
         {
             get => _isProxyRunning;
             set
             {
-                _isProxyRunning = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(ToggleProxyMenuText));
+                if (_isProxyRunning != value)
+                {
+                    _isProxyRunning = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(ToggleProxyMenuText));
+                    RequestSaveSettings();
+                }
             }
         }
 
@@ -985,12 +989,58 @@ namespace ProxyControl.ViewModels
 
         private void ImportConfig(string? path = null)
         {
-            string? filePath = path;
-            if (string.IsNullOrEmpty(filePath))
+            _suppressSave = true;
+            try
             {
-                var dlg = new OpenFileDialog { Filter = "JSON|*.json" };
-                if (dlg.ShowDialog() == true) filePath = dlg.FileName;
-                else return;
+                var d = _settingsService.Load();
+                _config = d.Config ?? new AppConfig();
+                IsAutoStart = _settingsService.IsAutoStartEnabled();
+                CheckUpdateOnStartup = d.CheckUpdateOnStartup;
+
+                Proxies.Clear();
+                if (d.Proxies != null) d.Proxies.ForEach(p => { SubscribeToItem(p); Proxies.Add(p); });
+
+                OnPropertyChanged(nameof(SelectedBlackListMainProxy));
+                ReloadRulesForCurrentMode();
+                OnPropertyChanged(nameof(IsDnsProtectionEnabled));
+                OnPropertyChanged(nameof(SelectedDnsProvider));
+                OnPropertyChanged(nameof(DnsHost));
+
+                // Restore TUN Mode
+                if (_config.IsTunMode) IsTunMode = true;
+
+                Presets.Clear();
+                if (_config.Presets != null) _config.Presets.ForEach(p => Presets.Add(p));
+
+                // Restore Proxy State (added persistence logic)
+                if (d.IsProxyRunning)
+                {
+                    IsProxyRunning = true;
+                    try
+                    {
+                        _proxyService.Start();
+                        UpdateDnsServiceState();
+
+                        // Ensure system proxy is applied after a short delay to override any system resets
+                        Task.Run(async () =>
+                        {
+                            await Task.Delay(2000);
+                            if (IsProxyRunning)
+                            {
+                                if (!_config.IsTunMode)
+                                {
+                                    SystemProxyHelper.SetSystemProxy(true, "127.0.0.1", 8000);
+                                }
+
+                                if (IsDnsProtectionEnabled)
+                                {
+                                    SystemProxyHelper.SetSystemDns(true);
+                                }
+                            }
+                        });
+                    }
+                    catch { IsProxyRunning = false; }
+                }
             }
 
             try
