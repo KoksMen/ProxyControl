@@ -1,5 +1,7 @@
 using ProxyControl.Models;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -13,36 +15,47 @@ namespace ProxyControl.Services
     /// </summary>
     public static class Socks5Client
     {
+        private const byte SocksVersion = 0x05;
+        private const byte CmdConnect = 0x01;
+        private const byte CmdUdpAssociate = 0x03;
+        private const byte AuthNoAuth = 0x00;
+        private const byte AuthUserPass = 0x02;
+        private const byte AuthNoAcceptable = 0xFF;
+
         // Connect to SOCKS5 proxy and negotiate handshake
         public static async Task ConnectAsync(TcpClient client, ProxyItem proxy, string targetHost, int targetPort, CancellationToken token)
         {
             if (!client.Connected)
                 await client.ConnectAsync(proxy.IpAddress, proxy.Port, token);
+
+            ConfigureSocket(client);
             var stream = client.GetStream();
 
             // 1. Greeting (auth negotiation)
-            // Send: VER(5) NMETHODS(2) METHODS(0x00=NoAuth, 0x02=UserPass)
-            byte[] greeting = { 0x05, 0x02, 0x00, 0x02 };
+            byte[] greeting = BuildGreeting(proxy.Username, proxy.Password);
             await stream.WriteAsync(greeting, 0, greeting.Length, token);
 
             byte[] response = new byte[2];
             await ReadExactAsync(stream, response, 2, token);
 
-            if (response[0] != 0x05) throw new Exception("Invalid SOCKS5 version");
+            if (response[0] != SocksVersion) throw new Exception("Invalid SOCKS5 version");
             byte authMethod = response[1];
 
-            if (authMethod == 0x02) // Username/Password
+            if (authMethod == AuthUserPass) // Username/Password
             {
                 await AuthenticateAsync(stream, proxy.Username, proxy.Password, token);
             }
-            else if (authMethod == 0xFF)
+            else if (authMethod == AuthNoAcceptable)
             {
                 throw new Exception("No acceptable authentication method");
             }
-            // 0x00 = No Auth calling -> proceed
+            else if (authMethod != AuthNoAuth)
+            {
+                throw new Exception($"Unsupported SOCKS5 auth method: {authMethod:X2}");
+            }
 
-            // 2. Request details
-            byte[] request = BuildRequest(0x01, targetHost, targetPort); // 0x01 = CONNECT
+            // 2. Connect Request
+            byte[] request = BuildRequest(CmdConnect, targetHost, targetPort);
             await stream.WriteAsync(request, 0, request.Length, token);
 
             // 3. Read Reply
@@ -64,29 +77,33 @@ namespace ProxyControl.Services
             try
             {
                 await client.ConnectAsync(proxy.IpAddress, proxy.Port, token);
+                ConfigureSocket(client);
                 var stream = client.GetStream();
 
                 // 1. Greeting
-                byte[] greeting = { 0x05, 0x02, 0x00, 0x02 };
+                byte[] greeting = BuildGreeting(proxy.Username, proxy.Password);
                 await stream.WriteAsync(greeting, 0, greeting.Length, token);
 
                 byte[] response = new byte[2];
                 await ReadExactAsync(stream, response, 2, token);
 
-                if (response[0] != 0x05) throw new Exception("Invalid SOCKS5 version");
+                if (response[0] != SocksVersion) throw new Exception("Invalid SOCKS5 version");
 
-                if (response[1] == 0x02)
+                if (response[1] == AuthUserPass)
                 {
                     await AuthenticateAsync(stream, proxy.Username, proxy.Password, token);
                 }
-                else if (response[1] == 0xFF)
+                else if (response[1] == AuthNoAcceptable)
                 {
                     throw new Exception("SOCKS5 No acceptable auth");
                 }
+                else if (response[1] != AuthNoAuth)
+                {
+                    throw new Exception($"Unsupported SOCKS5 auth method: {response[1]:X2}");
+                }
 
-                // 2. UDP Associate Request
-                // We send 0.0.0.0:0 to let proxy choose relay
-                byte[] request = BuildRequest(0x03, "0.0.0.0", 0); // 0x03 = UDP ASSOCIATE
+                // 2. UDP Associate Request (0.0.0.0:0 lets proxy choose relay)
+                byte[] request = BuildRequest(CmdUdpAssociate, "0.0.0.0", 0);
                 await stream.WriteAsync(request, 0, request.Length, token);
 
                 // 3. Reply
@@ -101,7 +118,7 @@ namespace ProxyControl.Services
                 // Read Relay Address
                 IPEndPoint relayEndpoint = await ReadAddressAsync(stream, replyHeader[3], token);
 
-                // IMPORTANT: The TCP connection (client) MUST prevent closing while UDP is active.
+                // IMPORTANT: Keep TCP control connection open while UDP is active.
                 return (client, relayEndpoint);
             }
             catch
@@ -114,18 +131,12 @@ namespace ProxyControl.Services
         // Pack UDP packet with SOCKS5 header: RSV(2) FRAG(1) ATYP(1) DST.ADDR DST.PORT DATA
         public static byte[] PackUdp(byte[] data, string targetHost, int targetPort)
         {
-            // SOCKS5 UDP header needs destination address
-            // RSV(2) | FRAG(1) | ATYP(1) | DST.ADDR | DST.PORT
-
-            // Simplification: We will support IPv4 (0x01) or Domain (0x03)
-            // For DNS (8.8.8.8), IPv4 is easier.
-            // If targetHost is domain, use 0x03.
-
-            List<byte> header = new List<byte>();
-            header.Add(0x00); header.Add(0x00); // RSV
+            List<byte> header = new List<byte>(32);
+            header.Add(0x00); // RSV
+            header.Add(0x00); // RSV
             header.Add(0x00); // FRAG (No fragmentation)
 
-            if (IPAddress.TryParse(targetHost, out IPAddress ip))
+            if (IPAddress.TryParse(targetHost, out IPAddress? ip))
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
@@ -140,6 +151,9 @@ namespace ProxyControl.Services
             }
             else
             {
+                if (targetHost.Length > byte.MaxValue)
+                    throw new ArgumentException("SOCKS5 domain name is too long.", nameof(targetHost));
+
                 header.Add(0x03); // Domain
                 header.Add((byte)targetHost.Length);
                 header.AddRange(Encoding.ASCII.GetBytes(targetHost));
@@ -157,33 +171,39 @@ namespace ProxyControl.Services
         // Unpack UDP packet, return data (stripping header)
         public static byte[] UnpackUdp(byte[] packet)
         {
-            // Header is at least 6 bytes (RSV(2)+FRAG(1)+ATYP(1)+...)
+            // Need at least RSV(2) + FRAG(1) + ATYP(1) + PORT(2)
             if (packet.Length < 6) return Array.Empty<byte>();
+            if (packet[0] != 0x00 || packet[1] != 0x00) return Array.Empty<byte>();
+            if (packet[2] != 0x00) return Array.Empty<byte>(); // Fragmentation unsupported
 
-            // Skip RSV(2) + FRAG(1) = 3 bytes
             int offset = 3;
-            byte atyp = packet[offset];
-            offset++;
+            byte atyp = packet[offset++];
 
             if (atyp == 0x01) // IPv4
             {
+                if (packet.Length < offset + 4 + 2) return Array.Empty<byte>();
                 offset += 4;
             }
             else if (atyp == 0x03) // Domain
             {
-                byte len = packet[offset];
-                offset += 1 + len;
+                if (packet.Length < offset + 1) return Array.Empty<byte>();
+                int len = packet[offset];
+                offset++;
+                if (packet.Length < offset + len + 2) return Array.Empty<byte>();
+                offset += len;
             }
             else if (atyp == 0x04) // IPv6
             {
+                if (packet.Length < offset + 16 + 2) return Array.Empty<byte>();
                 offset += 16;
             }
             else return Array.Empty<byte>();
 
-            // Port (2 bytes)
+            // Port
             offset += 2;
 
-            if (offset >= packet.Length) return Array.Empty<byte>();
+            if (offset > packet.Length) return Array.Empty<byte>();
+            if (offset == packet.Length) return Array.Empty<byte>();
 
             int dataLen = packet.Length - offset;
             byte[] data = new byte[dataLen];
@@ -196,11 +216,13 @@ namespace ProxyControl.Services
             user ??= "";
             pass ??= "";
 
-            // Version 0x01
-            // UL(1) User PL(1) Pass
+            if (user.Length > byte.MaxValue || pass.Length > byte.MaxValue)
+                throw new Exception("SOCKS5 username/password length exceeds 255 bytes.");
+
             var userBytes = Encoding.ASCII.GetBytes(user);
             var passBytes = Encoding.ASCII.GetBytes(pass);
 
+            // Version 0x01, UL(1), USER, PL(1), PASS
             byte[] authReq = new byte[1 + 1 + userBytes.Length + 1 + passBytes.Length];
             int idx = 0;
             authReq[idx++] = 0x01; // Sub-negotiation version
@@ -224,9 +246,9 @@ namespace ProxyControl.Services
         private static byte[] BuildRequest(byte cmd, string host, int port)
         {
             // VER(1) CMD(1) RSV(1) ATYP(1) ...
-            List<byte> bytes = new List<byte> { 0x05, cmd, 0x00 };
+            List<byte> bytes = new List<byte>(32) { SocksVersion, cmd, 0x00 };
 
-            if (IPAddress.TryParse(host, out IPAddress ip))
+            if (IPAddress.TryParse(host, out IPAddress? ip))
             {
                 if (ip.AddressFamily == AddressFamily.InterNetwork)
                 {
@@ -241,6 +263,9 @@ namespace ProxyControl.Services
             }
             else
             {
+                if (host.Length > byte.MaxValue)
+                    throw new ArgumentException("SOCKS5 domain name is too long.", nameof(host));
+
                 bytes.Add(0x03); // Domain
                 bytes.Add((byte)host.Length);
                 bytes.AddRange(Encoding.ASCII.GetBytes(host));
@@ -273,6 +298,10 @@ namespace ProxyControl.Services
                 byte[] buf = new byte[16 + 2];
                 await ReadExactAsync(stream, buf, 18, token);
             }
+            else
+            {
+                throw new Exception("Unknown ATYP in SOCKS5 response");
+            }
         }
 
         private static async Task<IPEndPoint> ReadAddressAsync(NetworkStream stream, byte atyp, CancellationToken token)
@@ -293,17 +322,18 @@ namespace ProxyControl.Services
                 int len = lenBuf[0];
                 byte[] domBuf = new byte[len];
                 await ReadExactAsync(stream, domBuf, len, token);
-                // In UDP Associate reply, this is usually IP, but if domain, assume resolved?
-                // Just try to parse or fail.
+
                 string domain = Encoding.ASCII.GetString(domBuf);
                 try
                 {
-                    var ips = await Dns.GetHostAddressesAsync(domain);
-                    ip = ips[0];
+                    var ips = await Dns.GetHostAddressesAsync(domain, token);
+                    ip = ips.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+                         ?? ips.FirstOrDefault()
+                         ?? IPAddress.Any;
                 }
                 catch
                 {
-                    ip = IPAddress.Any; // Fallback
+                    ip = IPAddress.Any;
                 }
             }
             else if (atyp == 0x04) // IPv6
@@ -330,6 +360,27 @@ namespace ProxyControl.Services
                 int read = await stream.ReadAsync(buffer, total, length - total, token);
                 if (read == 0) throw new Exception("Unexpected End of Stream in SOCKS5 handshake");
                 total += read;
+            }
+        }
+
+        private static byte[] BuildGreeting(string? user, string? pass)
+        {
+            bool hasCredentials = !string.IsNullOrWhiteSpace(user) || !string.IsNullOrWhiteSpace(pass);
+            return hasCredentials
+                ? new byte[] { SocksVersion, 0x02, AuthNoAuth, AuthUserPass }
+                : new byte[] { SocksVersion, 0x01, AuthNoAuth };
+        }
+
+        private static void ConfigureSocket(TcpClient client)
+        {
+            try
+            {
+                client.NoDelay = true;
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            }
+            catch
+            {
+                // Best-effort tuning only.
             }
         }
     }

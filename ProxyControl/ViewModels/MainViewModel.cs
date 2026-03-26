@@ -878,7 +878,11 @@ namespace ProxyControl.ViewModels
 
         public Array ModeTypes => Enum.GetValues(typeof(RuleMode));
         public Array TrafficPeriodModes => Enum.GetValues(typeof(TrafficPeriodMode));
-        public Array ProxyTypes => Enum.GetValues(typeof(ProxyType));
+        public IReadOnlyList<ProxyType> ProxyTypes { get; } =
+            Enum.GetValues(typeof(ProxyType))
+                .Cast<ProxyType>()
+                .Where(t => t != ProxyType.Socks4)
+                .ToArray();
 
         public ProxyItem? SelectedBlackListMainProxy
         {
@@ -1346,13 +1350,13 @@ namespace ProxyControl.ViewModels
             {
                 ProxyModalTitle = "Add Proxy"; ProxyModalIp = ""; ProxyModalPort = 8080;
                 ProxyModalUser = ""; ProxyModalPass = ""; ProxyModalUseTls = false; ProxyModalUseSsl = false;
-                // ProxyModalType = ProxyType.Http;
+                ProxyModalType = ProxyType.Http;
             }
             else
             {
                 ProxyModalTitle = "Edit Proxy"; ProxyModalIp = item.IpAddress; ProxyModalPort = item.Port;
                 ProxyModalUser = item.Username; ProxyModalPass = item.Password; ProxyModalUseTls = item.UseTls; ProxyModalUseSsl = item.UseSsl;
-                ProxyModalType = item.Type;
+                ProxyModalType = item.Type == ProxyType.Socks4 ? ProxyType.Socks5 : item.Type;
             }
             IsProxyModalVisible = true;
         }
@@ -1848,35 +1852,6 @@ namespace ProxyControl.ViewModels
         private async Task CheckSingleProxy(ProxyItem p)
         {
             Application.Current.Dispatcher.Invoke(() => p.Status = "Checking...");
-
-            // Fix: Check SOCKS5 connectivity using Socks5Client
-            if (p.Type == ProxyType.Socks5)
-            {
-                try
-                {
-                    var result = await Task.Run(async () =>
-                    {
-                        var sw = System.Diagnostics.Stopwatch.StartNew();
-                        using (var client = new System.Net.Sockets.TcpClient())
-                        {
-                            var cts = new CancellationTokenSource(5000);
-                            // Test connection to Google DNS or similar reliable target
-                            await Services.Socks5Client.ConnectAsync(client, p, "8.8.8.8", 53, cts.Token);
-                            sw.Stop();
-                            return (true, (int)sw.ElapsedMilliseconds);
-                        }
-                    });
-
-                    Application.Current.Dispatcher.Invoke(() => { p.Status = "Online"; p.PingMs = result.Item2; p.SpeedMbps = 0; }); // Speed not measured here 
-                }
-                catch
-                {
-                    Application.Current.Dispatcher.Invoke(() => { p.Status = "Offline"; p.PingMs = 0; p.SpeedMbps = 0; });
-                }
-                return;
-            }
-
-            // Fallback for HTTP/HTTPS
             var res = await Task.Run(() => _proxyService.CheckProxy(p));
             Application.Current.Dispatcher.Invoke(() => { p.Status = res.IsSuccess ? "Online" : "Offline"; p.PingMs = res.Ping; p.SpeedMbps = res.Speed; if (!string.IsNullOrEmpty(res.CountryCode)) p.CountryCode = res.CountryCode; });
         }
