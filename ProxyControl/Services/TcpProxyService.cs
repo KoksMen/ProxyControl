@@ -54,6 +54,22 @@ namespace ProxyControl.Services
         private const int LocalPort = 8000;
         private const int BufferSize = 81920; // 80KB for better throughput
         private const int MaxHeaderSize = 16 * 1024;
+        private const int SpeedProbeMinBytes = 64 * 1024;
+        private const int SpeedProbeMaxBytes = 2 * 1024 * 1024;
+
+        private static readonly (string Host, int Port, string Path)[] Socks5VerificationTargets =
+        {
+            ("example.com", 80, "/"),
+            ("cloudflare.com", 80, "/"),
+            ("clients3.google.com", 80, "/generate_204")
+        };
+
+        private static readonly (string Host, int Port, string Path)[] Socks5SpeedTargets =
+        {
+            ("speedtest.tele2.net", 80, "/1MB.zip"),
+            ("ipv4.download.thinkbroadband.com", 80, "/1MB.zip"),
+            ("code.jquery.com", 80, "/jquery-3.6.0.min.js")
+        };
 
         private readonly SemaphoreSlim _connectionLimiter = new SemaphoreSlim(2000);
 
@@ -1140,36 +1156,27 @@ namespace ProxyControl.Services
             if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "", 0, 0, "Invalid IP/Port");
 
             bool connectionSuccess = false;
-            long ping = 0;
+            long ping = await MeasureTcpConnectPingAsync(proxy.IpAddress, proxy.Port);
             double speedMbps = 0;
             string sslError = "None";
 
             if (proxy.Type == ProxyType.Socks5)
             {
-                // SOCKS5 Check logic
                 try
                 {
-                    using (var client = new TcpClient())
+                    using (var verifyCts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
                     {
-                        var sw = Stopwatch.StartNew();
-                        await Socks5Client.ConnectAsync(client, proxy, "www.google.com", 80, CancellationToken.None);
+                        connectionSuccess = await VerifySocks5ProxyAsync(proxy, verifyCts.Token);
+                    }
 
-                        // Simple HTTP check over SOCKS5
-                        var stream = client.GetStream();
-                        byte[] req = Encoding.ASCII.GetBytes("GET /generate_204 HTTP/1.1\r\nHost: www.google.com\r\n\r\n");
-                        await stream.WriteAsync(req, 0, req.Length);
-
-                        byte[] respBuf = new byte[1024];
-                        int r = await stream.ReadAsync(respBuf, 0, respBuf.Length);
-                        string resp = Encoding.ASCII.GetString(respBuf, 0, r);
-
-                        sw.Stop();
-                        ping = sw.ElapsedMilliseconds;
-                        connectionSuccess = resp.Contains("204");
-
-                        // Speed Test (approx)
-                        // For speed test we would need a larger download, simplified here or ignored
-                        // Just setting same ping for now
+                    if (!connectionSuccess)
+                    {
+                        sslError = "SOCKS5 check failed: invalid or empty upstream response.";
+                    }
+                    else
+                    {
+                        using var speedCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                        speedMbps = await MeasureSocks5SpeedMbpsAsync(proxy, speedCts.Token);
                     }
                 }
                 catch (Exception ex)
@@ -1181,7 +1188,6 @@ namespace ProxyControl.Services
             else
             {
                 // HTTP/HTTPS Logic
-                // ... (Original Code) ...
                 string scheme = "http";
                 if (proxy.UseTls || proxy.UseSsl) scheme = "https";
 
@@ -1212,10 +1218,7 @@ namespace ProxyControl.Services
                     using (var client = new HttpClient(handler))
                     {
                         client.Timeout = TimeSpan.FromSeconds(10);
-                        var sw = Stopwatch.StartNew();
                         var response = await client.GetAsync("https://www.google.com/generate_204");
-                        sw.Stop();
-                        ping = sw.ElapsedMilliseconds;
                         connectionSuccess = response.IsSuccessStatusCode;
                     }
                 }
@@ -1280,6 +1283,183 @@ namespace ProxyControl.Services
             catch { }
 
             return (connectionSuccess, country, ping, speedMbps, sslError);
+        }
+
+        private async Task<long> MeasureTcpConnectPingAsync(string host, int port, int attempts = 3, int timeoutMs = 2500)
+        {
+            var samples = new List<long>(attempts);
+
+            IPAddress? targetAddress = null;
+            bool useResolvedAddress = false;
+
+            if (IPAddress.TryParse(host, out var parsedAddress))
+            {
+                targetAddress = parsedAddress;
+                useResolvedAddress = true;
+            }
+            else
+            {
+                try
+                {
+                    var addresses = await Dns.GetHostAddressesAsync(host);
+                    targetAddress = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+                        ?? addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetworkV6);
+                    useResolvedAddress = targetAddress != null;
+                }
+                catch
+                {
+                    // Fallback to host-based connect if DNS resolve fails here.
+                }
+            }
+
+            for (int i = 0; i < attempts; i++)
+            {
+                using var client = new TcpClient();
+                ConfigureTcpClient(client);
+                var sw = Stopwatch.StartNew();
+
+                try
+                {
+                    using var cts = new CancellationTokenSource(timeoutMs);
+                    if (useResolvedAddress && targetAddress != null)
+                    {
+                        await client.ConnectAsync(targetAddress, port, cts.Token);
+                    }
+                    else
+                    {
+                        await client.ConnectAsync(host, port, cts.Token);
+                    }
+
+                    sw.Stop();
+                    samples.Add(Math.Max(1, sw.ElapsedMilliseconds));
+                }
+                catch
+                {
+                    // Ignore single sample failures, keep measuring.
+                }
+
+                if (i < attempts - 1)
+                {
+                    await Task.Delay(60);
+                }
+            }
+
+            if (samples.Count == 0) return 0;
+            samples.Sort();
+            return samples[samples.Count / 2];
+        }
+
+        private async Task<bool> VerifySocks5ProxyAsync(ProxyItem proxy, CancellationToken token)
+        {
+            foreach (var target in Socks5VerificationTargets)
+            {
+                token.ThrowIfCancellationRequested();
+
+                try
+                {
+                    using var client = new TcpClient();
+                    ConfigureTcpClient(client);
+                    await Socks5Client.ConnectAsync(client, proxy, target.Host, target.Port, token);
+
+                    var stream = client.GetStream();
+                    byte[] request = Encoding.ASCII.GetBytes(
+                        $"GET {target.Path} HTTP/1.1\r\nHost: {target.Host}\r\nConnection: close\r\nUser-Agent: ProxyControl/1.0\r\nAccept: */*\r\n\r\n");
+
+                    await stream.WriteAsync(request, 0, request.Length, token);
+
+                    byte[] responseBuffer = new byte[1024];
+                    int read = await stream.ReadAsync(responseBuffer, 0, responseBuffer.Length, token);
+                    if (read <= 0) continue;
+
+                    string response = Encoding.ASCII.GetString(responseBuffer, 0, read);
+                    if (response.StartsWith("HTTP/1.1 2", StringComparison.OrdinalIgnoreCase)
+                        || response.StartsWith("HTTP/1.0 2", StringComparison.OrdinalIgnoreCase)
+                        || response.StartsWith("HTTP/1.1 3", StringComparison.OrdinalIgnoreCase)
+                        || response.StartsWith("HTTP/1.0 3", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Try next probe endpoint.
+                }
+            }
+
+            return false;
+        }
+
+        private async Task<double> MeasureSocks5SpeedMbpsAsync(ProxyItem proxy, CancellationToken token)
+        {
+            foreach (var target in Socks5SpeedTargets)
+            {
+                token.ThrowIfCancellationRequested();
+
+                try
+                {
+                    var sample = await TryMeasureSocks5SpeedSampleAsync(proxy, target.Host, target.Port, target.Path, token);
+                    if (sample.BytesRead < SpeedProbeMinBytes || sample.Seconds <= 0) continue;
+
+                    double bits = sample.BytesRead * 8d;
+                    double mbps = (bits / 1_000_000d) / sample.Seconds;
+                    if (mbps > 0) return Math.Round(mbps, 2);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Try next speed endpoint.
+                }
+            }
+
+            return 0;
+        }
+
+        private async Task<(long BytesRead, double Seconds)> TryMeasureSocks5SpeedSampleAsync(
+            ProxyItem proxy,
+            string host,
+            int port,
+            string path,
+            CancellationToken token)
+        {
+            using var client = new TcpClient();
+            ConfigureTcpClient(client);
+            await Socks5Client.ConnectAsync(client, proxy, host, port, token);
+
+            var stream = client.GetStream();
+            byte[] request = Encoding.ASCII.GetBytes(
+                $"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nUser-Agent: ProxyControl/1.0\r\nAccept: */*\r\n\r\n");
+
+            await stream.WriteAsync(request, 0, request.Length, token);
+
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+            long bytesReadTotal = 0;
+            var sw = Stopwatch.StartNew();
+
+            try
+            {
+                while (true)
+                {
+                    int read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
+                    if (read <= 0) break;
+
+                    bytesReadTotal += read;
+                    if (bytesReadTotal >= SpeedProbeMaxBytes) break;
+                }
+            }
+            finally
+            {
+                sw.Stop();
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            return (bytesReadTotal, sw.Elapsed.TotalSeconds);
         }
 
         // --- SOCKS5 Server Logic ---

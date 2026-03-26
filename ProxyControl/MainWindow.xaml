@@ -2742,7 +2742,9 @@
 
                                     <!--  Log Cards  -->
                                     <ScrollViewer
+                                        x:Name="ConnectionLogsScrollViewer"
                                         Grid.Row="1"
+                                        ScrollChanged="ConnectionLogsScrollViewer_OnScrollChanged"
                                         VerticalScrollBarVisibility="Auto"
                                         VirtualizingPanel.IsVirtualizing="True"
                                         VirtualizingPanel.VirtualizationMode="Recycling">
