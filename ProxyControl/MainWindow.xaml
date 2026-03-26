@@ -787,6 +787,39 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="ColumnGridSplitterStyle" TargetType="GridSplitter">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="ResizeBehavior" Value="PreviousAndNext" />
+            <Setter Property="ResizeDirection" Value="Columns" />
+            <Setter Property="ShowsPreview" Value="True" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="SizeWE" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridSplitter">
+                        <Grid Background="Transparent">
+                            <Border
+                                x:Name="Grip"
+                                Width="2"
+                                Margin="3,8"
+                                Background="{DynamicResource BorderBrush}"
+                                CornerRadius="1" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Grip" Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Grip" Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -1616,11 +1649,7 @@
 
                                 <GridSplitter
                                     Grid.Column="1"
-                                    Width="4"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Stretch"
-                                    Background="{DynamicResource BorderBrush}"
-                                    ResizeBehavior="PreviousAndNext" />
+                                    Style="{StaticResource ColumnGridSplitterStyle}" />
 
                                 <!--  PANEL 2: Apps (own ScrollViewer, appears when group selected)  -->
                                 <Border
@@ -1808,11 +1837,7 @@
 
                                 <GridSplitter
                                     Grid.Column="3"
-                                    Width="4"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Stretch"
-                                    Background="{DynamicResource BorderBrush}"
-                                    ResizeBehavior="PreviousAndNext" />
+                                    Style="{StaticResource ColumnGridSplitterStyle}" />
 
                                 <!--  PANEL 3: Rules (own ScrollViewer, shows rules for selected app/group)  -->
                                 <Border
@@ -2400,9 +2425,9 @@
                     <TabItem Header="MONITOR" Tag="Monitor">
                         <Grid Margin="10">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" MinWidth="320" />
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="1.2*" />
+                                <ColumnDefinition Width="1.2*" MinWidth="360" />
                             </Grid.ColumnDefinitions>
 
                             <!--  Left Panel: Process List  -->
@@ -2545,9 +2570,8 @@
 
                             <GridSplitter
                                 Grid.Column="1"
-                                Width="4"
-                                VerticalAlignment="Stretch"
-                                Background="{DynamicResource SurfaceMediumBrush}" />
+                                Panel.ZIndex="10"
+                                Style="{StaticResource ColumnGridSplitterStyle}" />
 
                             <!--  Right Panel: Connection Details  -->
                             <Border

@@ -48,10 +48,11 @@
     </LinearGradientBrush>
 
     <!--  Minimal ScrollBar  -->
-    <SolidColorBrush x:Key="ScrollBarTrackBrush" Color="#1E232B" />
-    <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="#4B5563" />
-    <SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="#64748B" />
-    <SolidColorBrush x:Key="ScrollBarThumbDragBrush" Color="#94A3B8" />
+    <SolidColorBrush x:Key="ScrollBarTrackBrush" Color="#2B3442" />
+    <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="#8B9AB0" />
+    <SolidColorBrush x:Key="ScrollBarThumbHoverBrush" Color="#A5B4CC" />
+    <SolidColorBrush x:Key="ScrollBarThumbDragBrush" Color="#C6D2E4" />
+    <SolidColorBrush x:Key="ScrollBarTrackBorderBrush" Color="#445064" />
 
     <Style x:Key="MinimalScrollRepeatButtonStyle" TargetType="{x:Type RepeatButton}">
         <Setter Property="Focusable" Value="False" />
@@ -95,8 +96,10 @@
             <Border
                 Margin="1,0"
                 Background="{DynamicResource ScrollBarTrackBrush}"
+                BorderBrush="{DynamicResource ScrollBarTrackBorderBrush}"
+                BorderThickness="1"
                 CornerRadius="4"
-                Opacity="0.9" />
+                Opacity="1" />
             <Track
                 x:Name="PART_Track"
                 Margin="2,2"
@@ -106,7 +109,7 @@
                     <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource MinimalScrollRepeatButtonStyle}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
-                    <Thumb MinHeight="28" Style="{StaticResource MinimalScrollThumbStyle}" />
+                    <Thumb MinHeight="32" Style="{StaticResource MinimalScrollThumbStyle}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
                     <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource MinimalScrollRepeatButtonStyle}" />
@@ -120,8 +123,10 @@
             <Border
                 Margin="0,1"
                 Background="{DynamicResource ScrollBarTrackBrush}"
+                BorderBrush="{DynamicResource ScrollBarTrackBorderBrush}"
+                BorderThickness="1"
                 CornerRadius="4"
-                Opacity="0.9" />
+                Opacity="1" />
             <Track
                 x:Name="PART_Track"
                 Margin="2,2"
@@ -131,7 +136,7 @@
                     <RepeatButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource MinimalScrollRepeatButtonStyle}" />
                 </Track.DecreaseRepeatButton>
                 <Track.Thumb>
-                    <Thumb MinWidth="28" Style="{StaticResource MinimalScrollThumbStyle}" />
+                    <Thumb MinWidth="32" Style="{StaticResource MinimalScrollThumbStyle}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
                     <RepeatButton Command="ScrollBar.PageRightCommand" Style="{StaticResource MinimalScrollRepeatButtonStyle}" />
@@ -141,11 +146,13 @@
     </ControlTemplate>
 
     <Style TargetType="{x:Type ScrollBar}">
-        <Setter Property="Width" Value="10" />
-        <Setter Property="Height" Value="10" />
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Width" Value="12" />
+        <Setter Property="Height" Value="12" />
         <Setter Property="Background" Value="{DynamicResource ScrollBarTrackBrush}" />
         <Setter Property="Template" Value="{StaticResource VerticalMinimalScrollBarTemplate}" />
         <Setter Property="Stylus.IsFlicksEnabled" Value="False" />
+        <Setter Property="Cursor" Value="Arrow" />
         <Style.Triggers>
             <Trigger Property="Orientation" Value="Horizontal">
                 <Setter Property="Template" Value="{StaticResource HorizontalMinimalScrollBarTemplate}" />
