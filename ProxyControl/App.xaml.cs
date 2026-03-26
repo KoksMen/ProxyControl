@@ -1,4 +1,5 @@
 ﻿using ProxyControl.Services;
+using System.IO;
 using System;
 using System.Configuration;
 using System.Data;
@@ -35,6 +36,9 @@ namespace ProxyControl
         protected override void OnStartup(StartupEventArgs e)
         {
             bool createdNew;
+            // Ensure the working directory is correct (fixes autostart issues where CWD is System32)
+            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+
             _mutex = new Mutex(true, MutexName, out createdNew);
 
             if (!createdNew)

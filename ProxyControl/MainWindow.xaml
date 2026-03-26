@@ -799,7 +799,7 @@
             <tb:TaskbarIcon
                 x:Name="TrayIcon"
                 DoubleClickCommand="{Binding ShowWindowCommand}"
-                IconSource="proxy.ico"
+                IconSource="pack://application:,,,/proxy.ico"
                 MenuActivation="LeftOrRightClick"
                 ToolTipText="Proxy Control">
                 <tb:TaskbarIcon.ContextMenu>

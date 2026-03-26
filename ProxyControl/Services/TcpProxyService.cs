@@ -60,6 +60,10 @@ namespace ProxyControl.Services
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
         private readonly HttpClient _geoHttpClient;
         private readonly AppLoggerService _logger;
+        private readonly ConcurrentDictionary<string, (IPAddress Address, DateTime ExpiresUtc)> _pidLookupDnsCache
+            = new ConcurrentDictionary<string, (IPAddress Address, DateTime ExpiresUtc)>(StringComparer.OrdinalIgnoreCase);
+        private static readonly TimeSpan PidLookupDnsCacheTtl = TimeSpan.FromMinutes(2);
+        private string _routingFingerprint = string.Empty;
 
         public event Action<ConnectionLog>? OnConnectionLog;
 
@@ -86,6 +90,8 @@ namespace ProxyControl.Services
 
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
         {
+            bool hadActiveConnections = !_activeClients.IsEmpty;
+
             var newProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
@@ -102,6 +108,9 @@ namespace ProxyControl.Services
 
             var newBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
             var newWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
+            string nextRoutingFingerprint = BuildRoutingFingerprint(config, newProxies, newBlackList, newWhiteList);
+            bool routingChanged = !string.Equals(_routingFingerprint, nextRoutingFingerprint, StringComparison.Ordinal);
+            bool shouldHardDisconnect = hadActiveConnections && !string.IsNullOrEmpty(_routingFingerprint) && routingChanged;
 
             var newBlackListHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var newFastBlackListRules = new Dictionary<string, TrafficRule>(StringComparer.OrdinalIgnoreCase);
@@ -158,10 +167,15 @@ namespace ProxyControl.Services
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
             _isTunMode = config.IsTunMode;
+            _routingFingerprint = nextRoutingFingerprint;
 
             try
             {
-                DisconnectAllClients();
+                if (shouldHardDisconnect)
+                {
+                    _logger.Debug("Schedule", "Hard-disconnecting active sessions due to routing/rule change.");
+                    DisconnectAllClients();
+                }
             }
             catch { }
         }
@@ -185,6 +199,19 @@ namespace ProxyControl.Services
         {
             if (client == null) return;
             try { client.Close(); client.Dispose(); } catch { }
+        }
+
+        private void ConfigureTcpClient(TcpClient client)
+        {
+            try
+            {
+                client.NoDelay = true;
+                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            }
+            catch
+            {
+                // Best-effort tuning only.
+            }
         }
 
         public void Start()
@@ -231,35 +258,110 @@ namespace ProxyControl.Services
                             SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
                         }
 
-                        foreach (var kvp in _activeClients)
-                        {
-                            var ctx = kvp.Value;
-                            if (string.IsNullOrEmpty(ctx.AppName) || string.IsNullOrEmpty(ctx.Host)) continue;
-
-                            // Re-evaluate rule based on current time
-                            var decision = ResolveAction(ctx.AppName, ctx.Host);
-
-                            bool shouldKill = false;
-
-                            // Check for Block
-                            if (decision.Action == RuleAction.Block) shouldKill = true;
-                            // Check for Switch (Proxy <-> Direct)
-                            else if (decision.Action != ctx.InitialAction) shouldKill = true;
-                            // Check for Proxy Change (ProxyA <-> ProxyB)
-                            else if (decision.Action == RuleAction.Proxy && decision.Proxy?.Id != ctx.InitialProxyId) shouldKill = true;
-
-                            if (shouldKill)
-                            {
-                                _logger.Debug("Schedule", $"Terminating active connection {ctx.AppName} -> {ctx.Host} due to schedule/rule change.");
-                                ctx.Cts?.Cancel();
-                                ForceClose(ctx.Client);
-                                ForceClose(ctx.Remote);
-                            }
-                        }
+                        EnforceActiveConnectionPolicies("schedule/rule change");
                     }
                     catch { }
                 }
             });
+        }
+
+        private void EnforceActiveConnectionPolicies(string reason)
+        {
+            foreach (var kvp in _activeClients)
+            {
+                var ctx = kvp.Value;
+                if (string.IsNullOrEmpty(ctx.AppName) || string.IsNullOrEmpty(ctx.Host)) continue;
+
+                var decision = ResolveAction(ctx.AppName, ctx.Host);
+                if (!ShouldTerminateConnection(ctx, decision)) continue;
+
+                _logger.Debug("Schedule", $"Terminating active connection {ctx.AppName} -> {ctx.Host} due to {reason}.");
+                ctx.Cts?.Cancel();
+                ForceClose(ctx.Client);
+                ForceClose(ctx.Remote);
+            }
+        }
+
+        private static bool ShouldTerminateConnection(ClientContext ctx, (RuleAction Action, ProxyItem? Proxy, BlockDirection BlockDir) decision)
+        {
+            if (decision.Action == RuleAction.Block) return true;
+            if (decision.Action != ctx.InitialAction) return true;
+            if (decision.Action == RuleAction.Proxy && decision.Proxy?.Id != ctx.InitialProxyId) return true;
+            return false;
+        }
+
+        private static string BuildRoutingFingerprint(AppConfig config, List<ProxyItem> proxies, List<TrafficRule> blackRules, List<TrafficRule> whiteRules)
+        {
+            var sb = new StringBuilder(8192);
+            sb.Append("mode=").Append(config.CurrentMode).Append('|');
+            sb.Append("main=").Append(config.BlackListSelectedProxyId?.ToString() ?? "").Append('|');
+            sb.Append("webrtc=").Append(config.IsWebRtcBlockingEnabled).Append('|');
+            sb.Append("tun=").Append(config.IsTunMode).Append('|');
+            sb.Append("proxies=").Append(proxies.Count).Append('|');
+
+            foreach (var p in proxies.OrderBy(p => p.Id, StringComparer.Ordinal))
+            {
+                sb.Append(p.Id).Append(';')
+                  .Append(p.IpAddress).Append(';')
+                  .Append(p.Port).Append(';')
+                  .Append(p.IsEnabled).Append(';')
+                  .Append(p.Type).Append(';')
+                  .Append(p.Username ?? "").Append(';')
+                  .Append(p.Password ?? "").Append(';')
+                  .Append(p.UseTls).Append(';')
+                  .Append(p.UseSsl).Append('|');
+            }
+
+            AppendRulesFingerprint(sb, "black", blackRules);
+            AppendRulesFingerprint(sb, "white", whiteRules);
+
+            return sb.ToString();
+        }
+
+        private static void AppendRulesFingerprint(StringBuilder sb, string prefix, List<TrafficRule> rules)
+        {
+            sb.Append(prefix).Append('=').Append(rules.Count).Append('|');
+            for (int i = 0; i < rules.Count; i++)
+            {
+                var r = rules[i];
+                sb.Append(r.IsEnabled).Append(';')
+                  .Append(r.Action).Append(';')
+                  .Append(r.BlockDirection).Append(';')
+                  .Append(r.ProxyId ?? "").Append(';')
+                  .Append(r.IsScheduleEnabled).Append(';')
+                  .Append(r.ScheduleStart?.Ticks ?? -1).Append(';')
+                  .Append(r.ScheduleEnd?.Ticks ?? -1).Append(';');
+
+                if (r.ScheduleDays != null && r.ScheduleDays.Length > 0)
+                {
+                    for (int d = 0; d < r.ScheduleDays.Length; d++)
+                    {
+                        sb.Append((int)r.ScheduleDays[d]).Append(',');
+                    }
+                }
+
+                sb.Append(';');
+
+                if (r.TargetApps != null && r.TargetApps.Count > 0)
+                {
+                    for (int a = 0; a < r.TargetApps.Count; a++)
+                    {
+                        sb.Append(r.TargetApps[a]).Append(',');
+                    }
+                }
+
+                sb.Append(';');
+
+                if (r.TargetHosts != null && r.TargetHosts.Count > 0)
+                {
+                    for (int h = 0; h < r.TargetHosts.Count; h++)
+                    {
+                        sb.Append(r.TargetHosts[h]).Append(',');
+                    }
+                }
+
+                sb.Append('|');
+            }
         }
 
         public void Stop()
@@ -389,7 +491,7 @@ namespace ProxyControl.Services
 
             try
             {
-                client.NoDelay = true;
+                ConfigureTcpClient(client);
                 NetworkStream clientStream = client.GetStream();
 
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
@@ -429,7 +531,7 @@ namespace ProxyControl.Services
                 if (bytesRead > 0 && buffer[0] == 0x05)
                 {
                     // SOCKS5 detected (from TUN/sing-box)
-                    await HandleSocks5ServerAsync(clientStream, buffer, bytesRead, client, processName, ctx.Cts.Token);
+                    await HandleSocks5ServerAsync(clientStream, buffer, bytesRead, client, processName, ctx, ctx.Cts.Token);
                     return;
                 }
 
@@ -504,14 +606,13 @@ namespace ProxyControl.Services
 
                 ProxyItem? targetProxy = decision.Proxy;
                 var remoteServer = new TcpClient();
-                remoteServer.NoDelay = true;
+                ConfigureTcpClient(remoteServer);
                 ctx.Remote = remoteServer;
 
                 if (targetProxy != null)
                 {
                     if (targetProxy.Type == ProxyType.Socks5)
                     {
-                        await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
                         try
                         {
                             await Socks5Client.ConnectAsync(remoteServer, targetProxy, targetHost, targetPort, ctx.Cts.Token);
@@ -1183,147 +1284,137 @@ namespace ProxyControl.Services
 
         // --- SOCKS5 Server Logic ---
 
-        private async Task HandleSocks5ServerAsync(NetworkStream stream, byte[] initialBuffer, int initialLength, TcpClient client, string processName, CancellationToken token)
+        private async Task HandleSocks5ServerAsync(NetworkStream stream, byte[] initialBuffer, int initialLength, TcpClient client, string processName, ClientContext ctx, CancellationToken token)
         {
-            // 1. Handshake
-            // Ensure we have at least the initial 2 bytes (VER, NMETHODS)
-            // initialBuffer contains what we read so far.
-            // We need to consume the entire handshake message: VER | NMETHODS | METHODS
+            if (initialLength <= 0) return;
 
-            // int offset = 0; // Removed unused
-            byte[] buffer = initialBuffer;
-            int bytesRead = initialLength;
+            byte[] buffered = new byte[initialLength];
+            Buffer.BlockCopy(initialBuffer, 0, buffered, 0, initialLength);
+            int bufferedOffset = 0;
 
-            // If we have less than 2 bytes, we can't determine length. Even the minimal handshake is 3 bytes (05 01 00).
-            if (bytesRead < 2)
+            // 1. Greeting (VER | NMETHODS | METHODS)
+            if (buffered.Length < 2)
             {
-                // Try reading more if needed, though ReadHeaderAsync usually grabs standard packet size.
-                // For simplicity, if we somehow got 1 byte, we might be in trouble with the logic passing generic buffer.
-                // But let's assume valid SOCKS5 starts with at least 05 and NMETHODS.
-                // Realistically, ReadHeaderAsync reads >0 bytes.
-                if (bytesRead < 2)
-                {
-                    byte[] extra = new byte[1024];
-                    int r = await stream.ReadAsync(extra, 0, extra.Length, token);
-                    if (r == 0) return;
-                    // Merge? This is getting complex. 
-                    // Let's assume the initial read got the start. 
-                    // We just need to check if we read ENOUGH.
-                }
-            }
-
-            if (buffer[0] != 0x05) return;
-
-            int nMethods = buffer[1];
-            int handshakeLen = 2 + nMethods;
-
-            // If we haven't read the full handshake yet, we need to read the rest.
-            // Note: ReadHeaderAsync buffer might be large enough, so data might be there.
-            // But if bytesRead < handshakeLen, we have a partial read.
-            // AND we must ensure we don't accidentally treat the *next* packet (Request) as part of handshake if we over-read? 
-            // ReadHeaderAsync returns ONE read call's worth. `sing-box` unlikely sends Request before Handshake reply? 
-            // Standard SOCKS5 is sync.
-
-            if (bytesRead < handshakeLen)
-            {
-                // We need to read the rest of the methods
-                int missing = handshakeLen - bytesRead;
-                byte[] temp = new byte[missing];
+                byte[] expanded = new byte[2];
+                Buffer.BlockCopy(buffered, 0, expanded, 0, buffered.Length);
+                int missing = 2 - buffered.Length;
                 int totalRead = 0;
                 while (totalRead < missing)
                 {
-                    int r = await stream.ReadAsync(temp, totalRead, missing - totalRead, token);
-                    if (r == 0) return;
-                    totalRead += r;
+                    int read = await stream.ReadAsync(expanded, buffered.Length + totalRead, missing - totalRead, token);
+                    if (read == 0) return;
+                    totalRead += read;
                 }
-                // We consumed the methods.
+                buffered = expanded;
             }
 
-            // Respond: No Auth (0x00)
+            if (buffered[0] != 0x05) return;
+            int nMethods = buffered[1];
+            if (nMethods <= 0)
+            {
+                byte[] fail = { 0x05, 0xFF };
+                await stream.WriteAsync(fail, 0, fail.Length, token);
+                return;
+            }
+
+            bufferedOffset = 2;
+            int handshakeLen = 2 + nMethods;
+            if (buffered.Length < handshakeLen)
+            {
+                byte[] expanded = new byte[handshakeLen];
+                Buffer.BlockCopy(buffered, 0, expanded, 0, buffered.Length);
+                int missing = handshakeLen - buffered.Length;
+                int totalRead = 0;
+                while (totalRead < missing)
+                {
+                    int read = await stream.ReadAsync(expanded, buffered.Length + totalRead, missing - totalRead, token);
+                    if (read == 0) return;
+                    totalRead += read;
+                }
+                buffered = expanded;
+            }
+
+            bool supportsNoAuth = false;
+            for (int i = 2; i < handshakeLen; i++)
+            {
+                if (buffered[i] == 0x00)
+                {
+                    supportsNoAuth = true;
+                    break;
+                }
+            }
+
+            if (!supportsNoAuth)
+            {
+                byte[] fail = { 0x05, 0xFF };
+                await stream.WriteAsync(fail, 0, fail.Length, token);
+                return;
+            }
+
+            bufferedOffset = handshakeLen;
             byte[] greetingResp = { 0x05, 0x00 };
             await stream.WriteAsync(greetingResp, 0, greetingResp.Length, token);
 
             // 2. Request
-            // Prepare buffer for Request
-            byte[] reqBuf = new byte[1024];
-            int reqBytesConfigured = 0;
+            byte[] reqHeader = new byte[4];
+            var reqHeaderRead = await FillFromBufferedOrStreamAsync(stream, buffered, bufferedOffset, reqHeader, 0, 4, token);
+            bufferedOffset = reqHeaderRead.BufferedOffset;
+            if (reqHeaderRead.TotalRead < 4) return;
 
-            // Read first chunk (at least 4 bytes for header min)
-            while (reqBytesConfigured < 4)
-            {
-                int r = await stream.ReadAsync(reqBuf, reqBytesConfigured, reqBuf.Length - reqBytesConfigured, token);
-                if (r == 0) return;
-                reqBytesConfigured += r;
-            }
-
-            byte ver = reqBuf[0];
-            byte cmd = reqBuf[1];
-            byte atyp = reqBuf[3];
-
+            byte ver = reqHeader[0];
+            byte cmd = reqHeader[1];
+            byte atyp = reqHeader[3];
             if (ver != 0x05) return;
 
-            string targetHost = "";
-            int targetPort = 0;
-            int headerOffset = 4;
+            string targetHost;
+            int targetPort;
 
-            // Ensure we have full address
-            if (atyp == 0x01) // IPv4 (4 bytes)
+            if (atyp == 0x01) // IPv4
             {
-                while (reqBytesConfigured < headerOffset + 4 + 2)
-                {
-                    int r = await stream.ReadAsync(reqBuf, reqBytesConfigured, reqBuf.Length - reqBytesConfigured, token);
-                    if (r == 0) return;
-                    reqBytesConfigured += r;
-                }
-
-                var ip = new IPAddress(reqBuf[headerOffset..(headerOffset + 4)]);
-                targetHost = ip.ToString();
-                headerOffset += 4;
+                byte[] addrPort = new byte[6];
+                var addrRead = await FillFromBufferedOrStreamAsync(stream, buffered, bufferedOffset, addrPort, 0, addrPort.Length, token);
+                bufferedOffset = addrRead.BufferedOffset;
+                if (addrRead.TotalRead < addrPort.Length) return;
+                targetHost = new IPAddress(addrPort.AsSpan(0, 4).ToArray()).ToString();
+                targetPort = (addrPort[4] << 8) | addrPort[5];
             }
             else if (atyp == 0x03) // Domain
             {
-                // We need the length byte
-                while (reqBytesConfigured < headerOffset + 1)
-                {
-                    int r = await stream.ReadAsync(reqBuf, reqBytesConfigured, reqBuf.Length - reqBytesConfigured, token);
-                    if (r == 0) return;
-                    reqBytesConfigured += r;
-                }
+                byte[] lenBuf = new byte[1];
+                var lenRead = await FillFromBufferedOrStreamAsync(stream, buffered, bufferedOffset, lenBuf, 0, 1, token);
+                bufferedOffset = lenRead.BufferedOffset;
+                if (lenRead.TotalRead < 1) return;
+                int len = lenBuf[0];
+                if (len <= 0) return;
 
-                int len = reqBuf[headerOffset];
-                headerOffset++;
-
-                while (reqBytesConfigured < headerOffset + len + 2)
-                {
-                    int r = await stream.ReadAsync(reqBuf, reqBytesConfigured, reqBuf.Length - reqBytesConfigured, token);
-                    if (r == 0) return;
-                    reqBytesConfigured += r;
-                }
-
-                targetHost = Encoding.ASCII.GetString(reqBuf, headerOffset, len);
-                headerOffset += len;
+                byte[] hostPort = new byte[len + 2];
+                var hostPortRead = await FillFromBufferedOrStreamAsync(stream, buffered, bufferedOffset, hostPort, 0, hostPort.Length, token);
+                bufferedOffset = hostPortRead.BufferedOffset;
+                if (hostPortRead.TotalRead < hostPort.Length) return;
+                targetHost = Encoding.ASCII.GetString(hostPort, 0, len);
+                targetPort = (hostPort[len] << 8) | hostPort[len + 1];
             }
-            else if (atyp == 0x04) // IPv6 (16 bytes)
+            else if (atyp == 0x04) // IPv6
             {
-                while (reqBytesConfigured < headerOffset + 16 + 2)
-                {
-                    int r = await stream.ReadAsync(reqBuf, reqBytesConfigured, reqBuf.Length - reqBytesConfigured, token);
-                    if (r == 0) return;
-                    reqBytesConfigured += r;
-                }
-
-                var ip = new IPAddress(reqBuf[headerOffset..(headerOffset + 16)]);
-                targetHost = ip.ToString();
-                headerOffset += 16;
+                byte[] addrPort = new byte[18];
+                var addrRead = await FillFromBufferedOrStreamAsync(stream, buffered, bufferedOffset, addrPort, 0, addrPort.Length, token);
+                bufferedOffset = addrRead.BufferedOffset;
+                if (addrRead.TotalRead < addrPort.Length) return;
+                targetHost = new IPAddress(addrPort.AsSpan(0, 16).ToArray()).ToString();
+                targetPort = (addrPort[16] << 8) | addrPort[17];
+            }
+            else
+            {
+                byte[] rep = { 0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0 }; // Address type not supported
+                await stream.WriteAsync(rep, 0, rep.Length, token);
+                return;
             }
 
             _logger.Debug("Socks5", $"Request: {targetHost}:{targetPort} (CMD: {cmd})");
 
-            targetPort = (reqBuf[headerOffset] << 8) | reqBuf[headerOffset + 1];
-
             if (cmd == 0x01) // CONNECT
             {
-                await HandleSocks5Connect(stream, targetHost, targetPort, processName, client, token);
+                await HandleSocks5Connect(stream, targetHost, targetPort, processName, client, ctx, token);
             }
             else if (cmd == 0x03) // UDP ASSOCIATE
             {
@@ -1336,30 +1427,67 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task HandleSocks5Connect(NetworkStream stream, string targetHost, int targetPort, string processName, TcpClient client, CancellationToken token)
+        private static async Task<(int TotalRead, int BufferedOffset)> FillFromBufferedOrStreamAsync(NetworkStream stream, byte[] buffered, int bufferedOffset, byte[] destination, int destinationOffset, int count, CancellationToken token)
+        {
+            int total = 0;
+
+            if (bufferedOffset < buffered.Length)
+            {
+                int available = Math.Min(count, buffered.Length - bufferedOffset);
+                Buffer.BlockCopy(buffered, bufferedOffset, destination, destinationOffset, available);
+                bufferedOffset += available;
+                total += available;
+            }
+
+            while (total < count)
+            {
+                int read = await stream.ReadAsync(destination, destinationOffset + total, count - total, token);
+                if (read == 0) break;
+                total += read;
+            }
+
+            return (total, bufferedOffset);
+        }
+
+        private async Task<IPAddress?> ResolveTargetIpForPidLookupAsync(string targetHost, CancellationToken token)
+        {
+            if (IPAddress.TryParse(targetHost, out var parsedIp))
+                return parsedIp;
+
+            if (_pidLookupDnsCache.TryGetValue(targetHost, out var cached) && cached.ExpiresUtc > DateTime.UtcNow)
+                return cached.Address;
+
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeoutCts.CancelAfter(TimeSpan.FromMilliseconds(200));
+
+                var addresses = await Dns.GetHostAddressesAsync(targetHost, timeoutCts.Token);
+                var resolved = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)
+                              ?? addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetworkV6);
+
+                if (resolved != null)
+                {
+                    _pidLookupDnsCache[targetHost] = (resolved, DateTime.UtcNow.Add(PidLookupDnsCacheTtl));
+                }
+
+                return resolved;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private async Task HandleSocks5Connect(NetworkStream stream, string targetHost, int targetPort, string processName, TcpClient client, ClientContext ctx, CancellationToken token)
         {
             // For active TUN traffic, processName might be "sing-box" or unknown
-            if (string.IsNullOrEmpty(processName) || processName == "Unknown" || processName.Contains("sing-box"))
+            if (string.IsNullOrEmpty(processName) || processName == "Unknown" || processName.Contains("sing-box", StringComparison.OrdinalIgnoreCase))
             {
                 // Try to resolve the real process by looking at the destination in the TCP table
                 if (!string.IsNullOrEmpty(targetHost) && targetPort > 0)
                 {
-                    IPAddress? ip = null;
-                    if (IPAddress.TryParse(targetHost, out var parsedIp))
-                    {
-                        ip = parsedIp;
-                    }
-                    else
-                    {
-                        // Try to resolve DNS to find the IP in the TCP table
-                        // This is best-effort.
-                        try
-                        {
-                            var entry = Dns.GetHostEntry(targetHost);
-                            if (entry.AddressList.Length > 0) ip = entry.AddressList[0];
-                        }
-                        catch { }
-                    }
+                    IPAddress? ip = await ResolveTargetIpForPidLookupAsync(targetHost, token);
 
                     if (ip != null)
                     {
@@ -1388,6 +1516,10 @@ namespace ProxyControl.Services
 
             var decision = ResolveAction(processName, targetHost);
             ConnectionHistoryItem? historyItem = null;
+            ctx.AppName = processName;
+            ctx.Host = targetHost;
+            ctx.InitialAction = decision.Action;
+            ctx.InitialProxyId = decision.Proxy?.Id;
 
             string logResult = "SOCKS5 Direct";
             string logColor = "#AAAAAA";
@@ -1418,6 +1550,8 @@ namespace ProxyControl.Services
             // Establish Upstream Connection FIRST
             TcpClient remote = new TcpClient();
             Stream? remoteStream = null;
+            ConfigureTcpClient(remote);
+            ctx.Remote = remote;
 
             try
             {
@@ -1425,7 +1559,6 @@ namespace ProxyControl.Services
                 {
                     if (decision.Proxy.Type == ProxyType.Socks5)
                     {
-                        await remote.ConnectAsync(decision.Proxy.IpAddress, decision.Proxy.Port, token);
                         await Socks5Client.ConnectAsync(remote, decision.Proxy, targetHost, targetPort, token);
                         remoteStream = remote.GetStream();
                     }
@@ -1480,8 +1613,8 @@ namespace ProxyControl.Services
             }
             finally
             {
-                // remote is disposed in try/catch blocks or implicitly via BridgeStreams closing it
-                // But we should ensure it's disposed if we exit early
+                if (historyItem != null) _trafficMonitor.CompleteConnection(historyItem);
+                ForceClose(remote);
             }
         }
 
@@ -1490,6 +1623,7 @@ namespace ProxyControl.Services
             TcpClient? proxyControlClient = null;
             UdpClient? proxyUdpClient = null;
             IPEndPoint? proxyUdpEndpoint = null;
+            IPEndPoint? latestClientEndpoint = null;
 
             // Map: Destination (Host:Port) -> Direct UdpClient
             var directUdpClients = new ConcurrentDictionary<string, UdpClient>();
@@ -1506,17 +1640,6 @@ namespace ProxyControl.Services
 
                     byte[] portBytes = BitConverter.GetBytes((ushort)assignedPort);
                     if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
-
-                    // Send UDP ASSOCIATE reply
-                    byte[] rep = new byte[10];
-                    rep[0] = 0x05; // VER
-                    rep[1] = 0x00; // SUCCESS
-                    rep[2] = 0x00; // RSV
-                    rep[3] = 0x01; // ATYP = IPv4
-                    Buffer.BlockCopy(ipBytes, 0, rep, 4, 4);
-                    Buffer.BlockCopy(portBytes, 0, rep, 8, 2);
-
-                    await stream.WriteAsync(rep, 0, rep.Length, token);
 
                     // Determine if we need to use a proxy for UDP
                     var decision = ResolveAction(processName, "*"); // Check global UDP rule
@@ -1551,12 +1674,24 @@ namespace ProxyControl.Services
                         }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"Failed to establish UDP proxy: {ex.Message}");
+                            _logger.Error("Socks5", $"Failed to establish UDP proxy: {ex.Message}");
                             _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Failed",
                                $"Proxy Error: {ex.Message}", null, "#FF5555");
+                            byte[] fail = { 0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                            await stream.WriteAsync(fail, 0, fail.Length, token);
                             return;
                         }
                     }
+
+                    // Send UDP ASSOCIATE success reply only after we are actually ready.
+                    byte[] rep = new byte[10];
+                    rep[0] = 0x05; // VER
+                    rep[1] = 0x00; // SUCCESS
+                    rep[2] = 0x00; // RSV
+                    rep[3] = 0x01; // ATYP = IPv4
+                    Buffer.BlockCopy(ipBytes, 0, rep, 4, 4);
+                    Buffer.BlockCopy(portBytes, 0, rep, 8, 2);
+                    await stream.WriteAsync(rep, 0, rep.Length, token);
 
                     // Background Task: Handle UDP Packets from Client
                     var udpLoopTask = Task.Run(async () =>
@@ -1566,7 +1701,7 @@ namespace ProxyControl.Services
                             while (!token.IsCancellationRequested)
                             {
                                 var result = await localUdp.ReceiveAsync(token);
-                                var clientEndpoint = result.RemoteEndPoint;
+                                latestClientEndpoint = result.RemoteEndPoint;
 
                                 // Parse SOCKS5 UDP header
                                 var (targetHost, targetPort, payload) = ParseUdpPacket(result.Buffer);
@@ -1586,7 +1721,7 @@ namespace ProxyControl.Services
                                     // Ensure we start the loop to receive FROM proxy (once)
                                     if (proxyLoopTask == null)
                                     {
-                                        proxyLoopTask = ReceiveFromProxyLoop(proxyUdpClient, localUdp, clientEndpoint, processName, token);
+                                        proxyLoopTask = ReceiveFromProxyLoop(proxyUdpClient, localUdp, () => latestClientEndpoint, processName, token);
                                     }
                                 }
                                 else
@@ -1608,7 +1743,7 @@ namespace ProxyControl.Services
                                             directUdpClients[key] = directClient;
 
                                             // Response Loop for Direct
-                                            _ = ReceiveDirectUdpLoop(directClient, localUdp, clientEndpoint, targetHost, targetPort, processName, token);
+                                            _ = ReceiveDirectUdpLoop(directClient, localUdp, () => latestClientEndpoint, targetHost, targetPort, processName, token);
                                         }
                                         catch
                                         {
@@ -1630,6 +1765,8 @@ namespace ProxyControl.Services
                         int read = await stream.ReadAsync(buf, 0, buf.Length, token);
                         if (read == 0) break;
                     }
+
+                    try { await udpLoopTask; } catch { }
                 }
             }
             catch (Exception ex)
@@ -1646,7 +1783,10 @@ namespace ProxyControl.Services
 
         private (string Host, int Port, byte[] Payload) ParseUdpPacket(byte[] packet)
         {
-            if (packet.Length < 10) return ("", 0, Array.Empty<byte>());
+            if (packet.Length < 7) return ("", 0, Array.Empty<byte>());
+            if (packet[0] != 0x00 || packet[1] != 0x00) return ("", 0, Array.Empty<byte>());
+            if (packet[2] != 0x00) return ("", 0, Array.Empty<byte>()); // Fragmentation is unsupported
+
             int offset = 3;
             byte atyp = packet[offset++];
             string host = "";
@@ -1655,14 +1795,16 @@ namespace ProxyControl.Services
             else if (atyp == 0x04) { if (packet.Length < offset + 16 + 2) return ("", 0, Array.Empty<byte>()); host = new IPAddress(packet[offset..(offset + 16)]).ToString(); offset += 16; }
             else return ("", 0, Array.Empty<byte>());
 
+            if (packet.Length < offset + 2) return ("", 0, Array.Empty<byte>());
             int port = (packet[offset] << 8) | packet[offset + 1];
             offset += 2;
+            if (packet.Length < offset) return ("", 0, Array.Empty<byte>());
             byte[] payload = new byte[packet.Length - offset];
             if (payload.Length > 0) Buffer.BlockCopy(packet, offset, payload, 0, payload.Length);
             return (host, port, payload);
         }
 
-        private async Task ReceiveFromProxyLoop(UdpClient proxyUdp, UdpClient localUdp, IPEndPoint clientEndpoint,
+        private async Task ReceiveFromProxyLoop(UdpClient proxyUdp, UdpClient localUdp, Func<IPEndPoint?> getClientEndpoint,
             string processName, CancellationToken token)
         {
             try
@@ -1670,6 +1812,8 @@ namespace ProxyControl.Services
                 while (!token.IsCancellationRequested)
                 {
                     var result = await proxyUdp.ReceiveAsync(token);
+                    var clientEndpoint = getClientEndpoint();
+                    if (clientEndpoint == null) continue;
 
                     // Forward response back to client (packet already has SOCKS5 header from proxy)
                     await localUdp.SendAsync(result.Buffer, result.Buffer.Length, clientEndpoint);
@@ -1682,7 +1826,7 @@ namespace ProxyControl.Services
             catch { }
         }
 
-        private async Task ReceiveDirectUdpLoop(UdpClient directClient, UdpClient localUdp, IPEndPoint clientEndpoint,
+        private async Task ReceiveDirectUdpLoop(UdpClient directClient, UdpClient localUdp, Func<IPEndPoint?> getClientEndpoint,
             string originalHost, int originalPort, string processName, CancellationToken token)
         {
             try
@@ -1690,6 +1834,8 @@ namespace ProxyControl.Services
                 while (!token.IsCancellationRequested)
                 {
                     var result = await directClient.ReceiveAsync(token);
+                    var clientEndpoint = getClientEndpoint();
+                    if (clientEndpoint == null) continue;
 
                     // Wrap response in SOCKS5 UDP header for client
                     byte[] wrappedPacket = Socks5Client.PackUdp(result.Buffer, originalHost, originalPort);
