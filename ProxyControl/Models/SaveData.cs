@@ -33,6 +33,7 @@ namespace ProxyControl.Models
         public bool EnableDnsProtection { get; set; } = false;
         public bool IsWebRtcBlockingEnabled { get; set; } = true;
         public bool IsTunMode { get; set; } = false;
+        public bool UseAdvancedLogFilters { get; set; } = false;
 
         // Выбранный тип провайдера
         public DnsProviderType DnsProvider { get; set; } = DnsProviderType.Google;

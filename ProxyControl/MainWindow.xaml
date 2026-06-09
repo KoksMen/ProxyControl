@@ -2218,6 +2218,42 @@
                                     </Grid>
                                 </Border>
 
+                                <!--  Log Filters  -->
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Padding="10,8"
+                                    Background="{DynamicResource SurfaceLightBrush}"
+                                    CornerRadius="8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock
+                                            Margin="0,0,12,0"
+                                            VerticalAlignment="Center"
+                                            FontSize="18"
+                                            Text="🔎" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontSize="14"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundBrush}"
+                                                Text="Advanced log filters" />
+                                            <TextBlock
+                                                FontSize="11"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="Use separate process, host, result and country fields" />
+                                        </StackPanel>
+                                        <CheckBox
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
+                                            IsChecked="{Binding UseAdvancedLogFilters}"
+                                            Style="{StaticResource ToggleSwitchStyle}" />
+                                    </Grid>
+                                </Border>
+
                                 <!--  DNS Protection  -->
                                 <Border
                                     Margin="0,0,0,8"
@@ -2583,6 +2619,7 @@
                                 <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="*" />
                                     </Grid.RowDefinitions>
 
@@ -2603,13 +2640,92 @@
                                             Text="{Binding SelectedMonitorProcess.ProcessName, StringFormat='({0})'}" />
                                     </StackPanel>
 
+                                    <StackPanel
+                                        Grid.Row="1"
+                                        Margin="0,0,0,12"
+                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                        <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource InvBoolToVis}}">
+                                            <TextBox
+                                                Width="260"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding MonitorSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Search process, host, status, details" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogTypeFilters}"
+                                                SelectedItem="{Binding MonitorTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogResultFilters}"
+                                                SelectedItem="{Binding MonitorResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Button
+                                                Margin="0,0,8,8"
+                                                Padding="10,5"
+                                                Command="{Binding ClearMonitorFiltersCommand}"
+                                                Content="Reset"
+                                                />
+                                        </WrapPanel>
+
+                                        <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource BoolToVis}}">
+                                            <TextBox
+                                                Width="140"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding MonitorProcessFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Process" />
+                                            <TextBox
+                                                Width="160"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding MonitorHostFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Host" />
+                                            <TextBox
+                                                Width="130"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding MonitorStatusFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Status" />
+                                            <TextBox
+                                                Width="150"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding MonitorDetailsFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Details" />
+                                            <TextBox
+                                                Width="110"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding MonitorCountryFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Country" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogTypeFilters}"
+                                                SelectedItem="{Binding MonitorTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogResultFilters}"
+                                                SelectedItem="{Binding MonitorResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Button
+                                                Margin="0,0,8,8"
+                                                Padding="10,5"
+                                                Command="{Binding ClearMonitorFiltersCommand}"
+                                                Content="Reset"
+                                                />
+                                        </WrapPanel>
+                                    </StackPanel>
+
                                     <!--  Connection Cards  -->
                                     <ScrollViewer
-                                        Grid.Row="1"
+                                        Grid.Row="2"
                                         ScrollChanged="MonitorConnectionsScrollViewer_OnScrollChanged"
                                         VerticalScrollBarVisibility="Auto"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                        <ItemsControl ItemsSource="{Binding SelectedMonitorProcess.Connections}">
+                                        <ItemsControl ItemsSource="{Binding MonitorConnectionsView}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border
@@ -2692,7 +2808,7 @@
                                     </ScrollViewer>
 
                                     <TextBlock
-                                        Grid.Row="1"
+                                        Grid.Row="2"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center"
                                         FontSize="13"
@@ -2712,6 +2828,7 @@
                                 CornerRadius="12">
                                 <Grid>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="*" />
                                     </Grid.RowDefinitions>
@@ -2765,15 +2882,85 @@
                                         </Button>
                                     </StackPanel>
 
+                                    <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                                        <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource InvBoolToVis}}">
+                                            <TextBox
+                                                Width="280"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Search process, host, result, type" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogTypeFilters}"
+                                                SelectedItem="{Binding LogTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogResultFilters}"
+                                                SelectedItem="{Binding LogResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Button
+                                                Margin="0,0,8,8"
+                                                Padding="10,5"
+                                                Command="{Binding ClearLogFiltersCommand}"
+                                                Content="Reset"
+                                                />
+                                        </WrapPanel>
+
+                                        <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource BoolToVis}}">
+                                            <TextBox
+                                                Width="150"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding LogProcessFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Process" />
+                                            <TextBox
+                                                Width="180"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding LogHostFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Host" />
+                                            <TextBox
+                                                Width="140"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding LogResultTextFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Result" />
+                                            <TextBox
+                                                Width="110"
+                                                Margin="0,0,8,8"
+                                                Padding="8,5"
+                                                Text="{Binding LogCountryFilter, UpdateSourceTrigger=PropertyChanged}"
+                                                ToolTip="Country" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogTypeFilters}"
+                                                SelectedItem="{Binding LogTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <ComboBox
+                                                Width="120"
+                                                Margin="0,0,8,8"
+                                                ItemsSource="{Binding LogResultFilters}"
+                                                SelectedItem="{Binding LogResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Button
+                                                Margin="0,0,8,8"
+                                                Padding="10,5"
+                                                Command="{Binding ClearLogFiltersCommand}"
+                                                Content="Reset"
+                                                />
+                                        </WrapPanel>
+                                    </StackPanel>
+
                                     <!--  Log Cards  -->
                                     <ScrollViewer
                                         x:Name="ConnectionLogsScrollViewer"
-                                        Grid.Row="1"
+                                        Grid.Row="2"
                                         ScrollChanged="ConnectionLogsScrollViewer_OnScrollChanged"
                                         VerticalScrollBarVisibility="Auto"
                                         VirtualizingPanel.IsVirtualizing="True"
                                         VirtualizingPanel.VirtualizationMode="Recycling">
-                                        <ItemsControl ItemsSource="{Binding Logs}" VirtualizingPanel.IsVirtualizing="True">
+                                        <ItemsControl ItemsSource="{Binding LogsView}" VirtualizingPanel.IsVirtualizing="True">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <VirtualizingStackPanel />

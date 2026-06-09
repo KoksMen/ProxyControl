@@ -128,6 +128,115 @@ namespace ProxyControl.ViewModels
         public ObservableCollection<ProxyItem> Proxies { get; set; } = new ObservableCollection<ProxyItem>();
         public ObservableCollection<TrafficRule> RulesList { get; set; } = new ObservableCollection<TrafficRule>();
         public ObservableCollection<ConnectionLog> Logs { get; set; } = new ObservableCollection<ConnectionLog>();
+        private readonly ObservableCollection<ConnectionHistoryItem> _emptyMonitorConnections = new ObservableCollection<ConnectionHistoryItem>();
+
+        public IReadOnlyList<string> LogTypeFilters { get; } = new[] { "All", "TCP", "UDP", "DNS", "HTTPS", "WebSocket" };
+        public IReadOnlyList<string> LogResultFilters { get; } = new[] { "All", "Proxy", "Direct", "Blocked" };
+
+        private string _logSearchText = "";
+        public string LogSearchText
+        {
+            get => _logSearchText;
+            set { _logSearchText = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _logTypeFilter = "All";
+        public string LogTypeFilter
+        {
+            get => _logTypeFilter;
+            set { _logTypeFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _logResultFilter = "All";
+        public string LogResultFilter
+        {
+            get => _logResultFilter;
+            set { _logResultFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _logProcessFilter = "";
+        public string LogProcessFilter
+        {
+            get => _logProcessFilter;
+            set { _logProcessFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _logHostFilter = "";
+        public string LogHostFilter
+        {
+            get => _logHostFilter;
+            set { _logHostFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _logResultTextFilter = "";
+        public string LogResultTextFilter
+        {
+            get => _logResultTextFilter;
+            set { _logResultTextFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _logCountryFilter = "";
+        public string LogCountryFilter
+        {
+            get => _logCountryFilter;
+            set { _logCountryFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorSearchText = "";
+        public string MonitorSearchText
+        {
+            get => _monitorSearchText;
+            set { _monitorSearchText = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorTypeFilter = "All";
+        public string MonitorTypeFilter
+        {
+            get => _monitorTypeFilter;
+            set { _monitorTypeFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorResultFilter = "All";
+        public string MonitorResultFilter
+        {
+            get => _monitorResultFilter;
+            set { _monitorResultFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorHostFilter = "";
+        private string _monitorProcessFilter = "";
+        public string MonitorProcessFilter
+        {
+            get => _monitorProcessFilter;
+            set { _monitorProcessFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        public string MonitorHostFilter
+        {
+            get => _monitorHostFilter;
+            set { _monitorHostFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorStatusFilter = "";
+        public string MonitorStatusFilter
+        {
+            get => _monitorStatusFilter;
+            set { _monitorStatusFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorDetailsFilter = "";
+        public string MonitorDetailsFilter
+        {
+            get => _monitorDetailsFilter;
+            set { _monitorDetailsFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
+
+        private string _monitorCountryFilter = "";
+        public string MonitorCountryFilter
+        {
+            get => _monitorCountryFilter;
+            set { _monitorCountryFilter = value; OnPropertyChanged(); RefreshConnectionLogFilters(); }
+        }
 
         public ObservableCollection<RulePreset> Presets { get; set; } = new ObservableCollection<RulePreset>();
         private RulePreset? _selectedPreset;
@@ -388,7 +497,12 @@ namespace ProxyControl.ViewModels
         public ProcessTrafficData? SelectedMonitorProcess
         {
             get => _selectedMonitorProcess;
-            set { _selectedMonitorProcess = value; OnPropertyChanged(); }
+            set
+            {
+                _selectedMonitorProcess = value;
+                UpdateMonitorConnectionsView();
+                OnPropertyChanged();
+            }
         }
 
         private TrafficPeriodMode _selectedPeriodMode = TrafficPeriodMode.LiveSession;
@@ -434,7 +548,24 @@ namespace ProxyControl.ViewModels
             set { _filterTimeEnd = value; OnPropertyChanged(); }
         }
 
+        public bool UseAdvancedLogFilters
+        {
+            get => _config.UseAdvancedLogFilters;
+            set
+            {
+                if (_config.UseAdvancedLogFilters != value)
+                {
+                    _config.UseAdvancedLogFilters = value;
+                    OnPropertyChanged();
+                    RefreshConnectionLogFilters();
+                    RequestSaveSettings();
+                }
+            }
+        }
+
         public ICollectionView RulesView { get; private set; }
+        public ICollectionView LogsView { get; private set; }
+        public ICollectionView MonitorConnectionsView { get; private set; }
 
         public string ToggleProxyMenuText => IsProxyRunning ? "Turn Proxy OFF" : "Turn Proxy ON";
         public string AppVersion => "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
@@ -945,6 +1076,8 @@ namespace ProxyControl.ViewModels
         public ICommand ExportConfigCommand { get; }
         public ICommand CheckUpdateCommand { get; }
         public ICommand ClearLogsCommand { get; }
+        public ICommand ClearLogFiltersCommand { get; }
+        public ICommand ClearMonitorFiltersCommand { get; }
         public ICommand OpenRuleModalCommand { get; }
         public ICommand SaveModalRuleCommand { get; }
         public ICommand CloseModalCommand { get; }
@@ -995,6 +1128,11 @@ namespace ProxyControl.ViewModels
             // Single-level grouping only (removed nested GroupName to fix lag)
             RulesView.GroupDescriptions.Add(new PropertyGroupDescription("AppKey"));
             RulesView.Filter = FilterRules;
+
+            LogsView = CollectionViewSource.GetDefaultView(Logs);
+            LogsView.Filter = FilterConnectionLog;
+            MonitorConnectionsView = CollectionViewSource.GetDefaultView(_emptyMonitorConnections);
+            MonitorConnectionsView.Filter = FilterMonitorConnection;
 
             NavigateCommand = new RelayCommand(view =>
             {
@@ -1087,6 +1225,8 @@ namespace ProxyControl.ViewModels
 
             CheckUpdateCommand = new RelayCommand(async _ => await PerformUpdateCheck(silent: false));
             ClearLogsCommand = new RelayCommand(_ => Logs.Clear());
+            ClearLogFiltersCommand = new RelayCommand(_ => ClearLogFilters());
+            ClearMonitorFiltersCommand = new RelayCommand(_ => ClearMonitorFilters());
 
             OpenRuleModalCommand = new RelayCommand(obj => OpenRuleModal(obj));
             CloseModalCommand = new RelayCommand(_ => IsModalVisible = false);
@@ -1735,6 +1875,108 @@ namespace ProxyControl.ViewModels
             return false;
         }
 
+        private bool FilterConnectionLog(object obj)
+        {
+            if (obj is not ConnectionLog log) return false;
+            if (!MatchesTypeFilter(log.Type.ToString(), LogTypeFilter)) return false;
+            if (!MatchesResultCategory(log.Result, LogResultFilter)) return false;
+
+            if (UseAdvancedLogFilters)
+            {
+                return MatchesText(log.ProcessName, LogProcessFilter)
+                    && MatchesText(log.Host, LogHostFilter)
+                    && MatchesText(log.Result, LogResultTextFilter)
+                    && MatchesText(log.CountryFlagUrl, LogCountryFilter);
+            }
+
+            return MatchesAny(LogSearchText, log.ProcessName, log.Host, log.Result, log.TypeStr, log.CountryFlagUrl);
+        }
+
+        private bool FilterMonitorConnection(object obj)
+        {
+            if (obj is not ConnectionHistoryItem item) return false;
+            if (!MatchesTypeFilter(item.Type.ToString(), MonitorTypeFilter)) return false;
+            if (!MatchesResultCategory(item.Status, MonitorResultFilter)) return false;
+
+            if (UseAdvancedLogFilters)
+            {
+                return MatchesText(item.ProcessName, MonitorProcessFilter)
+                    && MatchesText(item.Host, MonitorHostFilter)
+                    && MatchesText(item.Status, MonitorStatusFilter)
+                    && MatchesText(item.Details, MonitorDetailsFilter)
+                    && MatchesText(item.FlagUrl, MonitorCountryFilter);
+            }
+
+            return MatchesAny(MonitorSearchText, item.ProcessName, item.Host, item.Status, item.Details, item.Type.ToString(), item.FlagUrl);
+        }
+
+        private static bool MatchesText(string? value, string? filter)
+        {
+            return string.IsNullOrWhiteSpace(filter)
+                || (value?.IndexOf(filter.Trim(), StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
+        }
+
+        private static bool MatchesAny(string? filter, params string?[] values)
+        {
+            return string.IsNullOrWhiteSpace(filter) || values.Any(value => MatchesText(value, filter));
+        }
+
+        private static bool MatchesTypeFilter(string type, string selectedType)
+        {
+            return selectedType == "All" || string.Equals(type, selectedType, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool MatchesResultCategory(string? value, string selectedResult)
+        {
+            if (selectedResult == "All") return true;
+            if (string.IsNullOrWhiteSpace(value)) return false;
+
+            return selectedResult switch
+            {
+                "Proxy" => value.IndexOf("proxy", StringComparison.OrdinalIgnoreCase) >= 0,
+                "Direct" => value.IndexOf("direct", StringComparison.OrdinalIgnoreCase) >= 0,
+                "Blocked" => value.IndexOf("block", StringComparison.OrdinalIgnoreCase) >= 0,
+                _ => true
+            };
+        }
+
+        private void RefreshConnectionLogFilters()
+        {
+            LogsView?.Refresh();
+            MonitorConnectionsView?.Refresh();
+        }
+
+        private void UpdateMonitorConnectionsView()
+        {
+            MonitorConnectionsView = CollectionViewSource.GetDefaultView(_selectedMonitorProcess?.Connections ?? _emptyMonitorConnections);
+            MonitorConnectionsView.Filter = FilterMonitorConnection;
+            MonitorConnectionsView.Refresh();
+            OnPropertyChanged(nameof(MonitorConnectionsView));
+        }
+
+        private void ClearLogFilters()
+        {
+            LogSearchText = "";
+            LogTypeFilter = "All";
+            LogResultFilter = "All";
+            LogProcessFilter = "";
+            LogHostFilter = "";
+            LogResultTextFilter = "";
+            LogCountryFilter = "";
+        }
+
+        private void ClearMonitorFilters()
+        {
+            MonitorSearchText = "";
+            MonitorTypeFilter = "All";
+            MonitorResultFilter = "All";
+            MonitorProcessFilter = "";
+            MonitorHostFilter = "";
+            MonitorStatusFilter = "";
+            MonitorDetailsFilter = "";
+            MonitorCountryFilter = "";
+        }
+
         private void OnLogReceived(ConnectionLog log)
         {
             Application.Current.Dispatcher.Invoke(() => { Logs.Insert(0, log); if (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1); });
@@ -2020,6 +2262,7 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(IsDnsProtectionEnabled));
                 OnPropertyChanged(nameof(SelectedDnsProvider));
                 OnPropertyChanged(nameof(DnsHost));
+                OnPropertyChanged(nameof(UseAdvancedLogFilters));
 
                 // Restore TUN Mode
                 if (_config.IsTunMode) IsTunMode = true;
