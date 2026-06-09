@@ -13,6 +13,8 @@ namespace ProxyControl
         private const double LogAutoFollowThreshold = 0.5;
         private bool _preserveLogScrollOnInsert = false;
         private bool _isAdjustingLogScroll = false;
+        private bool _preserveMonitorScrollOnInsert = false;
+        private bool _isAdjustingMonitorScroll = false;
 
         public MainWindow()
         {
@@ -88,6 +90,37 @@ namespace ProxyControl
             }
 
             _preserveLogScrollOnInsert = scrollViewer.VerticalOffset > LogAutoFollowThreshold;
+        }
+
+        private void MonitorConnectionsScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs e)
+        {
+            if (_isAdjustingMonitorScroll) return;
+            if (sender is not ScrollViewer scrollViewer) return;
+
+            bool isAtTop = scrollViewer.VerticalOffset <= LogAutoFollowThreshold;
+
+            // Monitor connections are inserted at the top, same as connection logs.
+            if (e.ExtentHeightChange > 0)
+            {
+                _isAdjustingMonitorScroll = true;
+                try
+                {
+                    if (_preserveMonitorScrollOnInsert)
+                    {
+                        scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset + e.ExtentHeightChange);
+                    }
+                    else if (isAtTop)
+                    {
+                        scrollViewer.ScrollToTop();
+                    }
+                }
+                finally
+                {
+                    _isAdjustingMonitorScroll = false;
+                }
+            }
+
+            _preserveMonitorScrollOnInsert = scrollViewer.VerticalOffset > LogAutoFollowThreshold;
         }
     }
 }

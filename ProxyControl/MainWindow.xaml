@@ -2606,6 +2606,7 @@
                                     <!--  Connection Cards  -->
                                     <ScrollViewer
                                         Grid.Row="1"
+                                        ScrollChanged="MonitorConnectionsScrollViewer_OnScrollChanged"
                                         VerticalScrollBarVisibility="Auto"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
                                         <ItemsControl ItemsSource="{Binding SelectedMonitorProcess.Connections}">
