@@ -288,6 +288,29 @@ namespace ProxyControl.Services
             }
         }
 
+        public static void RestoreSystemDnsIfManagedByProxyControl()
+        {
+            if (!IsAdministrator()) return;
+
+            foreach (var iface in GetActiveEthernetInterfaces())
+            {
+                try
+                {
+                    var networkInterface = NetworkInterface.GetAllNetworkInterfaces()
+                        .FirstOrDefault(n => n.Name == iface);
+                    if (networkInterface == null) continue;
+
+                    var dnsAddresses = networkInterface.GetIPProperties().DnsAddresses;
+
+                    if (dnsAddresses?.Any(IsProxyControlDnsAddress) == true)
+                    {
+                        RunNetsh($"interface ip set dns name=\"{iface}\" source=dhcp");
+                    }
+                }
+                catch { }
+            }
+        }
+
         public static void RestoreSystemDns()
         {
             if (!IsAdministrator()) return;
@@ -300,6 +323,11 @@ namespace ProxyControl.Services
                 }
                 catch { }
             }
+        }
+
+        private static bool IsProxyControlDnsAddress(IPAddress address)
+        {
+            return IPAddress.IsLoopback(address);
         }
 
         private static void RunNetsh(string arguments)

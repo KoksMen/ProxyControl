@@ -16,6 +16,7 @@ namespace ProxyControl.Services
         private const int LocalDnsPort = 53;
         private int RemoteDnsPort = 53;
         private string _remoteDnsHost = "8.8.8.8";
+        private string _fallbackDnsHost = "1.1.1.1";
 
         private UdpClient? _udpListener;
         private bool _isRunning;
@@ -121,15 +122,9 @@ namespace ProxyControl.Services
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
 
-            // Применяем настройки DNS
-            if (!string.IsNullOrWhiteSpace(config.DnsHost))
-            {
-                _remoteDnsHost = config.DnsHost;
-            }
-            else
-            {
-                _remoteDnsHost = "8.8.8.8";
-            }
+            // DNS hosts may be IP addresses or domain names.
+            _remoteDnsHost = NormalizeDnsHost(config.DnsHost, "8.8.8.8");
+            _fallbackDnsHost = NormalizeDnsHost(config.DnsFallbackHost, "1.1.1.1");
 
             ClearConnectionPool();
         }
@@ -186,7 +181,7 @@ namespace ProxyControl.Services
             _udpListener = null;
 
             ClearConnectionPool();
-            SystemProxyHelper.SetSystemDns(false);
+            SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
         }
 
         private void CleanupStaleConnections()
@@ -314,9 +309,10 @@ namespace ProxyControl.Services
         }
 
 
-        private async Task<PooledTcpClient> GetConnectionAsync(ProxyItem proxy)
+        private async Task<PooledTcpClient> GetConnectionAsync(ProxyItem proxy, string dnsHost)
         {
-            var pool = _connectionPool.GetOrAdd(proxy.Id, _ => new ConcurrentBag<PooledTcpClient>());
+            var poolKey = $"{proxy.Id}:{dnsHost}";
+            var pool = _connectionPool.GetOrAdd(poolKey, _ => new ConcurrentBag<PooledTcpClient>());
 
             while (pool.TryTake(out var conn))
             {
@@ -346,7 +342,7 @@ namespace ProxyControl.Services
                 auth = $"Proxy-Authorization: Basic {creds}\r\n";
             }
 
-            string connectReq = $"CONNECT {_remoteDnsHost}:{RemoteDnsPort} HTTP/1.1\r\nHost: {_remoteDnsHost}:{RemoteDnsPort}\r\n{auth}\r\n";
+            string connectReq = $"CONNECT {dnsHost}:{RemoteDnsPort} HTTP/1.1\r\nHost: {dnsHost}:{RemoteDnsPort}\r\n{auth}\r\n";
             byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
             await stream.WriteAsync(reqBytes, 0, reqBytes.Length);
             await stream.FlushAsync();
@@ -364,12 +360,13 @@ namespace ProxyControl.Services
             return new PooledTcpClient(tcpClient);
         }
 
-        private void ReturnConnection(ProxyItem proxy, PooledTcpClient conn)
+        private void ReturnConnection(ProxyItem proxy, string dnsHost, PooledTcpClient conn)
         {
             if (conn.IsConnected())
             {
                 conn.LastUsed = DateTime.Now;
-                var pool = _connectionPool.GetOrAdd(proxy.Id, _ => new ConcurrentBag<PooledTcpClient>());
+                var poolKey = $"{proxy.Id}:{dnsHost}";
+                var pool = _connectionPool.GetOrAdd(poolKey, _ => new ConcurrentBag<PooledTcpClient>());
                 pool.Add(conn);
             }
             else
@@ -381,17 +378,26 @@ namespace ProxyControl.Services
         // Возвращает true, если успешно
         private async Task<bool> TunnelDnsOverProxy(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
         {
-            if (proxy.Type == ProxyType.Socks5)
+            foreach (var dnsHost in GetConfiguredDnsHosts())
             {
-                // Для SOCKS5 используем UDP Associate (лучше для DNS)
-                return await TunnelDnsSocks5Udp(dnsQuery, clientEndpoint, proxy);
+                if (proxy.Type == ProxyType.Socks5)
+                {
+                    // Для SOCKS5 используем UDP Associate (лучше для DNS)
+                    if (await TunnelDnsSocks5Udp(dnsQuery, clientEndpoint, proxy, dnsHost))
+                    {
+                        return true;
+                    }
+                }
+                else if (await TunnelDnsHttpTcp(dnsQuery, clientEndpoint, proxy, dnsHost))
+                {
+                    return true;
+                }
             }
 
-            // Для HTTP прокси используем TCP connect (существующая логика)
-            return await TunnelDnsHttpTcp(dnsQuery, clientEndpoint, proxy);
+            return false;
         }
 
-        private async Task<bool> TunnelDnsSocks5Udp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
+        private async Task<bool> TunnelDnsSocks5Udp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string dnsHost)
         {
             try
             {
@@ -410,9 +416,8 @@ namespace ProxyControl.Services
                         udpClient.Client.ReceiveTimeout = 2000;
                         udpClient.Client.SendTimeout = 2000;
 
-                        // Pack DNS query into SOCKS5 UDP header
-                        // Нам нужно знать куда отправлять. Для DNS это _remoteDnsHost:RemoteDnsPort
-                        byte[] packed = Socks5Client.PackUdp(dnsQuery, _remoteDnsHost, RemoteDnsPort);
+                        // Pack DNS query into SOCKS5 UDP header. dnsHost may be an IP address or domain name.
+                        byte[] packed = Socks5Client.PackUdp(dnsQuery, dnsHost, RemoteDnsPort);
 
                         await udpClient.SendAsync(packed, packed.Length, relayEp);
 
@@ -438,16 +443,16 @@ namespace ProxyControl.Services
             return false;
         }
 
-        private async Task<bool> TunnelDnsHttpTcp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
+        private async Task<bool> TunnelDnsHttpTcp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string dnsHost)
         {
             PooledTcpClient? conn = null;
             bool retry = false;
 
             try
             {
-                conn = await GetConnectionAsync(proxy);
+                conn = await GetConnectionAsync(proxy, dnsHost);
                 await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
-                ReturnConnection(proxy, conn);
+                ReturnConnection(proxy, dnsHost, conn);
                 return true;
             }
             catch
@@ -460,9 +465,9 @@ namespace ProxyControl.Services
             {
                 try
                 {
-                    conn = await GetConnectionAsync(proxy);
+                    conn = await GetConnectionAsync(proxy, dnsHost);
                     await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
-                    ReturnConnection(proxy, conn);
+                    ReturnConnection(proxy, dnsHost, conn);
                     return true;
                 }
                 catch
@@ -503,19 +508,23 @@ namespace ProxyControl.Services
 
         private async Task ForwardDnsDirectly(byte[] dnsQuery, IPEndPoint clientEndpoint)
         {
-            try
+            foreach (var dnsServer in GetConfiguredDnsHosts())
             {
-                // Используем try-catch внутри для повторной попытки
-                await AttemptDirectForward(dnsQuery, clientEndpoint, _remoteDnsHost);
-            }
-            catch
-            {
-                // Если основной DNS не ответил, можно попробовать Google как последний шанс, 
-                // но лучше просто выйти, чтобы браузер повторил сам.
+                try
+                {
+                    if (await AttemptDirectForward(dnsQuery, clientEndpoint, dnsServer))
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                    // Try the next configured DNS server.
+                }
             }
         }
 
-        private async Task AttemptDirectForward(byte[] dnsQuery, IPEndPoint clientEndpoint, string dnsServer)
+        private async Task<bool> AttemptDirectForward(byte[] dnsQuery, IPEndPoint clientEndpoint, string dnsServer)
         {
             using (var udpForwarder = new UdpClient())
             {
@@ -536,9 +545,27 @@ namespace ProxyControl.Services
                     if (result.Buffer != null && result.Buffer.Length > 0 && _udpListener != null)
                     {
                         await _udpListener.SendAsync(result.Buffer, result.Buffer.Length, clientEndpoint);
+                        return true;
                     }
                 }
             }
+
+            return false;
+        }
+
+        private IEnumerable<string> GetConfiguredDnsHosts()
+        {
+            yield return _remoteDnsHost;
+
+            if (!string.Equals(_fallbackDnsHost, _remoteDnsHost, StringComparison.OrdinalIgnoreCase))
+            {
+                yield return _fallbackDnsHost;
+            }
+        }
+
+        private static string NormalizeDnsHost(string? value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
         }
 
         private (RuleAction Action, ProxyItem? Proxy) ResolveDnsAction(string host)

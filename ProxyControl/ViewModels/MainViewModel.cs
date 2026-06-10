@@ -861,9 +861,18 @@ namespace ProxyControl.ViewModels
 
                     switch (value)
                     {
-                        case DnsProviderType.Google: DnsHost = "8.8.8.8"; break;
-                        case DnsProviderType.Cloudflare: DnsHost = "1.1.1.1"; break;
-                        case DnsProviderType.OpenDNS: DnsHost = "208.67.222.222"; break;
+                        case DnsProviderType.Google:
+                            DnsHost = "8.8.8.8";
+                            DnsFallbackHost = "8.8.4.4";
+                            break;
+                        case DnsProviderType.Cloudflare:
+                            DnsHost = "1.1.1.1";
+                            DnsFallbackHost = "1.0.0.1";
+                            break;
+                        case DnsProviderType.OpenDNS:
+                            DnsHost = "208.67.222.222";
+                            DnsFallbackHost = "208.67.220.220";
+                            break;
                         case DnsProviderType.Custom: break;
                     }
                     RequestSaveSettings();
@@ -881,6 +890,20 @@ namespace ProxyControl.ViewModels
                 if (_config.DnsHost != value)
                 {
                     _config.DnsHost = value;
+                    OnPropertyChanged();
+                    RequestSaveSettings();
+                }
+            }
+        }
+
+        public string DnsFallbackHost
+        {
+            get => _config.DnsFallbackHost;
+            set
+            {
+                if (_config.DnsFallbackHost != value)
+                {
+                    _config.DnsFallbackHost = value;
                     OnPropertyChanged();
                     RequestSaveSettings();
                 }
@@ -1214,7 +1237,7 @@ namespace ProxyControl.ViewModels
                 _proxyService.Stop();
                 _dnsProxyService.Stop();
                 if (IsTunMode) _tunService.Stop();
-                SystemProxyHelper.RestoreSystemDns();
+                SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
                 MainWindow.AllowClose = true;
                 Application.Current.Shutdown();
             });
@@ -2262,6 +2285,7 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(IsDnsProtectionEnabled));
                 OnPropertyChanged(nameof(SelectedDnsProvider));
                 OnPropertyChanged(nameof(DnsHost));
+                OnPropertyChanged(nameof(DnsFallbackHost));
                 OnPropertyChanged(nameof(UseAdvancedLogFilters));
 
                 // Restore TUN Mode

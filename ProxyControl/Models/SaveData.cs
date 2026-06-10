@@ -38,8 +38,9 @@ namespace ProxyControl.Models
         // Выбранный тип провайдера
         public DnsProviderType DnsProvider { get; set; } = DnsProviderType.Google;
 
-        // IP адрес DNS сервера (используется сервисом)
+        // DNS server host: IP address or domain name.
         public string DnsHost { get; set; } = "8.8.8.8";
+        public string DnsFallbackHost { get; set; } = "1.1.1.1";
 
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();

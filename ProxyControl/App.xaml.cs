@@ -50,12 +50,11 @@ namespace ProxyControl
 
             base.OnStartup(e);
 
-            // --- Добавлено: Сброс DNS при запуске (исправление залипания) ---
+            // Reset DNS only if a previous ProxyControl-managed loopback DNS is still active.
             if (SystemProxyHelper.IsAdministrator())
             {
-                SystemProxyHelper.RestoreSystemDns();
+                SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
             }
-            // ----------------------------------------------------------------
 
             SystemProxyHelper.EnableSafetyNet();
 
@@ -63,13 +62,13 @@ namespace ProxyControl
             {
                 SystemProxyHelper.RestoreSystemProxy();
                 // Также пытаемся сбросить DNS при краше
-                if (SystemProxyHelper.IsAdministrator()) SystemProxyHelper.RestoreSystemDns();
+                if (SystemProxyHelper.IsAdministrator()) SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
             };
 
             System.AppDomain.CurrentDomain.UnhandledException += (s, args) =>
             {
                 SystemProxyHelper.RestoreSystemProxy();
-                if (SystemProxyHelper.IsAdministrator()) SystemProxyHelper.RestoreSystemDns();
+                if (SystemProxyHelper.IsAdministrator()) SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
             };
 
             var mainWindow = new MainWindow();
@@ -109,9 +108,7 @@ namespace ProxyControl
             SystemProxyHelper.DisableSafetyNet();
             SystemProxyHelper.RestoreSystemProxy();
 
-            // --- Добавлено: Сброс DNS при выходе ---
-            SystemProxyHelper.RestoreSystemDns();
-            // ---------------------------------------
+            SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
 
             // --- TUN Cleanup ---
             if (MainWindow is MainWindow mw && mw.DataContext is MainViewModel vm)

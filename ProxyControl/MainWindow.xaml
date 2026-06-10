@@ -2298,20 +2298,36 @@
                                                 Text="DNS Provider:" />
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="160" />
                                                     <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
                                                 </Grid.ColumnDefinitions>
                                                 <ComboBox
                                                     DisplayMemberPath="."
                                                     ItemsSource="{Binding DnsProviders}"
                                                     SelectedItem="{Binding SelectedDnsProvider}" />
-                                                <TextBox
-                                                    Grid.Column="1"
-                                                    Width="120"
-                                                    Margin="10,0,0,0"
-                                                    IsEnabled="{Binding IsDnsCustom}"
-                                                    Text="{Binding DnsHost}"
-                                                    ToolTip="Custom DNS IP" />
+                                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                                    <TextBlock
+                                                        Margin="0,0,0,4"
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Primary DNS" />
+                                                    <TextBox
+                                                        IsEnabled="{Binding IsDnsCustom}"
+                                                        Text="{Binding DnsHost, UpdateSourceTrigger=PropertyChanged}"
+                                                        ToolTip="DNS server IP or domain, e.g. 8.8.8.8 or dns.google" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                                                    <TextBlock
+                                                        Margin="0,0,0,4"
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Alternative DNS" />
+                                                    <TextBox
+                                                        IsEnabled="{Binding IsDnsCustom}"
+                                                        Text="{Binding DnsFallbackHost, UpdateSourceTrigger=PropertyChanged}"
+                                                        ToolTip="Fallback DNS server IP or domain" />
+                                                </StackPanel>
                                             </Grid>
                                         </StackPanel>
                                     </StackPanel>
