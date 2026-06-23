@@ -27,7 +27,7 @@ namespace ProxyControl
                     {
                         vm.LatestVersion = tag;
                         var toast = new Views.UpdateToast();
-                        toast.DataContext = vm; /
+                        toast.DataContext = vm;
                         TrayIcon.ShowCustomBalloon(toast, System.Windows.Controls.Primitives.PopupAnimation.Slide, 8000);
                     });
                 };
