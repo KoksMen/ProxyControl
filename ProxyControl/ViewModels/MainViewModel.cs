@@ -32,7 +32,23 @@ namespace ProxyControl.ViewModels
         private AppConfig _config;
         // private CancellationTokenSource _enforceCts; // Unused in TUN mode
         private CancellationTokenSource? _saveDebounceCts;
+        private CancellationTokenSource? _dohStatusRefreshCts;
         private bool _suppressSave = false;
+        private string _dohSaveStatus = "Saved";
+        private string _dohTransportStatus = string.Empty;
+
+        public string DohSaveStatus
+        {
+            get => _dohSaveStatus;
+            private set
+            {
+                if (_dohSaveStatus != value)
+                {
+                    _dohSaveStatus = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         // TUN Mode (WebRTC/UDP bypass)
         // TUN Mode (WebRTC/UDP bypass) - Only available for SOCKS5 + Blacklist
@@ -891,6 +907,9 @@ namespace ProxyControl.ViewModels
                 {
                     _config.DnsHost = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohEndpointInput));
+                    OnPropertyChanged(nameof(DohEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
                     RequestSaveSettings();
                 }
             }
@@ -905,9 +924,259 @@ namespace ProxyControl.ViewModels
                 {
                     _config.DnsFallbackHost = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohFallbackEndpointInput));
+                    OnPropertyChanged(nameof(DohFallbackEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
                     RequestSaveSettings();
                 }
             }
+        }
+
+        public bool IsDohEnabled
+        {
+            get => _config.EnableDoh;
+            set
+            {
+                if (_config.EnableDoh != value)
+                {
+                    _config.EnableDoh = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsDohFallbackEnabled));
+                    OnPropertyChanged(nameof(DohEndpointValidationMessage));
+                    OnPropertyChanged(nameof(DohFallbackEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public bool IsDohFallbackEnabled
+        {
+            get => _config.EnableDohFallback;
+            set
+            {
+                if (_config.EnableDohFallback != value)
+                {
+                    _config.EnableDohFallback = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohFallbackEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public bool IsDohPrimaryAuto
+        {
+            get => _config.AutoDetectDohEndpoint;
+            set
+            {
+                if (_config.AutoDetectDohEndpoint != value)
+                {
+                    _config.AutoDetectDohEndpoint = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohEndpointInput));
+                    OnPropertyChanged(nameof(DohEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public string DohEndpoint
+        {
+            get => _config.DohEndpoint;
+            set
+            {
+                if (_config.DohEndpoint != value)
+                {
+                    _config.DohEndpoint = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohEndpointInput));
+                    OnPropertyChanged(nameof(DohEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public string DohEndpointInput
+        {
+            get
+            {
+                if (IsDohPrimaryAuto)
+                {
+                    return "Windows automatic template";
+                }
+
+                return DohEndpoint;
+            }
+            set
+            {
+                if (!IsDohPrimaryAuto)
+                {
+                    DohEndpoint = value;
+                }
+            }
+        }
+
+        public bool IsDohFallbackAuto
+        {
+            get => _config.AutoDetectDohFallbackEndpoint;
+            set
+            {
+                if (_config.AutoDetectDohFallbackEndpoint != value)
+                {
+                    _config.AutoDetectDohFallbackEndpoint = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohFallbackEndpointInput));
+                    OnPropertyChanged(nameof(DohFallbackEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public string DohFallbackEndpoint
+        {
+            get => _config.DohFallbackEndpoint;
+            set
+            {
+                if (_config.DohFallbackEndpoint != value)
+                {
+                    _config.DohFallbackEndpoint = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(DohFallbackEndpointInput));
+                    OnPropertyChanged(nameof(DohFallbackEndpointValidationMessage));
+                    QueueDohTransportStatusRefresh();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public string DohFallbackEndpointInput
+        {
+            get
+            {
+                if (IsDohFallbackAuto)
+                {
+                    return "Windows automatic template";
+                }
+
+                return DohFallbackEndpoint;
+            }
+            set
+            {
+                if (!IsDohFallbackAuto)
+                {
+                    DohFallbackEndpoint = value;
+                }
+            }
+        }
+
+        public string DohEndpointValidationMessage
+        {
+            get
+            {
+                if (!IsDohEnabled) return string.Empty;
+                if (IsDohPrimaryAuto) return string.Empty;
+
+                var valid = DnsOverHttpsClient.TryNormalizeEndpoint(DohEndpoint, out _, out var error);
+                return valid
+                    ? string.Empty
+                    : $"Primary DoH: {error}";
+            }
+        }
+
+        public string DohFallbackEndpointValidationMessage
+        {
+            get
+            {
+                if (!IsDohEnabled) return string.Empty;
+                if (!IsDohFallbackEnabled) return string.Empty;
+                if (IsDohFallbackAuto) return string.Empty;
+
+                var valid = DnsOverHttpsClient.TryNormalizeEndpoint(DohFallbackEndpoint, out _, out var error);
+                return valid
+                    ? string.Empty
+                    : $"Alternative DoH: {error}";
+            }
+        }
+
+        public string DohTransportStatus
+        {
+            get => _dohTransportStatus;
+        }
+
+        private void QueueDohTransportStatusRefresh(int delayMs = 250)
+        {
+            _dohStatusRefreshCts?.Cancel();
+
+            if (!IsDohEnabled)
+            {
+                SetDohTransportStatus(string.Empty);
+                return;
+            }
+
+            var cts = new CancellationTokenSource();
+            _dohStatusRefreshCts = cts;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(delayMs, cts.Token);
+                    var status = BuildDohTransportStatus();
+                    if (cts.Token.IsCancellationRequested) return;
+
+                    var dispatcher = Application.Current?.Dispatcher;
+                    if (dispatcher != null)
+                    {
+                        dispatcher.Invoke(() => SetDohTransportStatus(status));
+                    }
+                    else
+                    {
+                        SetDohTransportStatus(status);
+                    }
+                }
+                catch (OperationCanceledException) { }
+            });
+        }
+
+        private void SetDohTransportStatus(string value)
+        {
+            if (_dohTransportStatus == value) return;
+            _dohTransportStatus = value;
+            OnPropertyChanged(nameof(DohTransportStatus));
+        }
+
+        private string BuildDohTransportStatus()
+        {
+            if (!IsDohEnabled) return string.Empty;
+
+            if (!DnsOverHttpsClient.TryGetWindowsDohServers(_config, out var dohServers, out _))
+            {
+                return "Windows DoH server was not detected. Set DNS IP and DoH endpoint manually.";
+            }
+
+            var encrypted = dohServers
+                .Where(x => x.EnableDoh)
+                .Select(x => x.ServerAddress)
+                .ToArray();
+            var plain = dohServers
+                .Where(x => !x.EnableDoh)
+                .Select(x => x.ServerAddress)
+                .ToArray();
+
+            var status = encrypted.Length > 0
+                ? $"Encrypted: {string.Join(", ", encrypted)}"
+                : "Encrypted DNS is not configured";
+
+            if (plain.Length > 0)
+            {
+                status += $"; plain fallback: {string.Join(", ", plain)}";
+            }
+
+            return status;
         }
 
         private bool _isProxyRunning = false;
@@ -996,7 +1265,7 @@ namespace ProxyControl.ViewModels
                     if (result == MessageBoxResult.Yes)
                     {
                         _config.EnableDnsProtection = true;
-                        RequestSaveSettings();
+                        SaveSettingsNow();
                         SystemProxyHelper.RestartAsAdmin();
                         Application.Current.Shutdown();
                         return;
@@ -1171,7 +1440,7 @@ namespace ProxyControl.ViewModels
 
             PasteProxyCommand = new RelayCommand(_ => PasteProxy());
             RemoveProxyCommand = new RelayCommand(_ => RemoveProxy());
-            SaveChangesCommand = new RelayCommand(_ => RequestSaveSettings());
+            SaveChangesCommand = new RelayCommand(async _ => await SaveDohSettingsNowAsync());
             CheckProxyCommand = new RelayCommand(_ => CheckSelectedProxy());
             AddRuleCommand = new RelayCommand(_ => AddRule());
             RemoveRuleCommand = new RelayCommand(rule => RemoveRule(rule as TrafficRule));
@@ -2051,7 +2320,75 @@ namespace ProxyControl.ViewModels
             if (_suppressSave) return;
             try { ApplyConfig(); } catch { }
             _saveDebounceCts?.Cancel(); _saveDebounceCts = new CancellationTokenSource(); var token = _saveDebounceCts.Token;
-            Task.Delay(500, token).ContinueWith(t => { if (t.IsCanceled) return; try { Application.Current.Dispatcher.Invoke(() => { var data = new AppSettings { IsAutoStart = IsAutoStart, CheckUpdateOnStartup = CheckUpdateOnStartup, Proxies = Proxies.ToList(), Config = _config }; _settingsService.Save(data); }); } catch { } });
+            Task.Delay(500, token).ContinueWith(t =>
+            {
+                if (t.IsCanceled) return;
+                try
+                {
+                    Application.Current.Dispatcher.Invoke(SaveSettingsNow);
+                }
+                catch { }
+            });
+        }
+
+        private void SaveSettingsNow()
+        {
+            SaveSettingsCore();
+        }
+
+        private bool SaveSettingsCore()
+        {
+            try
+            {
+                ApplyConfig();
+                var data = new AppSettings
+                {
+                    IsAutoStart = IsAutoStart,
+                    CheckUpdateOnStartup = CheckUpdateOnStartup,
+                    Proxies = Proxies.ToList(),
+                    Config = _config
+                };
+                _settingsService.Save(data);
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private void MarkDohSettingsChanged()
+        {
+            if (_suppressSave) return;
+            DohSaveStatus = "Unsaved changes";
+        }
+
+        private async Task SaveDohSettingsNowAsync()
+        {
+            if (SaveSettingsCore())
+            {
+                if (IsDnsProtectionEnabled)
+                {
+                    DohSaveStatus = "Applying...";
+                    var validationResult = await Task.Run(() =>
+                    {
+                        SystemProxyHelper.SetSystemDns(_config);
+                        Thread.Sleep(500);
+                        return SystemProxyHelper.ValidateWindowsDohSettings(_config, out var validationMessage)
+                            ? string.Empty
+                            : validationMessage;
+                    });
+
+                    if (!string.IsNullOrWhiteSpace(validationResult))
+                    {
+                        DohSaveStatus = validationResult;
+                        return;
+                    }
+                }
+
+                DohSaveStatus = "Saved";
+            }
+            else
+            {
+                DohSaveStatus = "Save failed";
+            }
         }
 
         private void ApplyConfig() { _proxyService.UpdateConfig(_config, Proxies.ToList()); _dnsProxyService.UpdateConfig(_config, Proxies.ToList()); }
@@ -2257,7 +2594,14 @@ namespace ProxyControl.ViewModels
             }
         }
 
-        private void UpdateDnsServiceState() { if (IsProxyRunning && IsDnsProtectionEnabled) _dnsProxyService.Start(); else _dnsProxyService.Stop(); }
+        private void UpdateDnsServiceState()
+        {
+            _ = Task.Run(() =>
+            {
+                if (IsProxyRunning && IsDnsProtectionEnabled) _dnsProxyService.Start();
+                else _dnsProxyService.Stop();
+            });
+        }
 
         private void ImportConfig()
         {
@@ -2286,6 +2630,18 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(SelectedDnsProvider));
                 OnPropertyChanged(nameof(DnsHost));
                 OnPropertyChanged(nameof(DnsFallbackHost));
+                OnPropertyChanged(nameof(IsDohEnabled));
+                OnPropertyChanged(nameof(IsDohFallbackEnabled));
+                OnPropertyChanged(nameof(IsDohPrimaryAuto));
+                OnPropertyChanged(nameof(DohEndpoint));
+                OnPropertyChanged(nameof(DohEndpointInput));
+                OnPropertyChanged(nameof(IsDohFallbackAuto));
+                OnPropertyChanged(nameof(DohFallbackEndpoint));
+                OnPropertyChanged(nameof(DohFallbackEndpointInput));
+                OnPropertyChanged(nameof(DohEndpointValidationMessage));
+                OnPropertyChanged(nameof(DohFallbackEndpointValidationMessage));
+                QueueDohTransportStatusRefresh(0);
+                OnPropertyChanged(nameof(DohSaveStatus));
                 OnPropertyChanged(nameof(UseAdvancedLogFilters));
 
                 // Restore TUN Mode
@@ -2316,7 +2672,7 @@ namespace ProxyControl.ViewModels
 
                                 if (IsDnsProtectionEnabled)
                                 {
-                                    SystemProxyHelper.SetSystemDns(true);
+                                    SystemProxyHelper.SetSystemDns(_config);
                                 }
                             }
                         });

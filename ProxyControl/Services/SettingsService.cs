@@ -2,8 +2,10 @@
 using ProxyControl.Models;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -15,6 +17,7 @@ namespace ProxyControl.Services
         private readonly string _filePath;
         private const string AppName = "ProxyManagerApp";
         private const string RegistryKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+        private const string ScheduledTaskName = "ProxyControl Autostart";
 
         public SettingsService()
         {
@@ -50,11 +53,15 @@ namespace ProxyControl.Services
         {
             try
             {
-                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
-                using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, true))
+                RemoveLegacyRunEntry();
+
+                if (enable)
                 {
-                    if (enable) key.SetValue(AppName, $"\"{exePath}\" --autostart");
-                    else { if (key.GetValue(AppName) != null) key.DeleteValue(AppName, false); }
+                    RunSchtasks(BuildAutoStartTaskCreateArguments(GetExecutablePath()));
+                }
+                else
+                {
+                    RunSchtasks(BuildAutoStartTaskDeleteArguments());
                 }
             }
             catch { }
@@ -62,8 +69,89 @@ namespace ProxyControl.Services
 
         public bool IsAutoStartEnabled()
         {
-            try { using (var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false)) return key?.GetValue(AppName) != null; }
+            try
+            {
+                if (HasLegacyRunEntry())
+                {
+                    return true;
+                }
+
+                return RunSchtasks($"/Query /TN \"{ScheduledTaskName}\"").ExitCode == 0;
+            }
             catch { return false; }
+        }
+
+        public static string BuildAutoStartTaskCreateArguments(string exePath)
+        {
+            var taskRun = $"\\\"{exePath}\\\" --autostart";
+            return $"/Create /F /SC ONLOGON /RL HIGHEST /TN \"{ScheduledTaskName}\" /TR \"{taskRun}\"";
+        }
+
+        public static string BuildAutoStartTaskDeleteArguments()
+        {
+            return $"/Delete /F /TN \"{ScheduledTaskName}\"";
+        }
+
+        private static string GetExecutablePath()
+        {
+            var entryLocation = Assembly.GetEntryAssembly()?.Location;
+            if (!string.IsNullOrWhiteSpace(entryLocation))
+            {
+                var exeCandidate = Path.ChangeExtension(entryLocation, ".exe");
+                if (File.Exists(exeCandidate))
+                {
+                    return exeCandidate;
+                }
+            }
+
+            return Process.GetCurrentProcess().MainModule?.FileName ?? AppContext.BaseDirectory;
+        }
+
+        private static (int ExitCode, string Output) RunSchtasks(string arguments)
+        {
+            var psi = new ProcessStartInfo("schtasks.exe", arguments)
+            {
+                WindowStyle = ProcessWindowStyle.Hidden,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null)
+            {
+                return (-1, string.Empty);
+            }
+
+            process.WaitForExit(5000);
+            return (process.ExitCode, process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd());
+        }
+
+        private static void RemoveLegacyRunEntry()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, true);
+                if (key?.GetValue(AppName) != null)
+                {
+                    key.DeleteValue(AppName, false);
+                }
+            }
+            catch { }
+        }
+
+        private static bool HasLegacyRunEntry()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
+                return key?.GetValue(AppName) != null;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

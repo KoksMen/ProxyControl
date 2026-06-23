@@ -1,4 +1,5 @@
 ﻿using Microsoft.Win32;
+using ProxyControl.Models;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -24,6 +25,8 @@ namespace ProxyControl.Services
 
         private const string RunOnceKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
         private const string AppName = "ProxyManagerSafetyNet";
+        private static readonly object ManagedDnsLock = new object();
+        private static readonly HashSet<string> ManagedDnsServers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 
         private static IEnumerable<string> GetActiveEthernetInterfaces()
@@ -33,6 +36,20 @@ namespace ProxyControl.Services
                            (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet ||
                             n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
                 .Select(n => n.Name);
+        }
+
+        private static IEnumerable<int> GetActiveEthernetInterfaceIndexes()
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                           (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet ||
+                            n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
+                .Select(n =>
+                {
+                    try { return n.GetIPProperties().GetIPv4Properties()?.Index ?? 0; }
+                    catch { return 0; }
+                })
+                .Where(index => index > 0);
         }
 
         private static readonly object _cacheLock = new object();
@@ -271,21 +288,163 @@ namespace ProxyControl.Services
 
             if (useLocalProxy)
             {
-                string dnsServer = "127.0.0.1";
-                string source = "static";
-                foreach (var iface in GetActiveEthernetInterfaces())
-                {
-                    try
-                    {
-                        RunNetsh($"interface ip set dns name=\"{iface}\" source={source} addr={dnsServer}");
-                    }
-                    catch { }
-                }
+                SetSystemDnsServers(new[] { "127.0.0.1" }, markManaged: false);
             }
             else
             {
                 RestoreSystemDns();
             }
+        }
+
+        public static void SetSystemDns(AppConfig config)
+        {
+            // DoH support is disabled; keep this overload so existing callers do not break.
+            SetSystemDns(true);
+        }
+
+        private static void SetSystemDnsServers(IReadOnlyList<string> dnsServers, bool markManaged)
+        {
+            if (dnsServers.Count == 0) return;
+
+            var interfaceIndexes = GetActiveEthernetInterfaceIndexes().ToArray();
+            if (interfaceIndexes.Length == 0) return;
+
+            var indexArray = string.Join(", ", interfaceIndexes);
+            var dnsArray = ToPowerShellStringArray(dnsServers);
+            RunPowerShell(
+                "$indexes = @(" + indexArray + "); " +
+                "$servers = @(" + dnsArray + "); " +
+                "foreach ($index in $indexes) { " +
+                "Set-DnsClientServerAddress -InterfaceIndex $index -ServerAddresses $servers -ErrorAction SilentlyContinue | Out-Null " +
+                "}");
+
+            if (markManaged)
+            {
+                lock (ManagedDnsLock)
+                {
+                    foreach (var dnsServer in dnsServers)
+                    {
+                        ManagedDnsServers.Add(dnsServer);
+                    }
+                }
+            }
+        }
+
+        private static void ConfigureWindowsDohServer(string serverAddress, string dohTemplate, bool enableDoh, bool isAutoDetected, bool shouldApplyTemplate)
+        {
+            var address = EscapePowerShellSingleQuoted(serverAddress);
+            var template = EscapePowerShellSingleQuoted(dohTemplate ?? string.Empty);
+
+            if (!enableDoh)
+            {
+                RunPowerShell(
+                    "$existing = Get-DnsClientDohServerAddress -ServerAddress '" + address + "' -ErrorAction SilentlyContinue; " +
+                    "if ($existing) { Set-DnsClientDohServerAddress -ServerAddress '" + address + "' -AutoUpgrade $false -ErrorAction SilentlyContinue | Out-Null }");
+                return;
+            }
+
+            if (isAutoDetected && !shouldApplyTemplate)
+            {
+                RunPowerShell(
+                    "$existing = Get-DnsClientDohServerAddress -ServerAddress '" + address + "' -ErrorAction SilentlyContinue; " +
+                    "if ($existing) { Set-DnsClientDohServerAddress -ServerAddress '" + address + "' -AllowFallbackToUdp $false -AutoUpgrade $true -ErrorAction SilentlyContinue | Out-Null }");
+                return;
+            }
+
+            if (shouldApplyTemplate)
+            {
+                RunPowerShell(
+                    "$existing = Get-DnsClientDohServerAddress -ServerAddress '" + address + "' -ErrorAction SilentlyContinue; " +
+                    "if ($existing) { Remove-DnsClientDohServerAddress -ServerAddress '" + address + "' -Confirm:$false -ErrorAction SilentlyContinue | Out-Null }; " +
+                    "Add-DnsClientDohServerAddress -ServerAddress '" + address + "' -DohTemplate '" + template + "' -AllowFallbackToUdp $false -AutoUpgrade $true -ErrorAction SilentlyContinue | Out-Null");
+                return;
+            }
+
+            var templateAssignment = string.IsNullOrWhiteSpace(template)
+                ? string.Empty
+                : " -DohTemplate '" + template + "'";
+
+            RunPowerShell(
+                "$existing = Get-DnsClientDohServerAddress -ServerAddress '" + address + "' -ErrorAction SilentlyContinue; " +
+                "if ($existing) { Set-DnsClientDohServerAddress -ServerAddress '" + address + "'" + templateAssignment + " -AllowFallbackToUdp $false -AutoUpgrade $true -ErrorAction SilentlyContinue | Out-Null } " +
+                "else { Add-DnsClientDohServerAddress -ServerAddress '" + address + "' -DohTemplate '" + template + "' -AllowFallbackToUdp $false -AutoUpgrade $true -ErrorAction SilentlyContinue | Out-Null }");
+        }
+
+        public static bool ValidateWindowsDohSettings(AppConfig config, out string message)
+        {
+            message = string.Empty;
+            // DoH support is disabled; validation succeeds because there is nothing to apply.
+            return true;
+        }
+
+        private static bool AreDnsServersApplied(IReadOnlyList<string> expectedServers)
+        {
+            var expected = expectedServers
+                .Select(x => IPAddress.TryParse(x, out var ip) ? ip.ToString() : x)
+                .ToArray();
+
+            foreach (var iface in GetActiveEthernetInterfaces())
+            {
+                try
+                {
+                    var networkInterface = NetworkInterface.GetAllNetworkInterfaces()
+                        .FirstOrDefault(n => n.Name == iface);
+                    if (networkInterface == null) continue;
+
+                    var current = networkInterface.GetIPProperties().DnsAddresses
+                        .Where(x => x.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        .Select(x => x.ToString())
+                        .ToArray();
+
+                    if (expected.All(x => current.Contains(x, StringComparer.OrdinalIgnoreCase)))
+                    {
+                        return true;
+                    }
+                }
+                catch { }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadWindowsDohState(string serverAddress, out string dohTemplate, out bool autoUpgrade, out bool allowFallback)
+        {
+            dohTemplate = string.Empty;
+            autoUpgrade = false;
+            allowFallback = true;
+
+            try
+            {
+                var address = EscapePowerShellSingleQuoted(serverAddress);
+                var output = RunPowerShellWithOutput(
+                    "$item = Get-DnsClientDohServerAddress -ServerAddress '" + address + "' -ErrorAction SilentlyContinue | Select-Object -First 1; " +
+                    "if ($item) { \"$($item.DohTemplate)`t$($item.AutoUpgrade)`t$($item.AllowFallbackToUdp)\" }");
+
+                if (string.IsNullOrWhiteSpace(output))
+                {
+                    return false;
+                }
+
+                var parts = output.Trim().Split('\t');
+                if (parts.Length < 3)
+                {
+                    return false;
+                }
+
+                dohTemplate = parts[0].Trim();
+                autoUpgrade = bool.TryParse(parts[1].Trim(), out var parsedAuto) && parsedAuto;
+                allowFallback = bool.TryParse(parts[2].Trim(), out var parsedFallback) && parsedFallback;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string NormalizeDohTemplate(string value)
+        {
+            return (value ?? string.Empty).Trim().TrimEnd('/');
         }
 
         public static void RestoreSystemDnsIfManagedByProxyControl()
@@ -327,7 +486,15 @@ namespace ProxyControl.Services
 
         private static bool IsProxyControlDnsAddress(IPAddress address)
         {
-            return IPAddress.IsLoopback(address);
+            if (IPAddress.IsLoopback(address))
+            {
+                return true;
+            }
+
+            lock (ManagedDnsLock)
+            {
+                return ManagedDnsServers.Contains(address.ToString());
+            }
         }
 
         private static void RunNetsh(string arguments)
@@ -344,6 +511,75 @@ namespace ProxyControl.Services
                 Process.Start(psi);
             }
             catch { }
+        }
+
+        private static void RunPowerShell(string command)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("powershell.exe")
+                {
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                psi.ArgumentList.Add("-NoProfile");
+                psi.ArgumentList.Add("-ExecutionPolicy");
+                psi.ArgumentList.Add("Bypass");
+                psi.ArgumentList.Add("-Command");
+                psi.ArgumentList.Add(command);
+                using var process = Process.Start(psi);
+                process?.WaitForExit(5000);
+            }
+            catch { }
+        }
+
+        private static string RunPowerShellWithOutput(string command)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo("powershell.exe")
+                {
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                psi.ArgumentList.Add("-NoProfile");
+                psi.ArgumentList.Add("-ExecutionPolicy");
+                psi.ArgumentList.Add("Bypass");
+                psi.ArgumentList.Add("-Command");
+                psi.ArgumentList.Add(command);
+
+                using var process = Process.Start(psi);
+                if (process == null)
+                {
+                    return string.Empty;
+                }
+
+                if (!process.WaitForExit(5000))
+                {
+                    try { process.Kill(); } catch { }
+                    return string.Empty;
+                }
+
+                return process.StandardOutput.ReadToEnd();
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string EscapePowerShellSingleQuoted(string value)
+        {
+            return value.Replace("'", "''");
+        }
+
+        private static string ToPowerShellStringArray(IEnumerable<string> values)
+        {
+            return string.Join(", ", values.Select(x => "'" + EscapePowerShellSingleQuoted(x) + "'"));
         }
 
         public static bool IsAdministrator()

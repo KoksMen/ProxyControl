@@ -2329,6 +2329,124 @@
                                                         ToolTip="Fallback DNS server IP or domain" />
                                                 </StackPanel>
                                             </Grid>
+                                            <!-- DoH functionality disabled by request.
+                                            <Grid Margin="0,12,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        FontSize="13"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="DNS over HTTPS (DoH)" />
+                                                    <TextBlock
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Encrypt DNS requests through HTTPS when DNS Protection is active" />
+                                                </StackPanel>
+                                                <CheckBox
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    IsChecked="{Binding IsDohEnabled}"
+                                                    Style="{StaticResource ToggleSwitchStyle}" />
+                                            </Grid>
+                                            <StackPanel Margin="0,10,0,0" Visibility="{Binding IsDohEnabled, Converter={StaticResource BoolToVis}}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="90" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Primary DoH" />
+                                                    <CheckBox
+                                                        Grid.Column="1"
+                                                        VerticalAlignment="Center"
+                                                        Content="Auto"
+                                                        IsChecked="{Binding IsDohPrimaryAuto}" />
+                                                    <TextBox
+                                                        Grid.Column="2"
+                                                        Margin="10,0,0,0"
+                                                        IsEnabled="{Binding IsDohPrimaryAuto, Converter={StaticResource InvBool}}"
+                                                        Text="{Binding DohEndpointInput, UpdateSourceTrigger=PropertyChanged}"
+                                                        ToolTip="DoH endpoint, e.g. https://cloudflare-dns.com/dns-query" />
+                                                </Grid>
+                                                <Grid Margin="0,8,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="110" />
+                                                        <ColumnDefinition Width="70" />
+                                                        <ColumnDefinition Width="90" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Alternative DoH" />
+                                                    <CheckBox
+                                                        Grid.Column="1"
+                                                        VerticalAlignment="Center"
+                                                        Content="Use"
+                                                        IsChecked="{Binding IsDohFallbackEnabled}" />
+                                                    <CheckBox
+                                                        Grid.Column="2"
+                                                        VerticalAlignment="Center"
+                                                        Content="Auto"
+                                                        IsChecked="{Binding IsDohFallbackAuto}" />
+                                                    <TextBox
+                                                        Grid.Column="3"
+                                                        Margin="10,0,0,0"
+                                                        IsEnabled="{Binding IsDohFallbackAuto, Converter={StaticResource InvBool}}"
+                                                        Text="{Binding DohFallbackEndpointInput, UpdateSourceTrigger=PropertyChanged}"
+                                                        ToolTip="Fallback DoH endpoint" />
+                                                </Grid>
+                                                <TextBlock
+                                                    Margin="200,4,0,0"
+                                                    FontSize="10"
+                                                    Foreground="#FF7777"
+                                                    Text="{Binding DohEndpointValidationMessage}" />
+                                                <TextBlock
+                                                    Margin="200,2,0,0"
+                                                    FontSize="10"
+                                                    Foreground="#FF7777"
+                                                    Text="{Binding DohFallbackEndpointValidationMessage}" />
+                                                <TextBlock
+                                                    Margin="200,4,0,0"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="{Binding DohTransportStatus}"
+                                                    TextWrapping="Wrap" />
+                                                <Grid Margin="0,10,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        Grid.Column="1"
+                                                        Margin="0,0,10,0"
+                                                        VerticalAlignment="Center"
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="{Binding DohSaveStatus}" />
+                                                    <Button
+                                                        Grid.Column="2"
+                                                        Height="32"
+                                                        Padding="14,0"
+                                                        Background="#3A6FF8"
+                                                        BorderThickness="0"
+                                                        Command="{Binding SaveChangesCommand}"
+                                                        Content="Save DoH"
+                                                        Cursor="Hand"
+                                                        Foreground="White" />
+                                                </Grid>
+                                            </StackPanel>
+                                            -->
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
@@ -2661,24 +2779,60 @@
                                         Margin="0,0,0,12"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource InvBoolToVis}}">
-                                            <TextBox
+                                            <StackPanel Width="260" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Search" />
+                                                <TextBox
                                                 Width="260"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding MonitorSearchText, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Search process, host, status, details" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. google - matches any column"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Type" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding MonitorTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. DNS - traffic type"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Result" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding MonitorResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. Blocked - action"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
                                             <Button
-                                                Margin="0,0,8,8"
+                                                Margin="0,17,8,8"
                                                 Padding="10,5"
                                                 Command="{Binding ClearMonitorFiltersCommand}"
                                                 Content="Reset"
@@ -2686,48 +2840,132 @@
                                         </WrapPanel>
 
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource BoolToVis}}">
-                                            <TextBox
+                                            <StackPanel Width="140" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Process" />
+                                                <TextBox
                                                 Width="140"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding MonitorProcessFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Process" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. chrome - process name"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="160" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Host" />
+                                                <TextBox
                                                 Width="160"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding MonitorHostFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Host" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. youtube.com - host contains"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="130" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Status" />
+                                                <TextBox
                                                 Width="130"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding MonitorStatusFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Status" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. BLOCKED - status text"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="150" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Details" />
+                                                <TextBox
                                                 Width="150"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding MonitorDetailsFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Details" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. UDP 53 - details contain"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="110" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Country" />
+                                                <TextBox
                                                 Width="110"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding MonitorCountryFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Country" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. US - country code"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Type" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding MonitorTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. TCP - protocol"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Result" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding MonitorResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. Direct - route result"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
                                             <Button
-                                                Margin="0,0,8,8"
+                                                Margin="0,17,8,8"
                                                 Padding="10,5"
                                                 Command="{Binding ClearMonitorFiltersCommand}"
                                                 Content="Reset"
@@ -2900,24 +3138,60 @@
 
                                     <StackPanel Grid.Row="1" Margin="0,0,0,12">
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource InvBoolToVis}}">
-                                            <TextBox
+                                            <StackPanel Width="280" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Search" />
+                                                <TextBox
                                                 Width="280"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Search process, host, result, type" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. google - matches any column"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Type" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding LogTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. HTTPS - traffic type"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Result" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding LogResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. Proxy - action"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
                                             <Button
-                                                Margin="0,0,8,8"
+                                                Margin="0,17,8,8"
                                                 Padding="10,5"
                                                 Command="{Binding ClearLogFiltersCommand}"
                                                 Content="Reset"
@@ -2925,42 +3199,114 @@
                                         </WrapPanel>
 
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource BoolToVis}}">
-                                            <TextBox
+                                            <StackPanel Width="150" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Process" />
+                                                <TextBox
                                                 Width="150"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding LogProcessFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Process" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. telegram - process name"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="180" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Host" />
+                                                <TextBox
                                                 Width="180"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding LogHostFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Host" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. discord.com - host contains"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="140" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Result text" />
+                                                <TextBox
                                                 Width="140"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding LogResultTextFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Result" />
-                                            <TextBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. BLOCKED - result text"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="110" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Country" />
+                                                <TextBox
                                                 Width="110"
-                                                Margin="0,0,8,8"
                                                 Padding="8,5"
                                                 Text="{Binding LogCountryFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Country" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. DE - country code"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Type" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding LogTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                            <ComboBox
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. DNS - protocol"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
+                                            <StackPanel Width="120" Margin="0,0,8,8">
+                                                <TextBlock
+                                                    Margin="0,0,0,3"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Result" />
+                                                <ComboBox
                                                 Width="120"
-                                                Margin="0,0,8,8"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding LogResultFilter, UpdateSourceTrigger=PropertyChanged}" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="9"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="e.g. Blocked - route result"
+                                                    TextWrapping="Wrap" />
+                                            </StackPanel>
                                             <Button
-                                                Margin="0,0,8,8"
+                                                Margin="0,17,8,8"
                                                 Padding="10,5"
                                                 Command="{Binding ClearLogFiltersCommand}"
                                                 Content="Reset"

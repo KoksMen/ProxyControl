@@ -12,6 +12,14 @@ namespace ProxyControl.Models
         Custom          // Пользовательский ввод
     }
 
+    public enum DohProviderType
+    {
+        Google,
+        Cloudflare,
+        OpenDNS,
+        Custom
+    }
+
     // Корневой класс настроек, сохраняемый в JSON
     public class AppSettings
     {
@@ -41,6 +49,13 @@ namespace ProxyControl.Models
         // DNS server host: IP address or domain name.
         public string DnsHost { get; set; } = "8.8.8.8";
         public string DnsFallbackHost { get; set; } = "1.1.1.1";
+        public bool EnableDoh { get; set; } = false;
+        public DohProviderType DohProvider { get; set; } = DohProviderType.Cloudflare;
+        public bool AutoDetectDohEndpoint { get; set; } = true;
+        public string DohEndpoint { get; set; } = "https://cloudflare-dns.com/dns-query";
+        public bool EnableDohFallback { get; set; } = false;
+        public bool AutoDetectDohFallbackEndpoint { get; set; } = true;
+        public string DohFallbackEndpoint { get; set; } = "https://cloudflare-dns.com/dns-query";
 
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();

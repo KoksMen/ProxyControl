@@ -17,6 +17,10 @@ namespace ProxyControl.Services
         private int RemoteDnsPort = 53;
         private string _remoteDnsHost = "8.8.8.8";
         private string _fallbackDnsHost = "1.1.1.1";
+        // DoH support is intentionally disabled. Keep the old config fields elsewhere
+        // for JSON compatibility, but DNS protection now always uses the local UDP proxy.
+        private AppConfig _config = new AppConfig();
+        private string _lastAppliedDnsConfigSignature = string.Empty;
 
         private UdpClient? _udpListener;
         private bool _isRunning;
@@ -73,6 +77,7 @@ namespace ProxyControl.Services
 
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
         {
+            _config = config;
             _localProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
@@ -127,6 +132,11 @@ namespace ProxyControl.Services
             _fallbackDnsHost = NormalizeDnsHost(config.DnsFallbackHost, "1.1.1.1");
 
             ClearConnectionPool();
+
+            if (_isRunning)
+            {
+                ApplySystemDnsIfNeeded(force: false);
+            }
         }
 
         private void ClearConnectionPool()
@@ -153,7 +163,7 @@ namespace ProxyControl.Services
                 _isRunning = true;
                 _cts = new CancellationTokenSource();
 
-                SystemProxyHelper.SetSystemDns(true);
+                ApplySystemDnsIfNeeded(force: true);
 
                 Task.Run(ListenLoop, _cts.Token);
 
@@ -568,6 +578,25 @@ namespace ProxyControl.Services
             return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
         }
 
+        public static string BuildDnsConfigSignature(AppConfig config)
+        {
+            return string.Join("|",
+                NormalizeDnsHost(config.DnsHost, "8.8.8.8"),
+                NormalizeDnsHost(config.DnsFallbackHost, "1.1.1.1"));
+        }
+
+        private void ApplySystemDnsIfNeeded(bool force)
+        {
+            var signature = BuildDnsConfigSignature(_config);
+            if (!force && string.Equals(_lastAppliedDnsConfigSignature, signature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            SystemProxyHelper.SetSystemDns(true);
+            _lastAppliedDnsConfigSignature = signature;
+        }
+
         private (RuleAction Action, ProxyItem? Proxy) ResolveDnsAction(string host)
         {
             if (_currentMode == RuleMode.BlackList)
@@ -577,9 +606,9 @@ namespace ProxyControl.Services
                 // Trusted 1: Exact Host Match (O(1))
                 if (_fastBlackListRules.TryGetValue(host, out var fastRule))
                 {
-                    if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
+                        if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
                     {
-                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Direct, null);
+                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Block, null);
                         if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
                         if (fastRule.ProxyId != null)
                         {
@@ -596,7 +625,7 @@ namespace ProxyControl.Services
                     if (!rule.IsEnabled) continue;
                     if (IsHostMatch(rule, host))
                     {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Direct, null);
+                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
                         if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
                         if (rule.ProxyId != null)
                         {
@@ -618,7 +647,7 @@ namespace ProxyControl.Services
                 {
                     if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
                     {
-                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Direct, null);
+                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Block, null);
                         if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
                         if (fastRule.ProxyId != null)
                         {
@@ -638,7 +667,7 @@ namespace ProxyControl.Services
                     if (!rule.IsEnabled) continue;
                     if (IsHostMatch(rule, host))
                     {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Direct, null);
+                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
                         if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
                         if (rule.ProxyId != null)
                         {
@@ -669,6 +698,11 @@ namespace ProxyControl.Services
                 return false;
             }
             return true;
+        }
+
+        public RuleAction ResolveDnsActionForHost(string host)
+        {
+            return ResolveDnsAction(host).Action;
         }
 
         private string ParseDomainFromQuery(byte[] data)

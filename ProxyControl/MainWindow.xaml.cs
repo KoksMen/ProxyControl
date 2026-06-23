@@ -8,7 +8,6 @@ namespace ProxyControl
 {
     public partial class MainWindow : Window
     {
-        // Статическое поле для управления реальным закрытием
         public static bool AllowClose { get; set; } = false;
         private const double LogAutoFollowThreshold = 0.5;
         private bool _preserveLogScrollOnInsert = false;
@@ -28,17 +27,15 @@ namespace ProxyControl
                     {
                         vm.LatestVersion = tag;
                         var toast = new Views.UpdateToast();
-                        toast.DataContext = vm; // ensure ViewModel context for commands
+                        toast.DataContext = vm; /
                         TrayIcon.ShowCustomBalloon(toast, System.Windows.Controls.Primitives.PopupAnimation.Slide, 8000);
                     });
                 };
             }
         }
 
-        // Перехватываем событие закрытия окна
         protected override void OnClosing(CancelEventArgs e)
         {
-            // Если флаг не установлен (пользователь нажал крестик), отменяем закрытие и скрываем окно
             if (!AllowClose)
             {
                 e.Cancel = true;
@@ -52,7 +49,6 @@ namespace ProxyControl
 
         protected override void OnStateChanged(EventArgs e)
         {
-            // Если окно свернули, скрываем его, чтобы оно ушло в трей (если используется TaskbarIcon)
             if (WindowState == WindowState.Minimized)
             {
                 Hide();
@@ -67,8 +63,6 @@ namespace ProxyControl
 
             bool isAtTop = scrollViewer.VerticalOffset <= LogAutoFollowThreshold;
 
-            // New logs are inserted at the top. Keep user's reading position stable
-            // unless they are currently at the top (live mode).
             if (e.ExtentHeightChange > 0)
             {
                 _isAdjustingLogScroll = true;
@@ -99,7 +93,6 @@ namespace ProxyControl
 
             bool isAtTop = scrollViewer.VerticalOffset <= LogAutoFollowThreshold;
 
-            // Monitor connections are inserted at the top, same as connection logs.
             if (e.ExtentHeightChange > 0)
             {
                 _isAdjustingMonitorScroll = true;
