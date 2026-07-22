@@ -56,7 +56,12 @@ namespace ProxyControl.Services
             if (!Directory.Exists(logsDir)) Directory.CreateDirectory(logsDir);
             _logFilePath = Path.Combine(logsDir, $"app_{DateTime.Now:yyyy-MM-dd}.log");
 
-            _logChannel = Channel.CreateUnbounded<LogEntry>();
+            _logChannel = Channel.CreateBounded<LogEntry>(new BoundedChannelOptions(5000)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
             Task.Run(ProcessLogQueue);
 
             // Log startup
@@ -88,15 +93,14 @@ namespace ProxyControl.Services
             try
             {
                 await using var writer = new StreamWriter(_logFilePath, append: true) { AutoFlush = false };
-                int batchCount = 0;
-
                 while (await _logChannel.Reader.WaitToReadAsync())
                 {
+                    bool wroteAny = false;
                     while (_logChannel.Reader.TryRead(out var entry))
                     {
                         // Write to file
                         await writer.WriteLineAsync($"[{entry.Timestamp:yyyy-MM-dd HH:mm:ss.fff}] [{entry.LevelStr}] [{entry.Source}] {entry.Message}");
-                        batchCount++;
+                        wroteAny = true;
 
                         // Update UI (throttled)
                         Application.Current?.Dispatcher?.BeginInvoke(DispatcherPriority.Background, () =>
@@ -112,11 +116,9 @@ namespace ProxyControl.Services
                         });
                     }
 
-                    // Flush periodically
-                    if (batchCount >= 10)
+                    if (wroteAny)
                     {
                         await writer.FlushAsync();
-                        batchCount = 0;
                     }
                 }
             }

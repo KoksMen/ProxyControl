@@ -72,6 +72,7 @@ namespace ProxyControl.Services
         };
 
         private readonly SemaphoreSlim _connectionLimiter = new SemaphoreSlim(2000);
+        private CancellationTokenSource? _scheduleEnforcerCts;
 
         private readonly ConcurrentDictionary<Guid, ClientContext> _activeClients = new ConcurrentDictionary<Guid, ClientContext>();
         private readonly HttpClient _geoHttpClient;
@@ -260,14 +261,19 @@ namespace ProxyControl.Services
 
         private void StartScheduleEnforcer()
         {
+            _scheduleEnforcerCts?.Cancel();
+            _scheduleEnforcerCts?.Dispose();
+            _scheduleEnforcerCts = new CancellationTokenSource();
+            var token = _scheduleEnforcerCts.Token;
             Task.Run(async () =>
             {
-                while (_isRunning)
+                while (_isRunning && !token.IsCancellationRequested)
                 {
                     try
                     {
-                        await Task.Delay(5000); // Check every 5 seconds
+                        await Task.Delay(5000, token); // Check every 5 seconds
 
+                        if (!_isRunning || token.IsCancellationRequested) break;
 
                         if (!_isTunMode)
                         {
@@ -276,9 +282,10 @@ namespace ProxyControl.Services
 
                         EnforceActiveConnectionPolicies("schedule/rule change");
                     }
+                    catch (OperationCanceledException) { break; }
                     catch { }
                 }
-            });
+            }, token);
         }
 
         private void EnforceActiveConnectionPolicies(string reason)
@@ -383,15 +390,14 @@ namespace ProxyControl.Services
         public void Stop()
         {
             _isRunning = false;
+            _scheduleEnforcerCts?.Cancel();
             _processMonitor.Stop();
             DisconnectAllClients();
             try { _listener?.Stop(); } catch { }
 
-            // Only restore System Proxy if NOT in TUN mode
-            if (!_isTunMode)
-            {
-                SystemProxyHelper.RestoreSystemProxy();
-            }
+            // Restoration is ownership-aware, so it is always safe and also cleans
+            // up a proxy left behind while switching between normal and TUN modes.
+            SystemProxyHelper.RestoreSystemProxy();
 
             _logger.Info("Proxy", "Proxy stopped");
         }
@@ -511,36 +517,17 @@ namespace ProxyControl.Services
                 NetworkStream clientStream = client.GetStream();
 
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
-
-                int pid = SystemProxyHelper.GetPidByPort(clientPort);
-
-                // Removed retry loop for PID to decrease latency. 
-                // SystemProxyHelper cache is smart enough, and if we miss it, we miss it.
-                // Waiting 60ms+ per connection is too expensive.
-
-                string processName = _processMonitor.GetProcessName(pid);
-
-                string processPath = "";
-                try
-                {
-                    if (pid > 0)
-                    {
-                        var proc = Process.GetProcessById(pid);
-                        processPath = proc.MainModule?.FileName;
-                    }
-                }
-                catch { }
-
-                ImageSource? icon = null;
-                if (!string.IsNullOrEmpty(processPath))
-                    icon = IconHelper.GetIconByPath(processPath);
-                else
-                    icon = IconHelper.GetIconByProcessName(processName);
-
+                // PID table enumeration and icon extraction used to serialize the hot
+                // path before even reading the browser request. Run it concurrently
+                // with header I/O and cache immutable process identity data.
+                var identityTask = Task.Run(() => GetProcessIdentity(clientPort));
                 var headerData = await ReadHeaderAsync(clientStream, ctx.Cts.Token);
                 byte[] buffer = headerData.Buffer;
                 int bytesRead = headerData.Length;
                 string headerStr = headerData.HeaderStr;
+                var identity = await identityTask;
+                string processName = identity.Name;
+                ImageSource? icon = identity.Icon;
 
                 if (bytesRead == 0) return;
 
@@ -668,22 +655,14 @@ namespace ProxyControl.Services
 
                         if (targetProxy.UseTls || targetProxy.UseSsl)
                         {
-                            var protocols = SslProtocols.None;
-                            if (targetProxy.UseTls)
-                            {
-                                protocols = SslProtocols.Tls12 | SslProtocols.Tls13;
-                            }
-                            else if (targetProxy.UseSsl)
-                            {
-                                protocols = SslProtocols.Tls | SslProtocols.Tls11;
-                            }
-
-                            // Fix 1: Always return true to ignore certificate errors for proxies
-                            var sslStream = new SslStream(remoteStream, false, (s, c, ch, e) => true);
+                            // Use the platform trust store and hostname verification.
+                            // SslProtocols.None lets Windows negotiate a currently
+                            // supported secure protocol without enabling legacy TLS.
+                            var sslStream = new SslStream(remoteStream, false, ProxyTlsValidator.Validate);
 
                             try
                             {
-                                await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, protocols, false);
+                                await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, SslProtocols.None, false);
                                 remoteStream = sslStream;
                             }
                             catch
@@ -774,6 +753,23 @@ namespace ProxyControl.Services
             }
         }
 
+        private (string Name, string Path, ImageSource? Icon) GetProcessIdentity(int clientPort)
+        {
+            int pid = SystemProxyHelper.GetPidByPort(clientPort);
+            string processName = _processMonitor.GetProcessName(pid);
+            string processPath = string.Empty;
+            try
+            {
+                if (pid > 0) processPath = Process.GetProcessById(pid).MainModule?.FileName ?? string.Empty;
+            }
+            catch { }
+
+            ImageSource? icon = !string.IsNullOrEmpty(processPath)
+                ? IconHelper.GetIconByPath(processPath, processName)
+                : IconHelper.GetIconByProcessName(processName);
+            return (processName, processPath, icon);
+        }
+
         private async Task BridgeStreams(NetworkStream clientStream, Stream remoteStream, string processName, ConnectionHistoryItem? historyItem, BlockDirection blockDir, CancellationToken token)
         {
             var uploadTask = (blockDir == BlockDirection.Outbound)
@@ -802,7 +798,9 @@ namespace ProxyControl.Services
         {
             byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
             long bytesAccumulated = 0;
-            const long BatchSize = 65536; // 64KB batch
+            // Traffic accounting must not contend on a concurrent dictionary for
+            // every network buffer at high throughput.
+            const long BatchSize = 1024 * 1024;
 
             try
             {
@@ -906,7 +904,7 @@ namespace ProxyControl.Services
             // WebRTC Protection: Spoof/Block STUN/TURN servers to prevent IP leaks
             if (_isWebRtcBlockingEnabled && IsStunServer(host))
             {
-                var webRtcProxy = _localProxies.FirstOrDefault(p => p.Id != null && p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                var webRtcProxy = GetMainProxy();
 
                 if (webRtcProxy != null)
                 {
@@ -919,7 +917,7 @@ namespace ProxyControl.Services
                 return (RuleAction.Block, null, BlockDirection.Both);
             }
 
-            var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+            var mainProxy = GetMainProxy();
 
             if (_currentMode == RuleMode.BlackList)
             {
@@ -1000,6 +998,13 @@ namespace ProxyControl.Services
                 }
                 return (RuleAction.Direct, null, BlockDirection.Both);
             }
+        }
+
+        private ProxyItem? GetMainProxy()
+        {
+            return _localProxies.FirstOrDefault(p => p.IsEnabled &&
+                       string.Equals(p.Id, _blackListProxyId, StringComparison.OrdinalIgnoreCase))
+                   ?? _localProxies.FirstOrDefault(p => p.IsEnabled);
         }
 
         private bool IsInSchedule(TrafficRule rule)
@@ -1128,7 +1133,7 @@ namespace ProxyControl.Services
                             match = true;
                             break;
                         }
-                        if (app.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (RoutingMatchHelper.AppMatches(app, target))
                         {
                             match = true;
                             break;
@@ -1142,8 +1147,7 @@ namespace ProxyControl.Services
             {
                 for (int i = 0; i < rule.TargetHosts.Count; i++)
                 {
-                    if (rule.TargetHosts[i] == "*") return true;
-                    if (host.Contains(rule.TargetHosts[i], StringComparison.OrdinalIgnoreCase))
+                    if (RoutingMatchHelper.HostMatches(host, rule.TargetHosts[i]))
                         return true;
                 }
                 return false;
@@ -1201,11 +1205,8 @@ namespace ProxyControl.Services
 
                 if (proxy.UseTls || proxy.UseSsl)
                 {
-                    handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
-                    {
-                        sslError = errors.ToString();
-                        return true;
-                    };
+                    handler.ServerCertificateCustomValidationCallback =
+                        (message, cert, chain, errors) => ProxyTlsValidator.Validate(message, cert, chain, errors);
                 }
 
                 if (!string.IsNullOrEmpty(proxy.Username))
@@ -1240,7 +1241,8 @@ namespace ProxyControl.Services
                         };
                         if (proxy.UseTls || proxy.UseSsl)
                         {
-                            speedHandler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+                            speedHandler.ServerCertificateCustomValidationCallback =
+                                (message, cert, chain, errors) => ProxyTlsValidator.Validate(message, cert, chain, errors);
                         }
                         if (!string.IsNullOrEmpty(proxy.Username)) speedHandler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
 
@@ -1750,7 +1752,7 @@ namespace ProxyControl.Services
 
                         if (decision.Proxy.UseTls || decision.Proxy.UseSsl)
                         {
-                            var ssl = new SslStream(remoteStream, false, (s, c, ch, e) => true);
+                            var ssl = new SslStream(remoteStream, false, ProxyTlsValidator.Validate);
                             await ssl.AuthenticateAsClientAsync(decision.Proxy.IpAddress);
                             remoteStream = ssl;
                         }
@@ -1828,7 +1830,7 @@ namespace ProxyControl.Services
                     // Fix: In BlackList mode, even if default is Direct, we might need Proxy for specific sites.
                     if (udpProxy == null && _currentMode == RuleMode.BlackList && !string.IsNullOrEmpty(_blackListProxyId))
                     {
-                        udpProxy = _localProxies.FirstOrDefault(p => p.Id == _blackListProxyId);
+                        udpProxy = GetMainProxy();
                     }
 
                     Task? proxyLoopTask = null;

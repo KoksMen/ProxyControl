@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace ProxyControl.Services
 {
@@ -18,6 +19,7 @@ namespace ProxyControl.Services
         private const string AppName = "ProxyManagerApp";
         private const string RegistryKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string ScheduledTaskName = "ProxyControl Autostart";
+        private readonly SemaphoreSlim _saveLock = new(1, 1);
 
         public SettingsService()
         {
@@ -53,14 +55,17 @@ namespace ProxyControl.Services
         {
             try
             {
-                RemoveLegacyRunEntry();
-
                 if (enable)
                 {
-                    RunSchtasks(BuildAutoStartTaskCreateArguments(GetExecutablePath()));
+                    // HKCU Run works for standard users and does not depend on Task
+                    // Scheduler elevation, locale, or task-service policy.
+                    using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath, true);
+                    key?.SetValue(AppName, BuildAutoStartCommand(GetExecutablePath()), RegistryValueKind.String);
+                    RunSchtasks(BuildAutoStartTaskDeleteArguments());
                 }
                 else
                 {
+                    RemoveLegacyRunEntry();
                     RunSchtasks(BuildAutoStartTaskDeleteArguments());
                 }
             }
@@ -85,6 +90,39 @@ namespace ProxyControl.Services
         {
             var taskRun = $"\\\"{exePath}\\\" --autostart";
             return $"/Create /F /SC ONLOGON /RL HIGHEST /TN \"{ScheduledTaskName}\" /TR \"{taskRun}\"";
+        }
+
+        public async Task<bool> SaveAsync(AppSettings settings, CancellationToken token = default, string? path = null)
+        {
+            string targetPath = path ?? _filePath;
+            string tempPath = targetPath + ".tmp";
+            await _saveLock.WaitAsync(token);
+            try
+            {
+                var json = await Task.Run(
+                    () => JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }),
+                    token);
+                await File.WriteAllTextAsync(tempPath, json, token);
+                File.Move(tempPath, targetPath, true);
+                return true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                _saveLock.Release();
+            }
+        }
+
+        public static string BuildAutoStartCommand(string exePath)
+        {
+            return $"\"{exePath}\" --autostart";
         }
 
         public static string BuildAutoStartTaskDeleteArguments()

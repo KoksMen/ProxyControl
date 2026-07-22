@@ -30,6 +30,8 @@ namespace ProxyControl.Services
         private readonly CancellationTokenSource _servicesCts;
 
         private readonly ConcurrentQueue<ConnectionHistoryItem> _pendingConnections = new ConcurrentQueue<ConnectionHistoryItem>();
+        private int _pendingConnectionCount;
+        private const int MaxPendingConnections = 5000;
         private readonly ConcurrentDictionary<string, TrafficDelta> _pendingTraffic = new ConcurrentDictionary<string, TrafficDelta>();
 
         private readonly DispatcherTimer _uiBatchTimer;
@@ -48,7 +50,12 @@ namespace ProxyControl.Services
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
 
-            _logChannel = Channel.CreateUnbounded<ConnectionHistoryItem>();
+            _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(10000)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
             _servicesCts = new CancellationTokenSource();
 
             Task.Run(() => LogWriterLoop(_servicesCts.Token));
@@ -110,6 +117,11 @@ namespace ProxyControl.Services
 
             GetOrAddLiveProcess(processName, icon);
             _pendingConnections.Enqueue(item);
+            int count = Interlocked.Increment(ref _pendingConnectionCount);
+            while (count > MaxPendingConnections && _pendingConnections.TryDequeue(out _))
+            {
+                count = Interlocked.Decrement(ref _pendingConnectionCount);
+            }
             return item;
         }
 
@@ -125,6 +137,7 @@ namespace ProxyControl.Services
             bool hasNewConnections = !_pendingConnections.IsEmpty;
             while (_pendingConnections.TryDequeue(out var item))
             {
+                Interlocked.Decrement(ref _pendingConnectionCount);
                 if (_liveProcessStats.TryGetValue(item.ProcessName, out var stats))
                 {
                     stats.Connections.Insert(0, item);

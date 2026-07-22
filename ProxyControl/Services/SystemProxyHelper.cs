@@ -25,8 +25,13 @@ namespace ProxyControl.Services
 
         private const string RunOnceKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
         private const string AppName = "ProxyManagerSafetyNet";
+        private const string InternetSettingsKey = @"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+        private const string StateKey = @"Software\ProxyControl\SystemState";
+        private const string ManagedProxyServer = "127.0.0.1:8000";
+        private static readonly object ProxyStateLock = new object();
         private static readonly object ManagedDnsLock = new object();
         private static readonly HashSet<string> ManagedDnsServers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static bool _localDnsApplied;
 
 
         private static IEnumerable<string> GetActiveEthernetInterfaces()
@@ -55,7 +60,7 @@ namespace ProxyControl.Services
         private static readonly object _cacheLock = new object();
         private static Dictionary<int, int> _pidCache = new Dictionary<int, int>();
         private static DateTime _lastCacheUpdate = DateTime.MinValue;
-        private const int CacheDurationMs = 500;
+        private const int CacheDurationMs = 100;
 
         // Task coalescing: If multiple threads request refresh, they await the SAME task.
         private static Task<Dictionary<int, int>>? _refreshTask;
@@ -66,13 +71,13 @@ namespace ProxyControl.Services
 
             lock (_cacheLock)
             {
-                // Return immediately if cache is fresh enough and contains the key (unless force refresh)
+                // One snapshot covers a burst of browser connections. Rebuilding the
+                // complete Windows TCP table for every new source port is expensive.
                 if (!forceRefresh && (DateTime.UtcNow - _lastCacheUpdate).TotalMilliseconds < CacheDurationMs)
                 {
-                    if (_pidCache.TryGetValue(port, out int cachedPid) && cachedPid > 0)
-                    {
-                        return cachedPid;
-                    }
+                    if (_pidCache.TryGetValue(port, out int cachedPid)) return cachedPid;
+                    // The snapshot may predate this newly accepted connection.
+                    // Refresh immediately on a miss; never reuse an identity by PID.
                 }
 
                 // Get or start the refresh task
@@ -96,8 +101,12 @@ namespace ProxyControl.Services
             {
                 _pidCache = cacheSnapshot;
                 _lastCacheUpdate = DateTime.UtcNow;
-                return _pidCache.TryGetValue(port, out int pid) ? pid : 0;
+                if (_pidCache.TryGetValue(port, out int pid)) return pid;
             }
+
+            // A shared refresh may have started just before this connection was
+            // accepted. One coalesced retry captures ports created during it.
+            return forceRefresh ? 0 : GetPidByPort(port, forceRefresh: true);
         }
 
         public static int GetPidByDestAddress(IPAddress destIp, int destPort)
@@ -193,48 +202,108 @@ namespace ProxyControl.Services
 
         public static void SetSystemProxy(bool enable, string host, int port)
         {
-            try
+            lock (ProxyStateLock)
             {
-                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings", true))
+                try
                 {
+                    using var key = Registry.CurrentUser.CreateSubKey(InternetSettingsKey, true);
+                    if (key == null) return;
                     if (enable)
                     {
+                        CaptureProxyStateIfNeeded(key);
                         key.SetValue("ProxyEnable", 1);
                         key.SetValue("ProxyServer", $"{host}:{port}");
                         key.SetValue("ProxyOverride", "<local>");
                     }
                     else
                     {
-                        key.SetValue("ProxyEnable", 0);
+                        RestoreCapturedProxyState(key);
                     }
+                    RefreshSettings();
                 }
-                RefreshSettings();
+                catch { }
             }
-            catch { }
         }
 
         public static void EnforceSystemProxy(string host, int port)
         {
-            try
+            lock (ProxyStateLock)
             {
-                using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Internet Settings", true))
+                try
                 {
-                    int? enabled = key?.GetValue("ProxyEnable") as int?;
-                    if (enabled == null || enabled == 0)
+                    using var key = Registry.CurrentUser.CreateSubKey(InternetSettingsKey, true);
+                    if (key == null) return;
+                    int? enabled = key.GetValue("ProxyEnable") as int?;
+                    string currentServer = key.GetValue("ProxyServer") as string ?? string.Empty;
+                    if (enabled == null || enabled == 0 || !string.Equals(currentServer, $"{host}:{port}", StringComparison.OrdinalIgnoreCase))
                     {
+                        CaptureProxyStateIfNeeded(key);
                         key.SetValue("ProxyEnable", 1);
                         key.SetValue("ProxyServer", $"{host}:{port}");
                         key.SetValue("ProxyOverride", "<local>");
                         RefreshSettings();
                     }
                 }
+                catch { }
             }
-            catch { }
         }
 
         public static void RestoreSystemProxy()
         {
             SetSystemProxy(false, "", 0);
+        }
+
+        private static void CaptureProxyStateIfNeeded(RegistryKey internetSettings)
+        {
+            using var state = Registry.CurrentUser.CreateSubKey(StateKey, true);
+            if (Convert.ToInt32(state?.GetValue("ProxyOwned", 0)) == 1) return;
+
+            SaveRegistryValue(state!, internetSettings, "ProxyEnable");
+            SaveRegistryValue(state!, internetSettings, "ProxyServer");
+            SaveRegistryValue(state!, internetSettings, "ProxyOverride");
+            state!.SetValue("ProxyOwned", 1, RegistryValueKind.DWord);
+        }
+
+        private static void SaveRegistryValue(RegistryKey state, RegistryKey source, string name)
+        {
+            object? value = source.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+            state.SetValue(name + "Exists", value == null ? 0 : 1, RegistryValueKind.DWord);
+            if (value != null) state.SetValue(name + "Value", value, source.GetValueKind(name));
+        }
+
+        private static void RestoreCapturedProxyState(RegistryKey internetSettings)
+        {
+            using var state = Registry.CurrentUser.CreateSubKey(StateKey, true);
+            if (Convert.ToInt32(state?.GetValue("ProxyOwned", 0)) == 1)
+            {
+                RestoreRegistryValue(state!, internetSettings, "ProxyEnable");
+                RestoreRegistryValue(state!, internetSettings, "ProxyServer");
+                RestoreRegistryValue(state!, internetSettings, "ProxyOverride");
+                foreach (var name in state!.GetValueNames()) state.DeleteValue(name, false);
+                return;
+            }
+
+            // Recover installations that predate ownership tracking without touching
+            // a proxy configured by another application or by the user.
+            string currentServer = internetSettings.GetValue("ProxyServer") as string ?? string.Empty;
+            if (string.Equals(currentServer, ManagedProxyServer, StringComparison.OrdinalIgnoreCase))
+            {
+                internetSettings.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
+                internetSettings.DeleteValue("ProxyServer", false);
+                internetSettings.DeleteValue("ProxyOverride", false);
+            }
+        }
+
+        private static void RestoreRegistryValue(RegistryKey state, RegistryKey destination, string name)
+        {
+            if (Convert.ToInt32(state.GetValue(name + "Exists", 0)) == 0)
+            {
+                destination.DeleteValue(name, false);
+                return;
+            }
+
+            object? value = state.GetValue(name + "Value", null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+            if (value != null) destination.SetValue(name, value, state.GetValueKind(name + "Value"));
         }
 
         private static void RefreshSettings()
@@ -288,7 +357,12 @@ namespace ProxyControl.Services
 
             if (useLocalProxy)
             {
+                lock (ManagedDnsLock)
+                {
+                    if (_localDnsApplied) return;
+                }
                 SetSystemDnsServers(new[] { "127.0.0.1" }, markManaged: false);
+                lock (ManagedDnsLock) _localDnsApplied = true;
             }
             else
             {
@@ -298,7 +372,8 @@ namespace ProxyControl.Services
 
         public static void SetSystemDns(AppConfig config)
         {
-            // DoH support is disabled; keep this overload so existing callers do not break.
+            // The local DNS service performs DoH itself so domain rules continue to
+            // work. Windows only needs to point at the loopback listener.
             SetSystemDns(true);
         }
 
@@ -373,7 +448,10 @@ namespace ProxyControl.Services
         public static bool ValidateWindowsDohSettings(AppConfig config, out string message)
         {
             message = string.Empty;
-            // DoH support is disabled; validation succeeds because there is nothing to apply.
+            if (!config.EnableDoh) return true;
+
+            if (!DnsOverHttpsClient.TryGetEndpoint(config, out _, out message)) return false;
+            if (config.EnableDohFallback && !DnsOverHttpsClient.TryGetFallbackEndpoint(config, out _, out message)) return false;
             return true;
         }
 
@@ -468,6 +546,7 @@ namespace ProxyControl.Services
                 }
                 catch { }
             }
+            lock (ManagedDnsLock) _localDnsApplied = false;
         }
 
         public static void RestoreSystemDns()
@@ -482,6 +561,7 @@ namespace ProxyControl.Services
                 }
                 catch { }
             }
+            lock (ManagedDnsLock) _localDnsApplied = false;
         }
 
         private static bool IsProxyControlDnsAddress(IPAddress address)
@@ -505,10 +585,10 @@ namespace ProxyControl.Services
                 {
                     WindowStyle = ProcessWindowStyle.Hidden,
                     CreateNoWindow = true,
-                    UseShellExecute = true,
-                    Verb = "runas"
+                    UseShellExecute = false
                 };
-                Process.Start(psi);
+                using var process = Process.Start(psi);
+                process?.WaitForExit(5000);
             }
             catch { }
         }

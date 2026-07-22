@@ -4,6 +4,7 @@ using ProxyControl.Services;
 using ProxyControl.Helpers;
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -15,6 +16,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace ProxyControl.ViewModels
 {
@@ -36,6 +38,10 @@ namespace ProxyControl.ViewModels
         private bool _suppressSave = false;
         private string _dohSaveStatus = "Saved";
         private string _dohTransportStatus = string.Empty;
+        private readonly ConcurrentQueue<ConnectionLog> _pendingConnectionLogs = new();
+        private int _pendingConnectionLogCount;
+        private readonly DispatcherTimer _connectionLogTimer;
+        private const int MaxPendingConnectionLogs = 2000;
 
         public string DohSaveStatus
         {
@@ -1153,27 +1159,15 @@ namespace ProxyControl.ViewModels
         {
             if (!IsDohEnabled) return string.Empty;
 
-            if (!DnsOverHttpsClient.TryGetWindowsDohServers(_config, out var dohServers, out _))
+            if (!DnsOverHttpsClient.TryGetEndpoint(_config, out var primary, out _))
             {
-                return "Windows DoH server was not detected. Set DNS IP and DoH endpoint manually.";
+                return "DoH endpoint was not detected. Set the endpoint manually.";
             }
 
-            var encrypted = dohServers
-                .Where(x => x.EnableDoh)
-                .Select(x => x.ServerAddress)
-                .ToArray();
-            var plain = dohServers
-                .Where(x => !x.EnableDoh)
-                .Select(x => x.ServerAddress)
-                .ToArray();
-
-            var status = encrypted.Length > 0
-                ? $"Encrypted: {string.Join(", ", encrypted)}"
-                : "Encrypted DNS is not configured";
-
-            if (plain.Length > 0)
+            var status = $"Encrypted via {primary}";
+            if (IsDohFallbackEnabled && DnsOverHttpsClient.TryGetFallbackEndpoint(_config, out var fallback, out _))
             {
-                status += $"; plain fallback: {string.Join(", ", plain)}";
+                status += $"; fallback: {fallback}";
             }
 
             return status;
@@ -1402,9 +1396,14 @@ namespace ProxyControl.ViewModels
 
             _settingsService = new SettingsService();
             _updateService = new GithubUpdateService();
-            _settingsService = new SettingsService();
-            _updateService = new GithubUpdateService();
             _config = new AppConfig();
+
+            _connectionLogTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(100)
+            };
+            _connectionLogTimer.Tick += FlushPendingConnectionLogs;
+            _connectionLogTimer.Start();
 
             // Initialize version
             var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
@@ -1608,24 +1607,23 @@ namespace ProxyControl.ViewModels
                 _config = new AppConfig();
             }
 
-            try
+            if (IsProxyRunning)
             {
-                _proxyService.Start();
-                IsProxyRunning = true;
-                UpdateDnsServiceState();
-
-                if (IsTunMode)
+                try
                 {
-                    // Start TUN Service on startup if enabled
-                    _ = ToggleTunModeAsync(); // Use the async toggle helper to handle startup
+                    _proxyService.Start();
+                    UpdateDnsServiceState();
+
+                    if (IsTunMode)
+                    {
+                        _ = ToggleTunModeAsync();
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                IsProxyRunning = false;
-                // Не показываем MessageBox здесь, так как окно может еще не загрузиться, 
-                // но статус IsProxyRunning = false визуально покажет, что прокси выключен.
-                System.Diagnostics.Debug.WriteLine($"Proxy Start Failed: {ex.Message}");
+                catch (Exception ex)
+                {
+                    IsProxyRunning = false;
+                    System.Diagnostics.Debug.WriteLine($"Proxy Start Failed: {ex.Message}");
+                }
             }
 
             StartEnforcementLoop();
@@ -1633,8 +1631,6 @@ namespace ProxyControl.ViewModels
             Task.Run(async () =>
             {
                 await Task.Delay(2000);
-                await CheckAllProxies();
-
                 if (CheckUpdateOnStartup)
                 {
                     await Application.Current.Dispatcher.InvokeAsync(async () =>
@@ -2271,7 +2267,25 @@ namespace ProxyControl.ViewModels
 
         private void OnLogReceived(ConnectionLog log)
         {
-            Application.Current.Dispatcher.Invoke(() => { Logs.Insert(0, log); if (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1); });
+            _pendingConnectionLogs.Enqueue(log);
+            int count = Interlocked.Increment(ref _pendingConnectionLogCount);
+            while (count > MaxPendingConnectionLogs && _pendingConnectionLogs.TryDequeue(out _))
+            {
+                count = Interlocked.Decrement(ref _pendingConnectionLogCount);
+            }
+        }
+
+        private void FlushPendingConnectionLogs(object? sender, EventArgs e)
+        {
+            int processed = 0;
+            while (processed < 250 && _pendingConnectionLogs.TryDequeue(out var log))
+            {
+                Interlocked.Decrement(ref _pendingConnectionLogCount);
+                Logs.Insert(0, log);
+                processed++;
+            }
+
+            while (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1);
         }
 
         private void StartEnforcementLoop()
@@ -2319,16 +2333,30 @@ namespace ProxyControl.ViewModels
         {
             if (_suppressSave) return;
             try { ApplyConfig(); } catch { }
-            _saveDebounceCts?.Cancel(); _saveDebounceCts = new CancellationTokenSource(); var token = _saveDebounceCts.Token;
-            Task.Delay(500, token).ContinueWith(t =>
+            _saveDebounceCts?.Cancel();
+            _saveDebounceCts?.Dispose();
+            _saveDebounceCts = new CancellationTokenSource();
+            _ = SaveSettingsAfterDelayAsync(_saveDebounceCts.Token);
+        }
+
+        private async Task SaveSettingsAfterDelayAsync(CancellationToken token)
+        {
+            try
             {
-                if (t.IsCanceled) return;
-                try
+                await Task.Delay(500, token);
+                AppSettings data;
+                if (Application.Current.Dispatcher.CheckAccess())
                 {
-                    Application.Current.Dispatcher.Invoke(SaveSettingsNow);
+                    data = CreateSettingsSnapshot();
                 }
-                catch { }
-            });
+                else
+                {
+                    data = await Application.Current.Dispatcher.InvokeAsync(CreateSettingsSnapshot);
+                }
+
+                await _settingsService.SaveAsync(data, token);
+            }
+            catch (OperationCanceledException) { }
         }
 
         private void SaveSettingsNow()
@@ -2341,15 +2369,30 @@ namespace ProxyControl.ViewModels
             try
             {
                 ApplyConfig();
-                var data = new AppSettings
-                {
-                    IsAutoStart = IsAutoStart,
-                    CheckUpdateOnStartup = CheckUpdateOnStartup,
-                    Proxies = Proxies.ToList(),
-                    Config = _config
-                };
-                _settingsService.Save(data);
+                _settingsService.Save(CreateSettingsSnapshot());
                 return true;
+            }
+            catch { return false; }
+        }
+
+        private AppSettings CreateSettingsSnapshot()
+        {
+            return new AppSettings
+            {
+                IsAutoStart = IsAutoStart,
+                IsProxyRunning = IsProxyRunning,
+                CheckUpdateOnStartup = CheckUpdateOnStartup,
+                Proxies = Proxies.ToList(),
+                Config = _config
+            };
+        }
+
+        private async Task<bool> SaveSettingsCoreAsync()
+        {
+            try
+            {
+                ApplyConfig();
+                return await _settingsService.SaveAsync(CreateSettingsSnapshot());
             }
             catch { return false; }
         }
@@ -2362,7 +2405,7 @@ namespace ProxyControl.ViewModels
 
         private async Task SaveDohSettingsNowAsync()
         {
-            if (SaveSettingsCore())
+            if (await SaveSettingsCoreAsync())
             {
                 if (IsDnsProtectionEnabled)
                 {
@@ -2370,7 +2413,6 @@ namespace ProxyControl.ViewModels
                     var validationResult = await Task.Run(() =>
                     {
                         SystemProxyHelper.SetSystemDns(_config);
-                        Thread.Sleep(500);
                         return SystemProxyHelper.ValidateWindowsDohSettings(_config, out var validationMessage)
                             ? string.Empty
                             : validationMessage;
@@ -2644,41 +2686,15 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(DohSaveStatus));
                 OnPropertyChanged(nameof(UseAdvancedLogFilters));
 
-                // Restore TUN Mode
-                if (_config.IsTunMode) IsTunMode = true;
+                // Restore state without starting services from inside loading.
+                _isTunMode = _config.IsTunMode;
+                OnPropertyChanged(nameof(IsTunMode));
+                OnPropertyChanged(nameof(TunModeStatus));
 
                 Presets.Clear();
                 if (_config.Presets != null) _config.Presets.ForEach(p => Presets.Add(p));
 
-                // Restore Proxy State (added persistence logic)
-                if (d.IsProxyRunning)
-                {
-                    IsProxyRunning = true;
-                    try
-                    {
-                        _proxyService.Start();
-                        UpdateDnsServiceState();
-
-                        // Ensure system proxy is applied after a short delay to override any system resets
-                        Task.Run(async () =>
-                        {
-                            await Task.Delay(2000);
-                            if (IsProxyRunning)
-                            {
-                                if (!_config.IsTunMode)
-                                {
-                                    SystemProxyHelper.SetSystemProxy(true, "127.0.0.1", 8000);
-                                }
-
-                                if (IsDnsProtectionEnabled)
-                                {
-                                    SystemProxyHelper.SetSystemDns(_config);
-                                }
-                            }
-                        });
-                    }
-                    catch { IsProxyRunning = false; }
-                }
+                IsProxyRunning = d.IsProxyRunning;
             }
             finally { _suppressSave = false; }
         }
@@ -2988,6 +3004,8 @@ namespace ProxyControl.ViewModels
         {
             try
             {
+                _connectionLogTimer.Stop();
+                _proxyService.OnConnectionLog -= OnLogReceived;
                 _proxyService?.Stop();
                 _dnsProxyService?.Stop();
                 _tunService?.Stop();
