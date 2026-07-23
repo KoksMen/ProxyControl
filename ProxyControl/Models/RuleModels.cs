@@ -45,6 +45,7 @@ namespace ProxyControl.Models
         private string? _proxyId;
         private BlockDirection _blockDirection = BlockDirection.Both;
         private ImageSource? _appIcon;
+        private ImageSource? _siteIcon;
         private string? _iconBase64;
         private bool _isTemporary;
 
@@ -102,6 +103,13 @@ namespace ProxyControl.Models
         {
             get => _appIcon;
             set { _appIcon = value; OnPropertyChanged(); }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ImageSource? SiteIcon
+        {
+            get => _siteIcon;
+            set { _siteIcon = value; OnPropertyChanged(); }
         }
 
         public string? IconBase64

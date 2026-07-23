@@ -1783,7 +1783,7 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="0.9*" MinWidth="180" />
                                     <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="1.7*" MinWidth="360" />
+                                    <ColumnDefinition Width="1.7*" MinWidth="500" />
                                 </Grid.ColumnDefinitions>
 
                                 <!--  PANEL 1: Groups (own ScrollViewer)  -->
@@ -2144,14 +2144,40 @@
                                                             <Grid>
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto" />
-                                                                    <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="100" />
+                                                                    <ColumnDefinition Width="150" />
                                                                 </Grid.ColumnDefinitions>
                                                                 <CheckBox
                                                                     Margin="0,0,10,0"
                                                                     VerticalAlignment="Center"
                                                                     IsChecked="{Binding IsEnabled}" />
-                                                                <StackPanel Grid.Column="1">
+                                                                <Border
+                                                                    Grid.Column="1"
+                                                                    Width="28"
+                                                                    Height="28"
+                                                                    Margin="0,0,10,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="#1AFFFFFF"
+                                                                    CornerRadius="7"
+                                                                    ToolTip="{Binding TargetHosts, Converter={StaticResource ListToStr}}">
+                                                                    <Grid>
+                                                                        <TextBlock
+                                                                            HorizontalAlignment="Center"
+                                                                            VerticalAlignment="Center"
+                                                                            FontSize="14"
+                                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                            Text="🌐" />
+                                                                        <Image
+                                                                            Width="20"
+                                                                            Height="20"
+                                                                            Source="{Binding SiteIcon}"
+                                                                            Stretch="Uniform"
+                                                                            Visibility="{Binding SiteIcon, Converter={StaticResource NullToBool}, ConverterParameter=Visible}" />
+                                                                    </Grid>
+                                                                </Border>
+                                                                <StackPanel Grid.Column="2">
                                                                     <TextBlock
                                                                         FontSize="12"
                                                                         FontWeight="SemiBold"
@@ -2167,21 +2193,32 @@
                                                                         Foreground="#F59E0B"
                                                                         Text="{Binding PersistenceLabel}" />
                                                                 </StackPanel>
-                                                                <Border
-                                                                    Grid.Column="2"
-                                                                    Margin="10,0,0,0"
-                                                                    Padding="8,3"
+                                                                <ComboBox
+                                                                    Grid.Column="3"
+                                                                    Margin="8,0"
                                                                     VerticalAlignment="Center"
-                                                                    Background="#333842"
-                                                                    BorderBrush="{DynamicResource BorderBrush}"
-                                                                    BorderThickness="1"
-                                                                    CornerRadius="10">
-                                                                    <TextBlock
-                                                                        FontSize="10"
-                                                                        FontWeight="SemiBold"
-                                                                        Foreground="#55AAFF"
-                                                                        Text="{Binding ActionLabel}" />
-                                                                </Border>
+                                                                    DisplayMemberPath="."
+                                                                    ItemsSource="{Binding DataContext.ActionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    SelectedItem="{Binding Action, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                    ToolTip="Change rule action" />
+
+                                                                <ComboBox
+                                                                    Grid.Column="4"
+                                                                    VerticalAlignment="Center"
+                                                                    DisplayMemberPath="Name"
+                                                                    ItemsSource="{Binding DataContext.Proxies, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    SelectedValue="{Binding ProxyId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                    SelectedValuePath="Id"
+                                                                    ToolTip="Change proxy for this rule"
+                                                                    Visibility="{Binding Action, Converter={StaticResource ActionToProxyVisConverter}}" />
+
+                                                                <ComboBox
+                                                                    Grid.Column="4"
+                                                                    VerticalAlignment="Center"
+                                                                    ItemsSource="{Binding DataContext.BlockDirectionTypes, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    SelectedItem="{Binding BlockDirection, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                    ToolTip="Change blocking direction"
+                                                                    Visibility="{Binding Action, Converter={StaticResource ActionToBlockVisConverter}}" />
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>

@@ -19,6 +19,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace ProxyControl.ViewModels
@@ -31,6 +32,7 @@ namespace ProxyControl.ViewModels
         private readonly SettingsService _settingsService;
         private readonly GithubUpdateService _updateService;
         private readonly TrafficMonitorService _trafficMonitorService;
+        private readonly SiteIconCacheService _siteIconCacheService;
 
 
 
@@ -1622,6 +1624,7 @@ namespace ProxyControl.ViewModels
         public MainViewModel()
         {
             _trafficMonitorService = new TrafficMonitorService();
+            _siteIconCacheService = new SiteIconCacheService();
             _proxyService = new TcpProxyService(_trafficMonitorService);
             _dnsProxyService = new DnsProxyService(_trafficMonitorService);
             _tunService = new TunService();
@@ -2638,6 +2641,9 @@ namespace ProxyControl.ViewModels
 
         private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (sender is TrafficRule rule && e.PropertyName == nameof(TrafficRule.TargetHosts))
+                QueueSiteIconLoad(rule);
+
             var triggers = new HashSet<string> { nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps), nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName), nameof(TrafficRule.BlockDirection), nameof(ProxyItem.Name), nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port), nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode), nameof(ProxyItem.UseTls), nameof(ProxyItem.UseSsl), nameof(TrafficRule.IconBase64), nameof(ProxyItem.Type) };
 
             // Warning removed as support is being implemented
@@ -2658,7 +2664,7 @@ namespace ProxyControl.ViewModels
         private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
             if (_suppressSave) return;
-            if (e.NewItems != null) foreach (INotifyPropertyChanged item in e.NewItems) item.PropertyChanged += OnItemPropertyChanged;
+            if (e.NewItems != null) foreach (INotifyPropertyChanged item in e.NewItems) SubscribeToItem(item);
             if (e.OldItems != null) foreach (INotifyPropertyChanged item in e.OldItems) item.PropertyChanged -= OnItemPropertyChanged;
 
             // Collection changed, re-evaluate TUN eligibility (TunProxy might have changed/removed)
@@ -2668,7 +2674,41 @@ namespace ProxyControl.ViewModels
             RequestSaveSettings();
         }
 
-        private void SubscribeToItem(INotifyPropertyChanged item) { item.PropertyChanged -= OnItemPropertyChanged; item.PropertyChanged += OnItemPropertyChanged; }
+        private void SubscribeToItem(INotifyPropertyChanged item)
+        {
+            item.PropertyChanged -= OnItemPropertyChanged;
+            item.PropertyChanged += OnItemPropertyChanged;
+            if (item is TrafficRule rule)
+                QueueSiteIconLoad(rule);
+        }
+
+        private void QueueSiteIconLoad(TrafficRule rule)
+        {
+            string signature = GetSiteIconSignature(rule);
+            rule.SiteIcon = null;
+            _ = LoadSiteIconAsync(rule, signature);
+        }
+
+        private async Task LoadSiteIconAsync(TrafficRule rule, string signature)
+        {
+            ImageSource? icon = await _siteIconCacheService
+                .GetFirstIconAsync(rule.TargetHosts.ToArray())
+                .ConfigureAwait(false);
+
+            if (Application.Current == null)
+                return;
+
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (GetSiteIconSignature(rule) == signature)
+                {
+                    rule.SiteIcon = icon;
+                }
+            }, DispatcherPriority.Background);
+        }
+
+        private static string GetSiteIconSignature(TrafficRule rule) =>
+            string.Join("\n", rule.TargetHosts);
 
         private void RequestSaveSettings()
         {
@@ -3753,6 +3793,7 @@ namespace ProxyControl.ViewModels
                 _proxyService?.Stop();
                 _dnsProxyService?.Stop();
                 _tunService?.Stop();
+                _siteIconCacheService.Dispose();
             }
             catch { }
         }
