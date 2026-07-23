@@ -522,6 +522,90 @@
             <Setter Property="Padding" Value="16" />
         </Style>
 
+        <Style
+            x:Key="WorkspaceCardStyle"
+            BasedOn="{StaticResource CardStyle}"
+            TargetType="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+
+        <Style x:Key="DataCardStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,0,0,7" />
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#292F3B" />
+                    <Setter Property="BorderBrush" Value="#4C6FB8" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FilterCardStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Padding" Value="10,9" />
+            <Setter Property="Background" Value="#1B1F29" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+
+        <Style x:Key="FilterModeButtonStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Border
+                            x:Name="ModeBorder"
+                            MinWidth="118"
+                            Height="29"
+                            Padding="12,0"
+                            Background="{DynamicResource SurfaceLightBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="7">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Ellipse
+                                    x:Name="ModeIndicator"
+                                    Width="6"
+                                    Height="6"
+                                    Margin="0,0,7,0"
+                                    Fill="{DynamicResource ForegroundDisabledBrush}" />
+                                <ContentPresenter
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="#4C6FB8" />
+                                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ModeBorder" Property="Background" Value="#243A70" />
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
+                                <Setter TargetName="ModeIndicator" Property="Fill" Value="#60A5FA" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!--  Modern ComboBox Style  -->
         <ControlTemplate x:Key="ModernComboBoxToggleButton" TargetType="ToggleButton">
             <Grid>
@@ -2348,42 +2432,6 @@
                                     </Grid>
                                 </Border>
 
-                                <!--  Log Filters  -->
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="10,8"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    CornerRadius="8">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Margin="0,0,12,0"
-                                            VerticalAlignment="Center"
-                                            FontSize="18"
-                                            Text="🔎" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock
-                                                FontSize="14"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                Text="Advanced log filters" />
-                                            <TextBlock
-                                                FontSize="11"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="Use separate process, host, result and country fields" />
-                                        </StackPanel>
-                                        <CheckBox
-                                            Grid.Column="2"
-                                            VerticalAlignment="Center"
-                                            IsChecked="{Binding UseAdvancedLogFilters}"
-                                            Style="{StaticResource ToggleSwitchStyle}" />
-                                    </Grid>
-                                </Border>
-
                                 <!--  DNS Protection  -->
                                 <Border
                                     Margin="0,0,0,8"
@@ -2839,18 +2887,16 @@
                     <TabItem Header="MONITOR" Tag="Monitor">
                         <Grid Margin="10">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" MinWidth="320" />
+                                <ColumnDefinition Width="0.9*" MinWidth="320" />
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="1.2*" MinWidth="360" />
+                                <ColumnDefinition Width="1.35*" MinWidth="520" />
                             </Grid.ColumnDefinitions>
 
                             <!--  Left Panel: Process List  -->
                             <Border
                                 Grid.Column="0"
                                 Margin="0,0,5,0"
-                                Padding="16"
-                                Background="{DynamicResource SurfaceMediumBrush}"
-                                CornerRadius="12">
+                                Style="{StaticResource WorkspaceCardStyle}">
                                 <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
@@ -2859,24 +2905,71 @@
                                     </Grid.RowDefinitions>
 
                                     <!--  Header with Filter  -->
-                                    <StackPanel Grid.Row="0" Margin="0,0,0,16">
+                                    <StackPanel Grid.Row="0" Margin="0,0,0,14">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock
+                                                    FontSize="17"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundBrush}"
+                                                    Text="Traffic Monitor" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    FontSize="10"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Live activity grouped by application" />
+                                            </StackPanel>
+                                            <Border
+                                                Grid.Column="1"
+                                                Padding="8,4"
+                                                VerticalAlignment="Center"
+                                                Background="{DynamicResource SurfaceLightBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="12">
+                                                <TextBlock
+                                                    FontSize="10"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="{Binding MonitoredProcesses.Count, StringFormat='{}{0} apps'}" />
+                                            </Border>
+                                        </Grid>
+                                        <Border
+                                            Margin="0,12,0,0"
+                                            Padding="8"
+                                            Background="#1B1F29"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <ComboBox
+                                                    MinWidth="120"
+                                                    Margin="0,0,8,0"
+                                                    ItemsSource="{Binding TrafficPeriodModes}"
+                                                    SelectedItem="{Binding SelectedPeriodMode}" />
+                                                <Button
+                                                    Grid.Column="1"
+                                                    MinWidth="72"
+                                                    Padding="12,6"
+                                                    Command="{Binding ApplyFilterCommand}"
+                                                    Content="Apply"
+                                                    IsEnabled="{Binding IsMonitorPeriodLoading, Converter={StaticResource InvBool}}"
+                                                    Style="{StaticResource AccentBtn}" />
+                                            </Grid>
+                                        </Border>
                                         <TextBlock
-                                            FontSize="16"
-                                            FontWeight="SemiBold"
-                                            Foreground="{DynamicResource ForegroundBrush}"
-                                            Text="📊 Traffic Monitor" />
-                                        <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
-                                            <ComboBox
-                                                Width="140"
-                                                Margin="0,0,10,0"
-                                                ItemsSource="{Binding TrafficPeriodModes}"
-                                                SelectedItem="{Binding SelectedPeriodMode}" />
-                                            <Button
-                                                Padding="12,6"
-                                                Command="{Binding ApplyFilterCommand}"
-                                                Content="Apply"
-                                                Style="{StaticResource AccentBtn}" />
-                                        </StackPanel>
+                                            Margin="2,7,0,0"
+                                            FontSize="10"
+                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                            Text="{Binding MonitorPeriodStatus}" />
                                         <StackPanel
                                             Margin="0,8,0,0"
                                             Orientation="Horizontal"
@@ -2902,34 +2995,50 @@
                                         FontSize="11"
                                         FontWeight="SemiBold"
                                         Foreground="{DynamicResource ForegroundMutedBrush}"
-                                        Text="ACTIVE PROCESSES" />
+                                        Text="APPLICATIONS" />
 
                                     <!--  Process Cards  -->
-                                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                                        <ItemsControl ItemsSource="{Binding MonitoredProcesses}">
-                                            <ItemsControl.ItemTemplate>
+                                    <ListBox
+                                        Grid.Row="2"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        HorizontalContentAlignment="Stretch"
+                                        ItemsSource="{Binding MonitoredProcesses}"
+                                        SelectedItem="{Binding SelectedMonitorProcess}"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                        ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Margin" Value="0" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border
-                                                        Margin="0,0,0,8"
-                                                        Padding="12"
-                                                        Cursor="Hand">
+                                                    <Border Cursor="Hand">
                                                         <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
-                                                                <Setter Property="CornerRadius" Value="8" />
+                                                            <Style
+                                                                BasedOn="{StaticResource DataCardStyle}"
+                                                                TargetType="Border">
                                                                 <Style.Triggers>
-                                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                                        <Setter Property="Background" Value="{DynamicResource BorderBrush}" />
-                                                                    </Trigger>
+                                                                    <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                                        <Setter Property="Background" Value="#243A70" />
+                                                                        <Setter Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
+                                                                        <Setter Property="BorderThickness" Value="2" />
+                                                                    </DataTrigger>
                                                                 </Style.Triggers>
                                                             </Style>
                                                         </Border.Style>
-                                                        <Border.InputBindings>
-                                                            <MouseBinding
-                                                                Command="{Binding DataContext.SelectMonitorProcessCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                                CommandParameter="{Binding}"
-                                                                MouseAction="LeftClick" />
-                                                        </Border.InputBindings>
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />
@@ -2946,7 +3055,8 @@
                                                                     FontSize="13"
                                                                     FontWeight="SemiBold"
                                                                     Foreground="{DynamicResource ForegroundBrush}"
-                                                                    Text="{Binding ProcessName}" />
+                                                                    Text="{Binding ProcessName}"
+                                                                    TextTrimming="CharacterEllipsis" />
                                                                 <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
                                                                     <TextBlock
                                                                         FontSize="10"
@@ -2976,9 +3086,8 @@
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
                                 </Grid>
                             </Border>
 
@@ -2991,9 +3100,7 @@
                             <Border
                                 Grid.Column="2"
                                 Margin="5,0,0,0"
-                                Padding="16"
-                                Background="{DynamicResource SurfaceMediumBrush}"
-                                CornerRadius="12">
+                                Style="{StaticResource WorkspaceCardStyle}">
                                 <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
@@ -3001,27 +3108,71 @@
                                         <RowDefinition Height="*" />
                                     </Grid.RowDefinitions>
 
-                                    <StackPanel
+                                    <Grid
                                         Margin="0,0,0,16"
-                                        Orientation="Horizontal"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                        <TextBlock
-                                            FontSize="16"
-                                            FontWeight="SemiBold"
-                                            Foreground="{DynamicResource ForegroundBrush}"
-                                            Text="🔗 Connections" />
-                                        <TextBlock
-                                            Margin="8,0,0,0"
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock
+                                                FontSize="17"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundBrush}"
+                                                Text="Connections" />
+                                            <TextBlock
+                                                Margin="0,3,0,0"
+                                                FontSize="10"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="Inspect destinations and create routing rules" />
+                                        </StackPanel>
+                                        <Border
+                                            Grid.Column="1"
+                                            Padding="9,5"
                                             VerticalAlignment="Center"
-                                            FontSize="12"
-                                            Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="{Binding SelectedMonitorProcess.ProcessName, StringFormat='({0})'}" />
-                                    </StackPanel>
+                                            Background="{DynamicResource SurfaceLightBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="12">
+                                            <TextBlock
+                                                FontSize="10"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundBrush}"
+                                                Text="{Binding SelectedMonitorProcess.ProcessName}"
+                                                TextTrimming="CharacterEllipsis" />
+                                        </Border>
+                                    </Grid>
 
-                                    <StackPanel
+                                    <Border
                                         Grid.Row="1"
-                                        Margin="0,0,0,12"
+                                        Style="{StaticResource FilterCardStyle}"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
+                                        <StackPanel>
+                                            <Grid Margin="0,0,0,7">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    VerticalAlignment="Center"
+                                                    FontSize="10"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="CONNECTION FILTERS" />
+                                                <CheckBox
+                                                    Grid.Column="1"
+                                                    Margin="0,0,8,0"
+                                                    Content="Advanced filters"
+                                                    IsChecked="{Binding UseAdvancedLogFilters}"
+                                                    Style="{StaticResource FilterModeButtonStyle}" />
+                                                <Button
+                                                    Grid.Column="2"
+                                                    Padding="9,4"
+                                                    Command="{Binding ClearMonitorFiltersCommand}"
+                                                    Content="Reset" />
+                                            </Grid>
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource InvBoolToVis}}">
                                             <StackPanel Width="260" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3034,12 +3185,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding MonitorSearchText, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Search process, host, status, details" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. google - matches any column"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3051,12 +3196,6 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding MonitorTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. DNS - traffic type"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3068,19 +3207,7 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding MonitorResultFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. Blocked - action"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
-                                            <Button
-                                                Margin="0,17,8,8"
-                                                Padding="10,5"
-                                                Command="{Binding ClearMonitorFiltersCommand}"
-                                                Content="Reset"
-                                                />
                                         </WrapPanel>
 
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource BoolToVis}}">
@@ -3095,12 +3222,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding MonitorProcessFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Process" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. chrome - process name"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="160" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3113,12 +3234,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding MonitorHostFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Host" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. youtube.com - host contains"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="130" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3131,12 +3246,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding MonitorStatusFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Status" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. BLOCKED - status text"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="150" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3149,12 +3258,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding MonitorDetailsFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Details" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. UDP 53 - details contain"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="110" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3167,12 +3270,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding MonitorCountryFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Country" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. US - country code"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3184,12 +3281,6 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding MonitorTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. TCP - protocol"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3201,21 +3292,10 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding MonitorResultFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. Direct - route result"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
-                                            <Button
-                                                Margin="0,17,8,8"
-                                                Padding="10,5"
-                                                Command="{Binding ClearMonitorFiltersCommand}"
-                                                Content="Reset"
-                                                />
                                         </WrapPanel>
-                                    </StackPanel>
+                                        </StackPanel>
+                                    </Border>
 
                                     <!--  Connection Cards  -->
                                     <ScrollViewer
@@ -3227,10 +3307,7 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border
-                                                        Margin="0,0,0,6"
-                                                        Padding="12"
-                                                        Background="{DynamicResource SurfaceLightBrush}"
-                                                        CornerRadius="8">
+                                                        Style="{StaticResource DataCardStyle}">
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="*" />
@@ -3261,15 +3338,28 @@
                                                                 </StackPanel>
                                                                 <TextBlock
                                                                     Margin="0,6,0,0"
-                                                                    FontSize="12"
+                                                                    FontSize="13"
+                                                                    FontWeight="SemiBold"
                                                                     Foreground="{DynamicResource ForegroundBrush}"
                                                                     Text="{Binding Host}"
                                                                     TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock
+                                                                    Margin="0,3,0,0"
+                                                                    FontSize="10"
+                                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                    Text="{Binding Details}"
+                                                                    TextTrimming="CharacterEllipsis" />
                                                             </StackPanel>
-                                                            <StackPanel
+                                                            <Border
                                                                 Grid.Column="1"
                                                                 Margin="12,0"
-                                                                VerticalAlignment="Center">
+                                                                Padding="10,7"
+                                                                VerticalAlignment="Center"
+                                                                Background="#1B1F29"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="7">
+                                                                <StackPanel>
                                                                 <StackPanel Orientation="Horizontal">
                                                                     <Image
                                                                         Width="16"
@@ -3279,6 +3369,7 @@
                                                                         Visibility="{Binding FlagUrl, Converter={StaticResource NullToBool}, ConverterParameter=Visible}" />
                                                                     <TextBlock
                                                                         FontSize="10"
+                                                                        FontWeight="SemiBold"
                                                                         Foreground="{Binding Color}"
                                                                         Text="{Binding Status}" />
                                                                 </StackPanel>
@@ -3287,15 +3378,16 @@
                                                                     FontSize="9"
                                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
                                                                     Text="{Binding TrafficFormatted}" />
-                                                            </StackPanel>
+                                                                </StackPanel>
+                                                            </Border>
                                                             <Button
                                                                 Grid.Column="2"
                                                                 Padding="8,4"
                                                                 VerticalAlignment="Center"
                                                                 Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
-                                                                Content="➕"
-                                                                FontSize="12"
+                                                                Content="+ Add rule"
+                                                                FontSize="10"
                                                                 Style="{StaticResource AccentBtn}"
                                                                 ToolTip="Create Rule" />
                                                         </Grid>
@@ -3305,14 +3397,35 @@
                                         </ItemsControl>
                                     </ScrollViewer>
 
-                                    <TextBlock
+                                    <Border
                                         Grid.Row="2"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center"
-                                        FontSize="13"
-                                        Foreground="{DynamicResource ForegroundDisabledBrush}"
-                                        Text="Select a process to view connections"
-                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}" />
+                                        Padding="24,18"
+                                        Background="#1B1F29"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="10"
+                                        Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource InvBoolToVis}}">
+                                        <StackPanel HorizontalAlignment="Center">
+                                            <TextBlock
+                                                HorizontalAlignment="Center"
+                                                FontSize="22"
+                                                Foreground="{DynamicResource ForegroundDisabledBrush}"
+                                                Text="◎" />
+                                            <TextBlock
+                                                Margin="0,7,0,0"
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundBrush}"
+                                                Text="No application selected" />
+                                            <TextBlock
+                                                Margin="0,3,0,0"
+                                                FontSize="10"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="Choose an application on the left to inspect its connections" />
+                                        </StackPanel>
+                                    </Border>
                                 </Grid>
                             </Border>
                         </Grid>
@@ -3321,9 +3434,7 @@
                     <TabItem Header="CONNECTION LOGS" Tag="Logs">
                         <Grid Margin="10">
                             <Border
-                                Padding="16"
-                                Background="{DynamicResource SurfaceMediumBrush}"
-                                CornerRadius="12">
+                                Style="{StaticResource WorkspaceCardStyle}">
                                 <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
@@ -3332,26 +3443,47 @@
                                     </Grid.RowDefinitions>
 
                                     <!--  Header  -->
-                                    <StackPanel
+                                    <Grid
                                         Grid.Row="0"
-                                        Margin="0,0,0,16"
-                                        Orientation="Horizontal">
-                                        <TextBlock
-                                            FontSize="16"
-                                            FontWeight="SemiBold"
-                                            Foreground="{DynamicResource ForegroundBrush}"
-                                            Text="📋 Connection History" />
-                                        <TextBlock
-                                            Margin="12,0,0,0"
+                                        Margin="0,0,0,14">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock
+                                                FontSize="17"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundBrush}"
+                                                Text="Connection history" />
+                                            <TextBlock
+                                                Margin="0,3,0,0"
+                                                FontSize="10"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="Review routing decisions and create rules from traffic" />
+                                        </StackPanel>
+                                        <Border
+                                            Grid.Column="1"
+                                            Margin="12,0,10,0"
+                                            Padding="9,5"
                                             VerticalAlignment="Center"
-                                            FontSize="12"
-                                            Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="{Binding Logs.Count, StringFormat='{}{0} entries'}" />
+                                            Background="{DynamicResource SurfaceLightBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="12">
+                                            <TextBlock
+                                                FontSize="10"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="{Binding Logs.Count, StringFormat='{}{0} entries'}" />
+                                        </Border>
                                         <Button
-                                            Margin="16,0,0,0"
+                                            Grid.Column="2"
+                                            VerticalAlignment="Center"
                                             Padding="12,6"
                                             Command="{Binding ClearLogsCommand}"
-                                            Content="🗑️ Clear All">
+                                            Content="Clear all">
                                             <Button.Style>
                                                 <Style TargetType="Button">
                                                     <Setter Property="Background" Value="#7F1D1D" />
@@ -3378,9 +3510,37 @@
                                                 </Style>
                                             </Button.Style>
                                         </Button>
-                                    </StackPanel>
+                                    </Grid>
 
-                                    <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                                    <Border
+                                        Grid.Row="1"
+                                        Style="{StaticResource FilterCardStyle}">
+                                        <StackPanel>
+                                            <Grid Margin="0,0,0,7">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    VerticalAlignment="Center"
+                                                    FontSize="10"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="LOG FILTERS" />
+                                                <CheckBox
+                                                    Grid.Column="1"
+                                                    Margin="0,0,12,0"
+                                                    VerticalAlignment="Center"
+                                                    Content="Advanced filters"
+                                                    IsChecked="{Binding UseAdvancedLogFilters}"
+                                                    Style="{StaticResource FilterModeButtonStyle}" />
+                                                <Button
+                                                    Grid.Column="2"
+                                                    Padding="9,4"
+                                                    Command="{Binding ClearLogFiltersCommand}"
+                                                    Content="Reset" />
+                                            </Grid>
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource InvBoolToVis}}">
                                             <StackPanel Width="280" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3393,12 +3553,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding LogSearchText, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Search process, host, result, type" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. google - matches any column"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3410,12 +3564,6 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding LogTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. HTTPS - traffic type"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3427,19 +3575,7 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding LogResultFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. Proxy - action"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
-                                            <Button
-                                                Margin="0,17,8,8"
-                                                Padding="10,5"
-                                                Command="{Binding ClearLogFiltersCommand}"
-                                                Content="Reset"
-                                                />
                                         </WrapPanel>
 
                                         <WrapPanel Visibility="{Binding UseAdvancedLogFilters, Converter={StaticResource BoolToVis}}">
@@ -3454,12 +3590,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding LogProcessFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Process" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. telegram - process name"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="180" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3472,12 +3602,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding LogHostFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Host" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. discord.com - host contains"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="140" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3490,12 +3614,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding LogResultTextFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Result" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. BLOCKED - result text"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="110" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3508,12 +3626,6 @@
                                                 Padding="8,5"
                                                 Text="{Binding LogCountryFilter, UpdateSourceTrigger=PropertyChanged}"
                                                 ToolTip="Country" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. DE - country code"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3525,12 +3637,6 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogTypeFilters}"
                                                 SelectedItem="{Binding LogTypeFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. DNS - protocol"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
                                             <StackPanel Width="120" Margin="0,0,8,8">
                                                 <TextBlock
@@ -3542,21 +3648,10 @@
                                                 Width="120"
                                                 ItemsSource="{Binding LogResultFilters}"
                                                 SelectedItem="{Binding LogResultFilter, UpdateSourceTrigger=PropertyChanged}" />
-                                                <TextBlock
-                                                    Margin="0,3,0,0"
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="e.g. Blocked - route result"
-                                                    TextWrapping="Wrap" />
                                             </StackPanel>
-                                            <Button
-                                                Margin="0,17,8,8"
-                                                Padding="10,5"
-                                                Command="{Binding ClearLogFiltersCommand}"
-                                                Content="Reset"
-                                                />
                                         </WrapPanel>
-                                    </StackPanel>
+                                        </StackPanel>
+                                    </Border>
 
                                     <!--  Log Cards  -->
                                     <ScrollViewer
@@ -3575,10 +3670,8 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border
-                                                        Margin="0,0,0,6"
                                                         Padding="14"
-                                                        Background="{DynamicResource SurfaceLightBrush}"
-                                                        CornerRadius="8">
+                                                        Style="{StaticResource DataCardStyle}">
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />
@@ -3587,22 +3680,39 @@
                                                                 <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
 
-                                                            <!--  App Icon  -->
-                                                            <Image
-                                                                Width="28"
-                                                                Height="28"
+                                                            <Border
+                                                                Width="42"
+                                                                Height="42"
                                                                 Margin="0,0,14,0"
                                                                 VerticalAlignment="Center"
-                                                                Source="{Binding AppIcon}" />
+                                                                Background="#1B1F29"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8">
+                                                                <Image
+                                                                    Width="26"
+                                                                    Height="26"
+                                                                    HorizontalAlignment="Center"
+                                                                    VerticalAlignment="Center"
+                                                                    Source="{Binding AppIcon}" />
+                                                            </Border>
 
-                                                            <!--  Main Content  -->
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                                 <StackPanel Orientation="Horizontal">
-                                                                    <!--  Type Badge  -->
+                                                                    <TextBlock
+                                                                        VerticalAlignment="Center"
+                                                                        FontSize="12"
+                                                                        FontWeight="SemiBold"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        Text="{Binding ProcessName}"
+                                                                        TextTrimming="CharacterEllipsis" />
                                                                     <Border
+                                                                        Margin="9,0,0,0"
                                                                         Padding="6,2"
-                                                                        Background="{DynamicResource BorderBrush}"
-                                                                        CornerRadius="4">
+                                                                        Background="#1B1F29"
+                                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                                        BorderThickness="1"
+                                                                        CornerRadius="5">
                                                                         <StackPanel Orientation="Horizontal">
                                                                             <TextBlock FontSize="10" Text="{Binding TypeIcon}" />
                                                                             <TextBlock
@@ -3616,31 +3726,36 @@
                                                                     <TextBlock
                                                                         Margin="10,0,0,0"
                                                                         VerticalAlignment="Center"
-                                                                        FontSize="11"
+                                                                        FontSize="10"
                                                                         Foreground="{DynamicResource ForegroundMutedBrush}"
                                                                         Text="{Binding Time}" />
-                                                                    <TextBlock
-                                                                        Margin="10,0,0,0"
-                                                                        VerticalAlignment="Center"
-                                                                        FontSize="12"
-                                                                        FontWeight="SemiBold"
-                                                                        Foreground="#A1A1AA"
-                                                                        Text="{Binding ProcessName}" />
                                                                 </StackPanel>
                                                                 <TextBlock
-                                                                    Margin="0,6,0,0"
-                                                                    FontSize="13"
+                                                                    Margin="0,7,0,0"
+                                                                    FontSize="14"
+                                                                    FontWeight="SemiBold"
                                                                     Foreground="{DynamicResource ForegroundBrush}"
                                                                     Text="{Binding Host}"
                                                                     TextTrimming="CharacterEllipsis" />
                                                             </StackPanel>
 
-                                                            <!--  Result Badge  -->
-                                                            <StackPanel
+                                                            <Border
                                                                 Grid.Column="2"
                                                                 Margin="12,0"
-                                                                VerticalAlignment="Center">
-                                                                <StackPanel Orientation="Horizontal">
+                                                                Padding="11,8"
+                                                                VerticalAlignment="Center"
+                                                                Background="#1B1F29"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="7">
+                                                                <StackPanel>
+                                                                    <TextBlock
+                                                                        Margin="0,0,0,4"
+                                                                        HorizontalAlignment="Center"
+                                                                        FontSize="9"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="ROUTE" />
+                                                                    <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
                                                                     <Image
                                                                         Width="20"
                                                                         Height="15"
@@ -3653,17 +3768,17 @@
                                                                         FontWeight="SemiBold"
                                                                         Foreground="{Binding Color}"
                                                                         Text="{Binding Result}" />
+                                                                    </StackPanel>
                                                                 </StackPanel>
-                                                            </StackPanel>
+                                                            </Border>
 
-                                                            <!--  Action Button  -->
                                                             <Button
                                                                 Grid.Column="3"
                                                                 Padding="10,6"
                                                                 VerticalAlignment="Center"
                                                                 Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
-                                                                Content="➕ Rule"
+                                                                Content="+ Add rule"
                                                                 FontSize="11"
                                                                 Style="{StaticResource AccentBtn}"
                                                                 ToolTip="Create Traffic Rule" />

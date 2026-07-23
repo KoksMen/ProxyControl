@@ -226,7 +226,12 @@ namespace ProxyControl.Services
             catch (OperationCanceledException) { }
         }
 
-        public async Task LoadHistoryAsync(DateTime start, DateTime end, TimeSpan? startTime = null, TimeSpan? endTime = null)
+        public async Task LoadHistoryAsync(
+            DateTime start,
+            DateTime end,
+            TimeSpan? startTime = null,
+            TimeSpan? endTime = null,
+            CancellationToken token = default)
         {
             IsLiveMode = false;
             _uiBatchTimer.Stop();
@@ -240,6 +245,7 @@ namespace ProxyControl.Services
 
                 while (current <= endDate)
                 {
+                    token.ThrowIfCancellationRequested();
                     string fileName = $"log_{current:yyyy-MM-dd}.jsonl";
                     string fullPath = Path.Combine(_logsPath, fileName);
 
@@ -247,6 +253,7 @@ namespace ProxyControl.Services
                     {
                         foreach (var line in File.ReadLines(fullPath))
                         {
+                            token.ThrowIfCancellationRequested();
                             try
                             {
                                 var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
@@ -259,8 +266,7 @@ namespace ProxyControl.Services
                                     {
                                         resultDict[item.ProcessName] = new ProcessTrafficData
                                         {
-                                            ProcessName = item.ProcessName,
-                                            Icon = _liveProcessStats.TryGetValue(item.ProcessName, out var liveP) ? liveP.Icon : IconHelper.GetIconByProcessName(item.ProcessName)
+                                            ProcessName = item.ProcessName
                                         };
                                     }
 
@@ -275,23 +281,29 @@ namespace ProxyControl.Services
                     }
                     current = current.AddDays(1);
                 }
-            });
+            }, token);
+
+            token.ThrowIfCancellationRequested();
 
             foreach (var p in resultDict.Values)
             {
+                p.Icon = _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
+                    ? liveP.Icon
+                    : IconHelper.GetIconByProcessName(p.ProcessName);
                 var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
                 p.Connections.Clear();
                 foreach (var s in sorted) p.Connections.Add(s);
             }
 
-            Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+            await Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (token.IsCancellationRequested) return;
                 DisplayedProcessList.Clear();
                 foreach (var p in resultDict.Values)
                 {
                     DisplayedProcessList.Add(p);
                 }
-            });
+            }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         public void SwitchToLiveMode()

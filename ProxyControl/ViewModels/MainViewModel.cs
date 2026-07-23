@@ -606,19 +606,46 @@ namespace ProxyControl.ViewModels
         }
 
         private TrafficPeriodMode _selectedPeriodMode = TrafficPeriodMode.LiveSession;
+        private CancellationTokenSource? _monitorPeriodCts;
+        private bool _isMonitorPeriodLoading;
+        private string _monitorPeriodStatus = "Live traffic";
+
         public TrafficPeriodMode SelectedPeriodMode
         {
             get => _selectedPeriodMode;
             set
             {
+                if (_selectedPeriodMode == value) return;
                 _selectedPeriodMode = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsDateRangeVisible));
-                ApplyFilter();
+                _ = ApplyMonitorPeriodAsync();
             }
         }
 
         public bool IsDateRangeVisible => SelectedPeriodMode == TrafficPeriodMode.CustomRange;
+
+        public bool IsMonitorPeriodLoading
+        {
+            get => _isMonitorPeriodLoading;
+            private set
+            {
+                if (_isMonitorPeriodLoading == value) return;
+                _isMonitorPeriodLoading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string MonitorPeriodStatus
+        {
+            get => _monitorPeriodStatus;
+            private set
+            {
+                if (_monitorPeriodStatus == value) return;
+                _monitorPeriodStatus = value;
+                OnPropertyChanged();
+            }
+        }
 
         private DateTime _filterDateStart = DateTime.Now;
         public DateTime FilterDateStart
@@ -1739,7 +1766,7 @@ namespace ProxyControl.ViewModels
             BrowseExeCommand = new RelayCommand(_ => BrowseExeFile());
             BrowseShortcutCommand = new RelayCommand(_ => BrowseShortcutFile());
 
-            ApplyFilterCommand = new RelayCommand(_ => ApplyFilter());
+            ApplyFilterCommand = new RelayCommand(_ => _ = ApplyMonitorPeriodAsync());
             TraySelectProxyCommand = new RelayCommand(p => SelectedBlackListMainProxy = (ProxyItem)p);
             TraySetBlackListModeCommand = new RelayCommand(_ => IsBlackListMode = true);
             TraySetWhiteListModeCommand = new RelayCommand(_ => IsBlackListMode = false);
@@ -1861,28 +1888,75 @@ namespace ProxyControl.ViewModels
         // так как проблема была именно в инициализации.
         // Но чтобы следовать вашей инструкции "полный код", я продублирую остальные методы ниже.
 
-        private async void ApplyFilter()
+        private async Task ApplyMonitorPeriodAsync()
         {
+            _monitorPeriodCts?.Cancel();
+            _monitorPeriodCts?.Dispose();
+            var requestCts = new CancellationTokenSource();
+            _monitorPeriodCts = requestCts;
+            var token = requestCts.Token;
+
             SelectedMonitorProcess = null;
-            if (SelectedPeriodMode == TrafficPeriodMode.LiveSession)
+            IsMonitorPeriodLoading = true;
+            MonitorPeriodStatus = SelectedPeriodMode == TrafficPeriodMode.LiveSession
+                ? "Switching to live traffic..."
+                : "Loading connection history...";
+
+            try
             {
-                _trafficMonitorService.SwitchToLiveMode();
-            }
-            else
-            {
-                DateTime start = DateTime.Now;
-                DateTime end = DateTime.Now;
+                if (SelectedPeriodMode == TrafficPeriodMode.LiveSession)
+                {
+                    _trafficMonitorService.SwitchToLiveMode();
+                    MonitorPeriodStatus = "Live traffic";
+                    return;
+                }
+
+                DateTime start = DateTime.Today;
+                DateTime end = DateTime.Today;
                 TimeSpan? timeStart = null;
                 TimeSpan? timeEnd = null;
-                if (SelectedPeriodMode == TrafficPeriodMode.Today) { start = DateTime.Today; end = DateTime.Today; }
-                else if (SelectedPeriodMode == TrafficPeriodMode.Yesterday) { start = DateTime.Today.AddDays(-1); end = DateTime.Today.AddDays(-1); }
+
+                if (SelectedPeriodMode == TrafficPeriodMode.Yesterday)
+                {
+                    start = DateTime.Today.AddDays(-1);
+                    end = start;
+                }
                 else if (SelectedPeriodMode == TrafficPeriodMode.CustomRange)
                 {
-                    start = FilterDateStart.Date; end = FilterDateEnd.Date;
+                    start = FilterDateStart.Date;
+                    end = FilterDateEnd.Date;
+                    if (end < start) (start, end) = (end, start);
                     if (TimeSpan.TryParse(FilterTimeStart, out var ts)) timeStart = ts;
                     if (TimeSpan.TryParse(FilterTimeEnd, out var te)) timeEnd = te;
                 }
-                await _trafficMonitorService.LoadHistoryAsync(start, end, timeStart, timeEnd);
+
+                await _trafficMonitorService.LoadHistoryAsync(start, end, timeStart, timeEnd, token);
+                token.ThrowIfCancellationRequested();
+                MonitorPeriodStatus = SelectedPeriodMode switch
+                {
+                    TrafficPeriodMode.Today => "Today's history",
+                    TrafficPeriodMode.Yesterday => "Yesterday's history",
+                    TrafficPeriodMode.CustomRange => $"{start:dd.MM.yyyy} – {end:dd.MM.yyyy}",
+                    _ => "Connection history"
+                };
+            }
+            catch (OperationCanceledException)
+            {
+                // A newer period selection superseded this request.
+            }
+            catch (Exception ex)
+            {
+                MonitorPeriodStatus = "History loading failed";
+                AppLoggerService.Instance.Error("Monitor", $"Period filter failed: {ex.Message}");
+            }
+            finally
+            {
+                if (ReferenceEquals(_monitorPeriodCts, requestCts))
+                {
+                    IsMonitorPeriodLoading = false;
+                    _monitorPeriodCts = null;
+                    requestCts.Dispose();
+                }
             }
         }
 
@@ -3671,6 +3745,9 @@ namespace ProxyControl.ViewModels
         {
             try
             {
+                _monitorPeriodCts?.Cancel();
+                _monitorPeriodCts?.Dispose();
+                _monitorPeriodCts = null;
                 _connectionLogTimer.Stop();
                 _proxyService.OnConnectionLog -= OnLogReceived;
                 _proxyService?.Stop();

@@ -18,6 +18,8 @@ namespace ProxyControl.Services
         private readonly string _filePath;
         private const string AppName = "ProxyManagerApp";
         private const string RegistryKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+        private const string StartupApprovedRunKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        private const string StartupApprovedRun32KeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32";
         private const string ScheduledTaskName = "ProxyControl Autostart";
         private readonly SemaphoreSlim _saveLock = new(1, 1);
 
@@ -61,6 +63,7 @@ namespace ProxyControl.Services
                     // Scheduler elevation, locale, or task-service policy.
                     using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath, true);
                     key?.SetValue(AppName, BuildAutoStartCommand(GetExecutablePath()), RegistryValueKind.String);
+                    ClearStartupApprovalState();
                     RunSchtasks(BuildAutoStartTaskDeleteArguments());
                 }
                 else
@@ -76,7 +79,7 @@ namespace ProxyControl.Services
         {
             try
             {
-                if (HasLegacyRunEntry())
+                if (HasEnabledRunEntry())
                 {
                     return true;
                 }
@@ -234,16 +237,52 @@ namespace ProxyControl.Services
             catch { }
         }
 
-        private static bool HasLegacyRunEntry()
+        private static bool HasEnabledRunEntry()
         {
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
-                return key?.GetValue(AppName) != null;
+                if (key?.GetValue(AppName) == null) return false;
+
+                return !IsStartupEntryDisabled(StartupApprovedRunKeyPath) &&
+                       !IsStartupEntryDisabled(StartupApprovedRun32KeyPath);
             }
             catch
             {
                 return false;
+            }
+        }
+
+        private static bool IsStartupEntryDisabled(string keyPath)
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(keyPath, false);
+            if (key?.GetValue(AppName) is not byte[] state || state.Length == 0)
+            {
+                return false;
+            }
+
+            // Windows uses 0x03 as the disabled StartupApproved state and 0x02
+            // as enabled. A missing value also means that the Run entry is active.
+            return state[0] == 0x03;
+        }
+
+        private static void ClearStartupApprovalState()
+        {
+            ClearStartupApprovalState(StartupApprovedRunKeyPath);
+            ClearStartupApprovalState(StartupApprovedRun32KeyPath);
+        }
+
+        private static void ClearStartupApprovalState(string keyPath)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(keyPath, true);
+                key?.DeleteValue(AppName, false);
+            }
+            catch
+            {
+                // The Run entry itself is still valid on Windows versions that do
+                // not expose StartupApproved or restrict writes to this key.
             }
         }
     }
