@@ -112,6 +112,7 @@ namespace ProxyControl.Services
             var newProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
+                Name = p.Name,
                 IpAddress = p.IpAddress,
                 Port = p.Port,
                 Username = p.Username,
@@ -576,7 +577,7 @@ namespace ProxyControl.Services
                 }
                 else if (decision.Proxy != null)
                 {
-                    logResult = $"Proxy: {decision.Proxy.IpAddress}";
+                    logResult = $"Proxy: {decision.Proxy.Name}";
                     logColor = "#55FF55";
                 }
 
@@ -586,7 +587,7 @@ namespace ProxyControl.Services
                     flagUrl = $"https://flagcdn.com/w40/{decision.Proxy.CountryCode.ToLower()}.png";
                 }
 
-                string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "";
+                string details = decision.Proxy != null ? $"{decision.Proxy.Name} ({decision.Proxy.Endpoint})" : "";
                 historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, logResult, details, flagUrl, logColor);
 
                 OnConnectionLog?.Invoke(new ConnectionLog
@@ -603,7 +604,7 @@ namespace ProxyControl.Services
                 // Enhanced logging
                 _logger.Debug("Proxy", $"[{processName}] → {targetHost}:{targetPort} ({(isConnectMethod ? "HTTPS" : "HTTP")}) = {logResult}");
                 if (decision.Proxy != null)
-                    _logger.Debug("Proxy", $"  ↳ Routing via {decision.Proxy.Type}: {decision.Proxy.IpAddress}:{decision.Proxy.Port} ({decision.Proxy.CountryCode ?? "?"})");
+                    _logger.Debug("Proxy", $"  ↳ Routing via {decision.Proxy.Name} [{decision.Proxy.Type}]: {decision.Proxy.Endpoint} ({decision.Proxy.CountryCode ?? "?"})");
 
                 if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) return;
 
@@ -1712,14 +1713,14 @@ namespace ProxyControl.Services
             }
             else if (decision.Proxy != null)
             {
-                logResult = $"Proxy: {decision.Proxy.IpAddress}"; logColor = "#55FF55";
+                logResult = $"Proxy: {decision.Proxy.Name}"; logColor = "#55FF55";
             }
 
             string? flagUrl = null;
             if (decision.Proxy != null && !string.IsNullOrEmpty(decision.Proxy.CountryCode))
                 flagUrl = $"https://flagcdn.com/w40/{decision.Proxy.CountryCode.ToLower()}.png";
 
-            string details = decision.Proxy != null ? $"{decision.Proxy.IpAddress}:{decision.Proxy.Port}" : "";
+            string details = decision.Proxy != null ? $"{decision.Proxy.Name} ({decision.Proxy.Endpoint})" : "";
             historyItem = _trafficMonitor.CreateConnectionItem(processName, null, targetHost, decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(), details, flagUrl, logColor);
 
             if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both)
@@ -1852,7 +1853,7 @@ namespace ProxyControl.Services
                             proxyUdpClient.Connect(proxyUdpEndpoint);
 
                             _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Proxied",
-                                $"via {udpProxy.IpAddress}:{proxyUdpEndpoint.Port}", null, "#55FF55");
+                                $"via {udpProxy.Name} ({udpProxy.IpAddress}:{proxyUdpEndpoint.Port})", null, "#55FF55");
                         }
                         catch (Exception ex)
                         {

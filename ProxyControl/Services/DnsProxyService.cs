@@ -81,6 +81,7 @@ namespace ProxyControl.Services
             _localProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
+                Name = p.Name,
                 IpAddress = p.IpAddress,
                 Port = p.Port,
                 Username = p.Username,
@@ -272,7 +273,7 @@ namespace ProxyControl.Services
                 }
                 else if (decision.Action == RuleAction.Proxy && decision.Proxy != null && decision.Proxy.IsEnabled)
                 {
-                    logResult = $"Proxy: {decision.Proxy.IpAddress}";
+                    logResult = $"Proxy: {decision.Proxy.Name}";
                     logColor = "#55FF55";
                     success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
                 }

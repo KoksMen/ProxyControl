@@ -120,6 +120,60 @@ namespace ProxyControl.Services
             }
         }
 
+        public async Task<bool> SaveDnsAsync(AppConfig dnsConfig, CancellationToken token = default)
+        {
+            string tempPath = _filePath + ".tmp";
+            await _saveLock.WaitAsync(token);
+            try
+            {
+                AppSettings settings;
+                if (File.Exists(_filePath))
+                {
+                    var existingJson = await File.ReadAllTextAsync(_filePath, token);
+                    settings = JsonSerializer.Deserialize<AppSettings>(existingJson) ?? new AppSettings();
+                }
+                else
+                {
+                    settings = new AppSettings();
+                }
+
+                settings.Config ??= new AppConfig();
+                CopyDnsSettings(dnsConfig, settings.Config);
+
+                var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(tempPath, json, token);
+                File.Move(tempPath, _filePath, true);
+                return true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                _saveLock.Release();
+            }
+        }
+
+        private static void CopyDnsSettings(AppConfig source, AppConfig destination)
+        {
+            destination.EnableDnsProtection = source.EnableDnsProtection;
+            destination.DnsProvider = source.DnsProvider;
+            destination.DnsHost = source.DnsHost;
+            destination.DnsFallbackHost = source.DnsFallbackHost;
+            destination.EnableDoh = source.EnableDoh;
+            destination.DohProvider = source.DohProvider;
+            destination.AutoDetectDohEndpoint = source.AutoDetectDohEndpoint;
+            destination.DohEndpoint = source.DohEndpoint;
+            destination.EnableDohFallback = source.EnableDohFallback;
+            destination.AutoDetectDohFallbackEndpoint = source.AutoDetectDohFallbackEndpoint;
+            destination.DohFallbackEndpoint = source.DohFallbackEndpoint;
+        }
+
         public static string BuildAutoStartCommand(string exePath)
         {
             return $"\"{exePath}\" --autostart";

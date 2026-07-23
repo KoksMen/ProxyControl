@@ -46,6 +46,7 @@ namespace ProxyControl.Models
         private BlockDirection _blockDirection = BlockDirection.Both;
         private ImageSource? _appIcon;
         private string? _iconBase64;
+        private bool _isTemporary;
 
         // Backing fields for lists
         private List<string> _targetApps = new List<string>();
@@ -93,6 +94,21 @@ namespace ProxyControl.Models
             get => _iconBase64;
             set { _iconBase64 = value; OnPropertyChanged(); }
         }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsTemporary
+        {
+            get => _isTemporary;
+            set
+            {
+                _isTemporary = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PersistenceLabel));
+            }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string PersistenceLabel => IsTemporary ? "TEMP" : string.Empty;
 
         public List<string> TargetApps
         {
@@ -178,6 +194,15 @@ namespace ProxyControl.Models
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    public class ActiveProcessInfo
+    {
+        public string ProcessName { get; set; } = "";
+        public string FilePath { get; set; } = "";
+        public string DisplayText => string.IsNullOrWhiteSpace(FilePath)
+            ? ProcessName
+            : $"{ProcessName} — {FilePath}";
     }
 
     // Класс для логов подключений (используется во вкладке Connection Logs)

@@ -28,6 +28,8 @@ namespace ProxyControl.Models
         public bool CheckUpdateOnStartup { get; set; } = true;
         public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
         public AppConfig Config { get; set; } = new AppConfig();
+        public List<AppProfile> Profiles { get; set; } = new List<AppProfile>();
+        public string? ActiveProfileId { get; set; }
     }
 
     // Конфигурация правил маршрутизации
@@ -68,5 +70,18 @@ namespace ProxyControl.Models
         public string Name { get; set; } = "New Preset";
         public List<TrafficRule> Rules { get; set; } = new List<TrafficRule>();
         public RuleMode Mode { get; set; } = RuleMode.BlackList;
+    }
+
+    public class AppProfile
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Name { get; set; } = "New Profile";
+        public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
+        public Guid? BlackListSelectedProxyId { get; set; }
+        public string? TunProxyId { get; set; }
+        public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
+        public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
+        public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
+        public List<RulePreset> Presets { get; set; } = new List<RulePreset>();
     }
 }

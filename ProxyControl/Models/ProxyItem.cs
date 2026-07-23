@@ -13,6 +13,8 @@ namespace ProxyControl.Models
 
     public class ProxyItem : INotifyPropertyChanged
     {
+        private string _id = Guid.NewGuid().ToString();
+        private string _name = "";
         private string _ipAddress = "";
         private int _port;
         private string? _username;
@@ -30,18 +32,48 @@ namespace ProxyControl.Models
         private bool _useTls = false;
         private bool _useSsl = false;
 
-        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Id
+        {
+            get => _id;
+            set
+            {
+                _id = string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString() : value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplayName));
+            }
+        }
+
+        /// <summary>
+        /// User-facing proxy name. Older configurations do not contain this
+        /// property; MainViewModel migrates those entries to their stable id.
+        /// </summary>
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                _name = value?.Trim() ?? "";
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplayName));
+            }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string DisplayName => Name;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string Endpoint => $"{IpAddress}:{Port}";
 
         public string IpAddress
         {
             get => _ipAddress;
-            set { _ipAddress = value; OnPropertyChanged(); }
+            set { _ipAddress = value; OnPropertyChanged(); OnPropertyChanged(nameof(Endpoint)); }
         }
 
         public int Port
         {
             get => _port;
-            set { _port = value; OnPropertyChanged(); }
+            set { _port = value; OnPropertyChanged(); OnPropertyChanged(nameof(Endpoint)); }
         }
 
         public string? Username
