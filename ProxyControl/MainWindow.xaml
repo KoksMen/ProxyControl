@@ -1233,6 +1233,7 @@
                         Foreground="White"
                         ItemsSource="{Binding Proxies}"
                         SelectedItem="{Binding SelectedProxy}"
+                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                         Visibility="{Binding IsProxyPanelExpanded, Converter={StaticResource BoolToVis}}">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
@@ -1296,7 +1297,11 @@
                                         Source="{Binding FlagUrl}" />
 
                                     <StackPanel Grid.Column="2">
-                                        <StackPanel Orientation="Horizontal">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" MinWidth="0" />
+                                            </Grid.ColumnDefinitions>
                                             <Border
                                                 Margin="0,0,5,0"
                                                 Padding="3,0"
@@ -1309,24 +1314,79 @@
                                                     Foreground="#EEE"
                                                     Text="{Binding Type}" />
                                             </Border>
-                                            <TextBlock FontWeight="Bold" Text="{Binding Name}" />
-                                        </StackPanel>
-                                        <StackPanel Orientation="Horizontal">
                                             <TextBlock
-                                                Margin="0,0,5,0"
+                                                Grid.Column="1"
+                                                FontWeight="Bold"
+                                                Text="{Binding Name}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTip="{Binding Name}" />
+                                        </Grid>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" MinWidth="0" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="70" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock
                                                 FontSize="10"
                                                 Foreground="#AAA"
-                                                Text="{Binding Endpoint}" />
+                                                Text="{Binding Endpoint}"
+                                                TextTrimming="CharacterEllipsis"
+                                                ToolTip="{Binding Endpoint}" />
                                             <TextBlock
-                                                Margin="0,0,5,0"
+                                                Grid.Column="1"
+                                                Margin="6,0,0,0"
                                                 FontSize="10"
                                                 Foreground="#55AAFF"
                                                 Text="{Binding PingFormatted}" />
-                                            <TextBlock
-                                                FontSize="10"
-                                                Foreground="#55FF55"
-                                                Text="{Binding SpeedFormatted}" />
-                                        </StackPanel>
+                                            <Grid
+                                                Grid.Column="2"
+                                                Margin="6,0,0,0"
+                                                VerticalAlignment="Center">
+                                                <TextBlock
+                                                    FontSize="10"
+                                                    Foreground="#55FF55"
+                                                    Text="{Binding SpeedFormatted}"
+                                                    Visibility="{Binding IsSpeedChecking, Converter={StaticResource InvBoolToVis}}" />
+                                                <TextBlock
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Center"
+                                                    Width="64"
+                                                    FontFamily="Segoe UI"
+                                                    FontSize="10"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="#55FF55"
+                                                    Text="●  ●  ●  MB/s"
+                                                    ToolTip="Measuring proxy speed">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsSpeedChecking}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Visible" />
+                                                                    <DataTrigger.EnterActions>
+                                                                        <BeginStoryboard x:Name="ProxySpeedSpinner">
+                                                                            <Storyboard RepeatBehavior="Forever">
+                                                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetProperty="Text">
+                                                                                    <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="●  ●  ●  MB/s" />
+                                                                                    <DiscreteObjectKeyFrame KeyTime="0:0:0.3" Value="●  ●  ·  MB/s" />
+                                                                                    <DiscreteObjectKeyFrame KeyTime="0:0:0.6" Value="●  ·  ·  MB/s" />
+                                                                                    <DiscreteObjectKeyFrame KeyTime="0:0:0.9" Value="·  ·  ·  MB/s" />
+                                                                                    <DiscreteObjectKeyFrame KeyTime="0:0:1.2" Value="●  ●  ●  MB/s" />
+                                                                                </ObjectAnimationUsingKeyFrames>
+                                                                            </Storyboard>
+                                                                        </BeginStoryboard>
+                                                                    </DataTrigger.EnterActions>
+                                                                    <DataTrigger.ExitActions>
+                                                                        <StopStoryboard BeginStoryboardName="ProxySpeedSpinner" />
+                                                                    </DataTrigger.ExitActions>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Grid>
+                                        </Grid>
                                     </StackPanel>
 
 

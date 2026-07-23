@@ -1893,6 +1893,29 @@ namespace ProxyControl.ViewModels
 
             StartEnforcementLoop();
 
+            var startupProxies = Proxies.ToList();
+            foreach (var proxy in startupProxies)
+            {
+                proxy.Status = "Checking...";
+                proxy.IsSpeedChecking = true;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Let the first frame render with loading indicators before I/O starts.
+                    await Task.Delay(250);
+                    await CheckAllProxies(startupProxies);
+                }
+                catch (Exception ex)
+                {
+                    AppLoggerService.Instance.Error(
+                        "ProxyCheck",
+                        $"Startup proxy check failed: {ex.Message}");
+                }
+            });
+
             Task.Run(async () =>
             {
                 await Task.Delay(2000);
@@ -2512,13 +2535,82 @@ namespace ProxyControl.ViewModels
             }
         }
 
-        private async Task CheckAllProxies()
+        private async Task CheckAllProxies(IReadOnlyList<ProxyItem>? proxies = null)
         {
-            var proxyList = Proxies.ToList(); if (proxyList.Count == 0) return;
-            using (var semaphore = new SemaphoreSlim(3))
+            var proxyList = proxies?.ToList() ?? Proxies.ToList();
+            if (proxyList.Count == 0) return;
+
+            var online = new bool[proxyList.Count];
+
+            try
             {
-                var tasks = proxyList.Select(async p => { await semaphore.WaitAsync(); try { Application.Current.Dispatcher.Invoke(() => p.Status = "Checking..."); await CheckSingleProxy(p); } finally { semaphore.Release(); } });
-                await Task.WhenAll(tasks);
+                // Phase 1: availability and TCP ping are lightweight, so check
+                // several proxies concurrently and populate their status quickly.
+                using (var semaphore = new SemaphoreSlim(6))
+                {
+                    var quickChecks = proxyList.Select(async (proxy, index) =>
+                    {
+                        await semaphore.WaitAsync();
+                        try
+                        {
+                            var result = await _proxyService.CheckProxy(proxy, measureSpeed: false);
+                            online[index] = result.IsSuccess;
+                            Application.Current.Dispatcher.Invoke(() =>
+                            {
+                                proxy.Status = result.IsSuccess ? "Online" : "Offline";
+                                proxy.PingMs = result.Ping;
+                                if (!string.IsNullOrEmpty(result.CountryCode))
+                                    proxy.CountryCode = result.CountryCode;
+                                if (!result.IsSuccess)
+                                {
+                                    proxy.SpeedMBps = 0;
+                                    proxy.IsSpeedChecking = false;
+                                }
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Application.Current.Dispatcher.Invoke(() =>
+                            {
+                                proxy.Status = "Offline";
+                                proxy.SpeedMBps = 0;
+                                proxy.IsSpeedChecking = false;
+                            });
+                            AppLoggerService.Instance.Error(
+                                "ProxyCheck",
+                                $"Could not check {proxy.Endpoint}: {ex.Message}");
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    });
+
+                    await Task.WhenAll(quickChecks);
+                }
+
+                // Phase 2: throughput tests are deliberately sequential. Running
+                // them in parallel would make the proxies compete for bandwidth.
+                for (int i = 0; i < proxyList.Count; i++)
+                {
+                    if (!online[i]) continue;
+
+                    var proxy = proxyList[i];
+                    double speed = await _proxyService.MeasureProxySpeedAsync(proxy);
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        proxy.SpeedMBps = speed;
+                        proxy.IsSpeedChecking = false;
+                    });
+                }
+            }
+            finally
+            {
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    foreach (var proxy in proxyList)
+                        proxy.IsSpeedChecking = false;
+                });
             }
         }
 
@@ -2714,7 +2806,7 @@ namespace ProxyControl.ViewModels
             if (sender is TrafficRule rule && e.PropertyName == nameof(TrafficRule.TargetHosts))
                 QueueSiteIconLoad(rule);
 
-            var triggers = new HashSet<string> { nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps), nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName), nameof(TrafficRule.BlockDirection), nameof(ProxyItem.Name), nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port), nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode), nameof(ProxyItem.UseTls), nameof(ProxyItem.UseSsl), nameof(TrafficRule.IconBase64), nameof(ProxyItem.Type) };
+            var triggers = new HashSet<string> { nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps), nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName), nameof(TrafficRule.BlockDirection), nameof(ProxyItem.Name), nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port), nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode), nameof(ProxyItem.SpeedMBps), nameof(ProxyItem.UseTls), nameof(ProxyItem.UseSsl), nameof(TrafficRule.IconBase64), nameof(ProxyItem.Type) };
 
             // Warning removed as support is being implemented
 
@@ -3074,9 +3166,20 @@ namespace ProxyControl.ViewModels
 
         private async Task CheckSingleProxy(ProxyItem p)
         {
-            Application.Current.Dispatcher.Invoke(() => p.Status = "Checking...");
-            var res = await Task.Run(() => _proxyService.CheckProxy(p));
-            Application.Current.Dispatcher.Invoke(() => { p.Status = res.IsSuccess ? "Online" : "Offline"; p.PingMs = res.Ping; p.SpeedMbps = res.Speed; if (!string.IsNullOrEmpty(res.CountryCode)) p.CountryCode = res.CountryCode; });
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                p.Status = "Checking...";
+                p.IsSpeedChecking = true;
+            });
+            try
+            {
+                var res = await Task.Run(() => _proxyService.CheckProxy(p));
+                Application.Current.Dispatcher.Invoke(() => { p.Status = res.IsSuccess ? "Online" : "Offline"; p.PingMs = res.Ping; p.SpeedMBps = res.Speed; if (!string.IsNullOrEmpty(res.CountryCode)) p.CountryCode = res.CountryCode; });
+            }
+            finally
+            {
+                Application.Current.Dispatcher.Invoke(() => p.IsSpeedChecking = false);
+            }
         }
 
         private async void CheckSelectedProxy()
@@ -3089,13 +3192,14 @@ namespace ProxyControl.ViewModels
             ProxyCheckSummary = $"Testing {proxy.Name}";
             ProxyCheckDetails = proxy.Endpoint;
             proxy.Status = "Checking...";
+            proxy.IsSpeedChecking = true;
 
             try
             {
                 var result = await Task.Run(() => _proxyService.CheckProxy(proxy));
                 proxy.Status = result.IsSuccess ? "Online" : "Offline";
                 proxy.PingMs = result.Ping;
-                proxy.SpeedMbps = result.Speed;
+                proxy.SpeedMBps = result.Speed;
                 if (!string.IsNullOrEmpty(result.CountryCode)) proxy.CountryCode = result.CountryCode;
 
                 if (ReferenceEquals(SelectedProxy, proxy))
@@ -3121,6 +3225,7 @@ namespace ProxyControl.ViewModels
             }
             finally
             {
+                proxy.IsSpeedChecking = false;
                 IsProxyCheckInProgress = false;
             }
         }

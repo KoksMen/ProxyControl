@@ -54,8 +54,9 @@ namespace ProxyControl.Services
         private const int LocalPort = 8000;
         private const int BufferSize = 81920; // 80KB for better throughput
         private const int MaxHeaderSize = 16 * 1024;
-        private const int SpeedProbeMinBytes = 64 * 1024;
-        private const int SpeedProbeMaxBytes = 2 * 1024 * 1024;
+        private const int SpeedProbeMinBytes = 256 * 1024;
+        private const int SpeedProbeMaxBytes = 10 * 1024 * 1024;
+        private static readonly TimeSpan SpeedProbeDuration = TimeSpan.FromSeconds(8);
 
         private static readonly (string Host, int Port, string Path)[] Socks5VerificationTargets =
         {
@@ -66,9 +67,15 @@ namespace ProxyControl.Services
 
         private static readonly (string Host, int Port, string Path)[] Socks5SpeedTargets =
         {
-            ("speedtest.tele2.net", 80, "/1MB.zip"),
-            ("ipv4.download.thinkbroadband.com", 80, "/1MB.zip"),
-            ("code.jquery.com", 80, "/jquery-3.6.0.min.js")
+            ("speedtest.tele2.net", 80, "/10MB.zip"),
+            ("speedtest4.tele2.net", 80, "/10MB.zip")
+        };
+
+        private static readonly string[] HttpSpeedTargets =
+        {
+            "https://speed.cloudflare.com/__down?bytes=10000000",
+            "http://speedtest.tele2.net/10MB.zip",
+            "http://speedtest4.tele2.net/10MB.zip"
         };
 
         private readonly SemaphoreSlim _connectionLimiter = new SemaphoreSlim(2000);
@@ -1156,13 +1163,14 @@ namespace ProxyControl.Services
             return true;
         }
 
-        public async Task<(bool IsSuccess, string CountryCode, long Ping, double Speed, string SslError)> CheckProxy(ProxyItem proxy)
+        public async Task<(bool IsSuccess, string CountryCode, long Ping, double Speed, string SslError)> CheckProxy(
+            ProxyItem proxy,
+            bool measureSpeed = true)
         {
             if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "", 0, 0, "Invalid IP/Port");
 
             bool connectionSuccess = false;
             long ping = await MeasureTcpConnectPingAsync(proxy.IpAddress, proxy.Port);
-            double speedMbps = 0;
             string sslError = "None";
 
             if (proxy.Type == ProxyType.Socks5)
@@ -1178,11 +1186,6 @@ namespace ProxyControl.Services
                     {
                         sslError = "SOCKS5 check failed: invalid or empty upstream response.";
                     }
-                    else
-                    {
-                        using var speedCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                        speedMbps = await MeasureSocks5SpeedMbpsAsync(proxy, speedCts.Token);
-                    }
                 }
                 catch (Exception ex)
                 {
@@ -1192,82 +1195,26 @@ namespace ProxyControl.Services
             }
             else
             {
-                // HTTP/HTTPS Logic
-                string scheme = "http";
-                if (proxy.UseTls || proxy.UseSsl) scheme = "https";
-
-                var proxyUri = new WebProxy($"{scheme}://{proxy.IpAddress}:{proxy.Port}");
-
-                var handler = new HttpClientHandler
-                {
-                    Proxy = proxyUri,
-                    UseProxy = true
-                };
-
-                if (proxy.UseTls || proxy.UseSsl)
-                {
-                    handler.ServerCertificateCustomValidationCallback =
-                        (message, cert, chain, errors) => ProxyTlsValidator.Validate(message, cert, chain, errors);
-                }
-
-                if (!string.IsNullOrEmpty(proxy.Username))
-                {
-                    handler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
-                }
-
                 try
                 {
-                    using (var client = new HttpClient(handler))
+                    using var handler = CreateHttpProxyHandler(proxy);
+                    using var client = new HttpClient(handler)
                     {
-                        client.Timeout = TimeSpan.FromSeconds(10);
-                        var response = await client.GetAsync("https://www.google.com/generate_204");
-                        connectionSuccess = response.IsSuccessStatusCode;
-                    }
+                        Timeout = TimeSpan.FromSeconds(10)
+                    };
+                    using var response = await client.GetAsync("https://www.google.com/generate_204");
+                    connectionSuccess = response.IsSuccessStatusCode;
                 }
                 catch (Exception ex)
                 {
                     connectionSuccess = false;
                     if (sslError == "None") sslError = ex.Message;
                 }
-
-                // Speed test for HTTP...
-                if (connectionSuccess)
-                {
-                    try
-                    {
-                        var speedHandler = new HttpClientHandler
-                        {
-                            Proxy = proxyUri,
-                            UseProxy = true
-                        };
-                        if (proxy.UseTls || proxy.UseSsl)
-                        {
-                            speedHandler.ServerCertificateCustomValidationCallback =
-                                (message, cert, chain, errors) => ProxyTlsValidator.Validate(message, cert, chain, errors);
-                        }
-                        if (!string.IsNullOrEmpty(proxy.Username)) speedHandler.Proxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
-
-                        using (var speedClient = new HttpClient(speedHandler))
-                        {
-                            speedClient.Timeout = TimeSpan.FromSeconds(15);
-                            string testUrl = "https://code.jquery.com/jquery-3.6.0.min.js";
-
-                            var sw = Stopwatch.StartNew();
-                            var data = await speedClient.GetByteArrayAsync(testUrl);
-                            sw.Stop();
-
-                            double seconds = sw.Elapsed.TotalSeconds;
-                            double bits = data.Length * 8;
-                            double mbps = (bits / 1000000) / seconds;
-                            speedMbps = Math.Round(mbps, 2);
-                        }
-                    }
-                    catch
-                    {
-                        speedMbps = 0;
-                    }
-                }
             }
+
+            double speedMBps = connectionSuccess && measureSpeed
+                ? await MeasureProxySpeedAsync(proxy)
+                : 0;
 
             string country = "";
             try
@@ -1285,7 +1232,53 @@ namespace ProxyControl.Services
             }
             catch { }
 
-            return (connectionSuccess, country, ping, speedMbps, sslError);
+            return (connectionSuccess, country, ping, speedMBps, sslError);
+        }
+
+        public async Task<double> MeasureProxySpeedAsync(ProxyItem proxy)
+        {
+            if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0)
+                return 0;
+
+            try
+            {
+                using var speedCts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                if (proxy.Type == ProxyType.Socks5)
+                    return await MeasureSocks5SpeedMBpsAsync(proxy, speedCts.Token);
+
+                using var handler = CreateHttpProxyHandler(proxy);
+                using var client = new HttpClient(handler)
+                {
+                    Timeout = TimeSpan.FromSeconds(20)
+                };
+                return await MeasureHttpProxySpeedMBpsAsync(client, speedCts.Token);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static HttpClientHandler CreateHttpProxyHandler(ProxyItem proxy)
+        {
+            string scheme = proxy.UseTls || proxy.UseSsl ? "https" : "http";
+            var webProxy = new WebProxy($"{scheme}://{proxy.IpAddress}:{proxy.Port}");
+            if (!string.IsNullOrEmpty(proxy.Username))
+                webProxy.Credentials = new NetworkCredential(proxy.Username, proxy.Password);
+
+            var handler = new HttpClientHandler
+            {
+                Proxy = webProxy,
+                UseProxy = true
+            };
+
+            if (proxy.UseTls || proxy.UseSsl)
+            {
+                handler.ServerCertificateCustomValidationCallback =
+                    (message, cert, chain, errors) => ProxyTlsValidator.Validate(message, cert, chain, errors);
+            }
+
+            return handler;
         }
 
         private async Task<long> MeasureTcpConnectPingAsync(string host, int port, int attempts = 3, int timeoutMs = 2500)
@@ -1396,7 +1389,7 @@ namespace ProxyControl.Services
             return false;
         }
 
-        private async Task<double> MeasureSocks5SpeedMbpsAsync(ProxyItem proxy, CancellationToken token)
+        private async Task<double> MeasureSocks5SpeedMBpsAsync(ProxyItem proxy, CancellationToken token)
         {
             foreach (var target in Socks5SpeedTargets)
             {
@@ -1407,9 +1400,8 @@ namespace ProxyControl.Services
                     var sample = await TryMeasureSocks5SpeedSampleAsync(proxy, target.Host, target.Port, target.Path, token);
                     if (sample.BytesRead < SpeedProbeMinBytes || sample.Seconds <= 0) continue;
 
-                    double bits = sample.BytesRead * 8d;
-                    double mbps = (bits / 1_000_000d) / sample.Seconds;
-                    if (mbps > 0) return Math.Round(mbps, 2);
+                    double megabytesPerSecond = sample.BytesRead / 1_000_000d / sample.Seconds;
+                    if (megabytesPerSecond > 0) return Math.Round(megabytesPerSecond, 2);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1422,6 +1414,82 @@ namespace ProxyControl.Services
             }
 
             return 0;
+        }
+
+        private static async Task<double> MeasureHttpProxySpeedMBpsAsync(
+            HttpClient client,
+            CancellationToken token)
+        {
+            foreach (string target in HttpSpeedTargets)
+            {
+                token.ThrowIfCancellationRequested();
+
+                try
+                {
+                    using var targetCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    targetCts.CancelAfter(TimeSpan.FromSeconds(12));
+                    using HttpResponseMessage response = await client.GetAsync(
+                        target,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        targetCts.Token);
+                    if (!response.IsSuccessStatusCode)
+                        continue;
+
+                    await using Stream stream = await response.Content.ReadAsStreamAsync(targetCts.Token);
+                    var sample = await MeasureBodySpeedSampleAsync(stream, targetCts.Token);
+                    if (sample.BytesRead < SpeedProbeMinBytes || sample.Seconds <= 0)
+                        continue;
+
+                    double megabytesPerSecond = sample.BytesRead / 1_000_000d / sample.Seconds;
+                    if (megabytesPerSecond > 0)
+                        return Math.Round(megabytesPerSecond, 2);
+                }
+                catch (OperationCanceledException)
+                {
+                    if (token.IsCancellationRequested)
+                        throw;
+
+                    // This endpoint timed out; try the next one within the overall timeout.
+                }
+                catch
+                {
+                    // Try the next Tele2 anycast endpoint.
+                }
+            }
+
+            return 0;
+        }
+
+        private static async Task<(long BytesRead, double Seconds)> MeasureBodySpeedSampleAsync(
+            Stream stream,
+            CancellationToken token)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            long bytesReadTotal = 0;
+            var stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                while (bytesReadTotal < SpeedProbeMaxBytes)
+                {
+                    int requested = (int)Math.Min(buffer.Length, SpeedProbeMaxBytes - bytesReadTotal);
+                    int read = await stream.ReadAsync(buffer.AsMemory(0, requested), token);
+                    if (read <= 0)
+                        break;
+
+                    bytesReadTotal += read;
+                    if (bytesReadTotal >= SpeedProbeMinBytes &&
+                        stopwatch.Elapsed >= SpeedProbeDuration)
+                        break;
+                }
+            }
+            finally
+            {
+                stopwatch.Stop();
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            return (bytesReadTotal, stopwatch.Elapsed.TotalSeconds);
         }
 
         private async Task<(long BytesRead, double Seconds)> TryMeasureSocks5SpeedSampleAsync(
@@ -1441,9 +1509,11 @@ namespace ProxyControl.Services
 
             await stream.WriteAsync(request, 0, request.Length, token);
 
-            byte[] buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
             long bytesReadTotal = 0;
-            var sw = Stopwatch.StartNew();
+            var stopwatch = new Stopwatch();
+            using var headerBuffer = new MemoryStream(MaxHeaderSize);
+            bool headersComplete = false;
 
             try
             {
@@ -1452,17 +1522,55 @@ namespace ProxyControl.Services
                     int read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
                     if (read <= 0) break;
 
-                    bytesReadTotal += read;
-                    if (bytesReadTotal >= SpeedProbeMaxBytes) break;
+                    if (!headersComplete)
+                    {
+                        if (headerBuffer.Length + read > MaxHeaderSize)
+                            return (0, 0);
+
+                        headerBuffer.Write(buffer, 0, read);
+                        byte[] received = headerBuffer.GetBuffer();
+                        int receivedLength = (int)headerBuffer.Length;
+                        int headerEnd = FindHttpHeaderEnd(received, receivedLength);
+                        if (headerEnd < 0)
+                            continue;
+
+                        string statusLine = Encoding.ASCII.GetString(received, 0, Math.Min(headerEnd, 64));
+                        if (!statusLine.StartsWith("HTTP/1.1 2", StringComparison.OrdinalIgnoreCase) &&
+                            !statusLine.StartsWith("HTTP/1.0 2", StringComparison.OrdinalIgnoreCase))
+                            return (0, 0);
+
+                        headersComplete = true;
+                        stopwatch.Start();
+                    }
+                    else
+                    {
+                        bytesReadTotal += read;
+                    }
+
+                    if (bytesReadTotal >= SpeedProbeMaxBytes ||
+                        (bytesReadTotal >= SpeedProbeMinBytes && stopwatch.Elapsed >= SpeedProbeDuration))
+                        break;
                 }
             }
             finally
             {
-                sw.Stop();
+                stopwatch.Stop();
                 ArrayPool<byte>.Shared.Return(buffer);
             }
 
-            return (bytesReadTotal, sw.Elapsed.TotalSeconds);
+            return (Math.Min(bytesReadTotal, SpeedProbeMaxBytes), stopwatch.Elapsed.TotalSeconds);
+        }
+
+        private static int FindHttpHeaderEnd(byte[] data, int length)
+        {
+            for (int i = 3; i < length; i++)
+            {
+                if (data[i - 3] == '\r' && data[i - 2] == '\n' &&
+                    data[i - 1] == '\r' && data[i] == '\n')
+                    return i + 1;
+            }
+
+            return -1;
         }
 
         // --- SOCKS5 Server Logic ---
