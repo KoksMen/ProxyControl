@@ -67,14 +67,29 @@ namespace ProxyControl.Models
         public RuleAction Action
         {
             get => _action;
-            set { _action = value; OnPropertyChanged(); }
+            set
+            {
+                _action = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ActionLabel));
+            }
         }
 
         public BlockDirection BlockDirection
         {
             get => _blockDirection;
-            set { _blockDirection = value; OnPropertyChanged(); }
+            set
+            {
+                _blockDirection = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ActionLabel));
+            }
         }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string ActionLabel => Action == RuleAction.Block
+            ? $"Block · {BlockDirection}"
+            : Action.ToString();
 
         public string? ProxyId
         {

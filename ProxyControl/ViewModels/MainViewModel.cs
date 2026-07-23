@@ -466,7 +466,10 @@ namespace ProxyControl.ViewModels
                 try
                 {
                     _selectedGroupName = value;
+                    _selectedRule = null;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(SelectedRule));
+                    OnPropertyChanged(nameof(HasSelectedRule));
                     OnPropertyChanged(nameof(SelectedGroupApps));
                     OnPropertyChanged(nameof(SelectedGroupRules));
                     OnPropertyChanged(nameof(IsGroupSelected));
@@ -563,7 +566,10 @@ namespace ProxyControl.ViewModels
                 try
                 {
                     _selectedAppName = value;
+                    _selectedRule = null;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(SelectedRule));
+                    OnPropertyChanged(nameof(HasSelectedRule));
                     OnPropertyChanged(nameof(SelectedGroupRules));
                     OnPropertyChanged(nameof(IsAppSelected));
                 }
@@ -1510,8 +1516,15 @@ namespace ProxyControl.ViewModels
         public TrafficRule? SelectedRule
         {
             get => _selectedRule;
-            set { _selectedRule = value; OnPropertyChanged(); }
+            set
+            {
+                if (ReferenceEquals(_selectedRule, value)) return;
+                _selectedRule = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasSelectedRule));
+            }
         }
+        public bool HasSelectedRule => SelectedRule != null;
 
         private ConnectionLog? _selectedLogItem;
         public ConnectionLog? SelectedLogItem
@@ -2127,25 +2140,28 @@ namespace ProxyControl.ViewModels
             if (IsRenameGroupMode)
             {
                 // Rename Group Logic
+                string? renamedGroup = null;
                 if (!string.IsNullOrEmpty(_batchEditValue) && !string.IsNullOrEmpty(ModalGroupName))
                 {
+                    renamedGroup = ModalGroupName.Trim();
                     var rulesToUpdate = RulesList.Where(r => r.GroupName == _batchEditValue).ToList();
                     foreach (var rule in rulesToUpdate)
                     {
-                        rule.GroupName = ModalGroupName;
+                        rule.GroupName = renamedGroup;
                     }
 
                     // Also update configurations lists just in case
                     var blackListUpdates = _config.BlackListRules.Where(r => r.GroupName == _batchEditValue).ToList();
-                    blackListUpdates.ForEach(r => r.GroupName = ModalGroupName);
+                    blackListUpdates.ForEach(r => r.GroupName = renamedGroup);
 
                     var whiteListUpdates = _config.WhiteListRules.Where(r => r.GroupName == _batchEditValue).ToList();
-                    whiteListUpdates.ForEach(r => r.GroupName = ModalGroupName);
+                    whiteListUpdates.ForEach(r => r.GroupName = renamedGroup);
                 }
 
                 _isBatchEditMode = false;
                 IsRenameGroupMode = false;
                 ReloadRulesForCurrentMode();
+                if (!string.IsNullOrEmpty(renamedGroup)) SelectedGroupName = renamedGroup;
             }
             else if (_isBatchEditMode)
             {
@@ -2919,6 +2935,7 @@ namespace ProxyControl.ViewModels
             {
                 RemoveRuleFromStorage(r);
                 RulesList.Remove(r);
+                if (ReferenceEquals(SelectedRule, r)) SelectedRule = null;
                 RefreshRuleGroups();
                 ApplyConfig();
                 RequestSaveSettings();
@@ -3262,8 +3279,6 @@ namespace ProxyControl.ViewModels
         {
             _batchEditTarget = target;
             _batchEditValue = value;
-            _batchEditTarget = target;
-            _batchEditValue = value;
             ShowConfirmation("Delete Rules", $"Are you sure you want to delete all rules for {target} '{value}'?", () => ExecuteConfirmAction());
         }
 
@@ -3277,6 +3292,8 @@ namespace ProxyControl.ViewModels
                     RemoveRuleFromStorage(r);
                     RulesList.Remove(r);
                 }
+                SelectedAppName = null;
+                SelectedGroupName = null;
             }
             else if (_batchEditTarget == "App")
             {
@@ -3286,6 +3303,7 @@ namespace ProxyControl.ViewModels
                     RemoveRuleFromStorage(r);
                     RulesList.Remove(r);
                 }
+                SelectedAppName = null;
             }
 
             IsConfirmModalVisible = false;
