@@ -165,6 +165,7 @@ namespace ProxyControl.Services
             destination.DnsProvider = source.DnsProvider;
             destination.DnsHost = source.DnsHost;
             destination.DnsFallbackHost = source.DnsFallbackHost;
+            destination.PreferPrimaryDns = source.PreferPrimaryDns;
             destination.EnableDoh = source.EnableDoh;
             destination.DohProvider = source.DohProvider;
             destination.AutoDetectDohEndpoint = source.AutoDetectDohEndpoint;

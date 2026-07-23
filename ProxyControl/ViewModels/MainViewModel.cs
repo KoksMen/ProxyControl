@@ -1058,6 +1058,20 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        public bool PreferPrimaryDns
+        {
+            get => _config.PreferPrimaryDns;
+            set
+            {
+                if (_config.PreferPrimaryDns != value)
+                {
+                    _config.PreferPrimaryDns = value;
+                    OnPropertyChanged();
+                    MarkDohSettingsChanged();
+                }
+            }
+        }
+
         public bool IsDohEnabled
         {
             get => _config.EnableDoh;
@@ -2664,12 +2678,17 @@ namespace ProxyControl.ViewModels
             DohSaveStatus = "Saving DNS...";
             if (await _settingsService.SaveDnsAsync(_config))
             {
+                // Apply the new upstreams to the already running DNS service before
+                // clearing Windows' cached answers.
+                ApplyConfig();
+
                 if (IsDnsProtectionEnabled)
                 {
                     DohSaveStatus = "Applying...";
                     var validationResult = await Task.Run(() =>
                     {
                         SystemProxyHelper.SetSystemDns(_config);
+                        SystemProxyHelper.FlushSystemDnsCache();
                         return SystemProxyHelper.ValidateWindowsDohSettings(_config, out var validationMessage)
                             ? string.Empty
                             : validationMessage;
@@ -2681,8 +2700,12 @@ namespace ProxyControl.ViewModels
                         return;
                     }
                 }
+                else
+                {
+                    await Task.Run(SystemProxyHelper.FlushSystemDnsCache);
+                }
 
-                DohSaveStatus = "Saved";
+                DohSaveStatus = "Saved · DNS cache cleared";
             }
             else
             {
@@ -2775,6 +2798,7 @@ namespace ProxyControl.ViewModels
                 DnsProvider = _config.DnsProvider,
                 DnsHost = _config.DnsHost,
                 DnsFallbackHost = _config.DnsFallbackHost,
+                PreferPrimaryDns = _config.PreferPrimaryDns,
                 EnableDoh = _config.EnableDoh,
                 DohProvider = _config.DohProvider,
                 AutoDetectDohEndpoint = _config.AutoDetectDohEndpoint,
@@ -3105,6 +3129,7 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(SelectedDnsProvider));
                 OnPropertyChanged(nameof(DnsHost));
                 OnPropertyChanged(nameof(DnsFallbackHost));
+                OnPropertyChanged(nameof(PreferPrimaryDns));
                 OnPropertyChanged(nameof(IsDohEnabled));
                 OnPropertyChanged(nameof(IsDohFallbackEnabled));
                 OnPropertyChanged(nameof(IsDohPrimaryAuto));

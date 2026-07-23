@@ -2459,6 +2459,12 @@
                                                         ToolTip="Fallback DNS server IP or domain" />
                                                 </StackPanel>
                                             </Grid>
+                                            <CheckBox
+                                                Margin="0,10,0,0"
+                                                VerticalAlignment="Center"
+                                                Content="Use alternative DNS only when primary fails"
+                                                IsChecked="{Binding PreferPrimaryDns}"
+                                                ToolTip="Enabled: query the primary DNS first and use the alternative only after a timeout or DNS error. Disabled: query both servers in parallel and use the fastest valid response." />
                                             <Grid Margin="0,10,0,0">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />

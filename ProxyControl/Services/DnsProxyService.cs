@@ -568,6 +568,23 @@ namespace ProxyControl.Services
 
         private async Task ForwardDnsDirectly(byte[] dnsQuery, IPEndPoint clientEndpoint)
         {
+            if (_config.PreferPrimaryDns)
+            {
+                foreach (var server in GetConfiguredDnsHosts().Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    using var serverTimeout = CancellationTokenSource.CreateLinkedTokenSource(_cts?.Token ?? CancellationToken.None);
+                    serverTimeout.CancelAfter(TimeSpan.FromSeconds(2));
+                    var response = await QueryDnsDirectAsync(dnsQuery, server, serverTimeout.Token);
+                    if (IsUsableDnsResponse(response) && _udpListener != null)
+                    {
+                        await _udpListener.SendAsync(response!, response!.Length, clientEndpoint);
+                        return;
+                    }
+                }
+
+                return;
+            }
+
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(_cts?.Token ?? CancellationToken.None);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(2));
             var pending = GetConfiguredDnsHosts()
@@ -580,13 +597,25 @@ namespace ProxyControl.Services
                 var completed = await Task.WhenAny(pending);
                 pending.Remove(completed);
                 var response = await completed;
-                if (response is { Length: > 0 } && _udpListener != null)
+                if (IsUsableDnsResponse(response) && _udpListener != null)
                 {
                     timeoutCts.Cancel();
-                    await _udpListener.SendAsync(response, response.Length, clientEndpoint);
+                    await _udpListener.SendAsync(response!, response!.Length, clientEndpoint);
                     return;
                 }
             }
+        }
+
+        private static bool IsUsableDnsResponse(byte[]? response)
+        {
+            if (response == null || response.Length < 12) return false;
+
+            bool isResponse = (response[2] & 0x80) != 0;
+            int responseCode = response[3] & 0x0F;
+
+            // NOERROR and NXDOMAIN are final DNS answers. Other response codes
+            // (for example SERVFAIL or REFUSED) allow trying another resolver.
+            return isResponse && (responseCode == 0 || responseCode == 3);
         }
 
         private async Task<byte[]?> QueryDnsDirectAsync(byte[] dnsQuery, string dnsServer, CancellationToken token)
@@ -631,6 +660,7 @@ namespace ProxyControl.Services
             return string.Join("|",
                 NormalizeDnsHost(config.DnsHost, "8.8.8.8"),
                 NormalizeDnsHost(config.DnsFallbackHost, "1.1.1.1"),
+                config.PreferPrimaryDns,
                 config.EnableDoh,
                 config.AutoDetectDohEndpoint,
                 config.DohEndpoint,

@@ -377,6 +377,11 @@ namespace ProxyControl.Services
             SetSystemDns(true);
         }
 
+        public static void FlushSystemDnsCache()
+        {
+            RunPowerShell("Clear-DnsClientCache -ErrorAction SilentlyContinue");
+        }
+
         private static void SetSystemDnsServers(IReadOnlyList<string> dnsServers, bool markManaged)
         {
             if (dnsServers.Count == 0) return;

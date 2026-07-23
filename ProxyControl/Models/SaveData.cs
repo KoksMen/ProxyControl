@@ -51,6 +51,7 @@ namespace ProxyControl.Models
         // DNS server host: IP address or domain name.
         public string DnsHost { get; set; } = "8.8.8.8";
         public string DnsFallbackHost { get; set; } = "1.1.1.1";
+        public bool PreferPrimaryDns { get; set; } = false;
         public bool EnableDoh { get; set; } = false;
         public DohProviderType DohProvider { get; set; } = DohProviderType.Cloudflare;
         public bool AutoDetectDohEndpoint { get; set; } = true;
