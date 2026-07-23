@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -17,8 +19,6 @@ namespace ProxyControl.Services
         private int RemoteDnsPort = 53;
         private string _remoteDnsHost = "8.8.8.8";
         private string _fallbackDnsHost = "1.1.1.1";
-        // DoH support is intentionally disabled. Keep the old config fields elsewhere
-        // for JSON compatibility, but DNS protection now always uses the local UDP proxy.
         private AppConfig _config = new AppConfig();
         private string _lastAppliedDnsConfigSignature = string.Empty;
 
@@ -44,13 +44,13 @@ namespace ProxyControl.Services
         private class PooledTcpClient : IDisposable
         {
             public TcpClient Client { get; }
-            public NetworkStream Stream { get; }
+            public Stream Stream { get; }
             public DateTime LastUsed { get; set; }
 
-            public PooledTcpClient(TcpClient client)
+            public PooledTcpClient(TcpClient client, Stream stream)
             {
                 Client = client;
-                Stream = client.GetStream();
+                Stream = stream;
                 LastUsed = DateTime.Now;
             }
 
@@ -81,13 +81,16 @@ namespace ProxyControl.Services
             _localProxies = proxies.Select(p => new ProxyItem
             {
                 Id = p.Id,
+                Name = p.Name,
                 IpAddress = p.IpAddress,
                 Port = p.Port,
                 Username = p.Username,
                 Password = p.Password,
                 IsEnabled = p.IsEnabled,
                 CountryCode = p.CountryCode,
-                Type = p.Type // Copy type
+                Type = p.Type,
+                UseTls = p.UseTls,
+                UseSsl = p.UseSsl
             }).ToList();
 
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
@@ -270,10 +273,19 @@ namespace ProxyControl.Services
                 }
                 else if (decision.Action == RuleAction.Proxy && decision.Proxy != null && decision.Proxy.IsEnabled)
                 {
-                    logResult = $"Proxy: {decision.Proxy.IpAddress}";
+                    logResult = $"Proxy: {decision.Proxy.Name}";
                     logColor = "#55FF55";
-                    // DISABLED BY USER REQUEST
-                    // success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
+                    success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
+                }
+
+                if (!success && decision.Action != RuleAction.Block && _config.EnableDoh)
+                {
+                    success = await ForwardDnsOverHttpsAsync(dnsQuery, clientEndpoint, _cts?.Token ?? CancellationToken.None);
+                    if (success)
+                    {
+                        logResult = "DoH";
+                        logColor = "#55CCFF";
+                    }
                 }
 
                 // Log to Traffic Monitor
@@ -291,6 +303,38 @@ namespace ProxyControl.Services
             {
                 System.Diagnostics.Debug.WriteLine($"DNS Handle Error: {ex.Message}");
             }
+        }
+
+        private async Task<bool> ForwardDnsOverHttpsAsync(byte[] dnsQuery, IPEndPoint clientEndpoint, CancellationToken token)
+        {
+            var endpoints = new List<string>(2);
+            if (DnsOverHttpsClient.TryGetEndpoint(_config, out var primary, out _)) endpoints.Add(primary);
+            if (_config.EnableDohFallback &&
+                DnsOverHttpsClient.TryGetFallbackEndpoint(_config, out var fallback, out _) &&
+                !endpoints.Contains(fallback, StringComparer.OrdinalIgnoreCase))
+            {
+                endpoints.Add(fallback);
+            }
+
+            foreach (var endpoint in endpoints)
+            {
+                try
+                {
+                    var response = await DnsOverHttpsClient.QueryAsync(dnsQuery, endpoint, token);
+                    if (response is { Length: > 0 } && _udpListener != null)
+                    {
+                        await _udpListener.SendAsync(response, response.Length, clientEndpoint);
+                        return true;
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    return false;
+                }
+                catch { }
+            }
+
+            return false;
         }
 
         // STUN server detection (same logic as TcpProxyService)
@@ -343,7 +387,13 @@ namespace ProxyControl.Services
             }
             await connectTask;
 
-            var stream = tcpClient.GetStream();
+            Stream stream = tcpClient.GetStream();
+            if (proxy.UseTls || proxy.UseSsl)
+            {
+                var sslStream = new SslStream(stream, false, ProxyTlsValidator.Validate);
+                await sslStream.AuthenticateAsClientAsync(proxy.IpAddress);
+                stream = sslStream;
+            }
 
             string auth = "";
             if (!string.IsNullOrEmpty(proxy.Username))
@@ -367,7 +417,7 @@ namespace ProxyControl.Services
                 throw new Exception("Proxy CONNECT failed");
             }
 
-            return new PooledTcpClient(tcpClient);
+            return new PooledTcpClient(tcpClient, stream);
         }
 
         private void ReturnConnection(ProxyItem proxy, string dnsHost, PooledTcpClient conn)
@@ -518,49 +568,69 @@ namespace ProxyControl.Services
 
         private async Task ForwardDnsDirectly(byte[] dnsQuery, IPEndPoint clientEndpoint)
         {
-            foreach (var dnsServer in GetConfiguredDnsHosts())
+            if (_config.PreferPrimaryDns)
             {
-                try
+                foreach (var server in GetConfiguredDnsHosts().Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    if (await AttemptDirectForward(dnsQuery, clientEndpoint, dnsServer))
+                    using var serverTimeout = CancellationTokenSource.CreateLinkedTokenSource(_cts?.Token ?? CancellationToken.None);
+                    serverTimeout.CancelAfter(TimeSpan.FromSeconds(2));
+                    var response = await QueryDnsDirectAsync(dnsQuery, server, serverTimeout.Token);
+                    if (IsUsableDnsResponse(response) && _udpListener != null)
                     {
+                        await _udpListener.SendAsync(response!, response!.Length, clientEndpoint);
                         return;
                     }
                 }
-                catch
+
+                return;
+            }
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(_cts?.Token ?? CancellationToken.None);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(2));
+            var pending = GetConfiguredDnsHosts()
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(server => QueryDnsDirectAsync(dnsQuery, server, timeoutCts.Token))
+                .ToList();
+
+            while (pending.Count > 0)
+            {
+                var completed = await Task.WhenAny(pending);
+                pending.Remove(completed);
+                var response = await completed;
+                if (IsUsableDnsResponse(response) && _udpListener != null)
                 {
-                    // Try the next configured DNS server.
+                    timeoutCts.Cancel();
+                    await _udpListener.SendAsync(response!, response!.Length, clientEndpoint);
+                    return;
                 }
             }
         }
 
-        private async Task<bool> AttemptDirectForward(byte[] dnsQuery, IPEndPoint clientEndpoint, string dnsServer)
+        private static bool IsUsableDnsResponse(byte[]? response)
         {
-            using (var udpForwarder = new UdpClient())
+            if (response == null || response.Length < 12) return false;
+
+            bool isResponse = (response[2] & 0x80) != 0;
+            int responseCode = response[3] & 0x0F;
+
+            // NOERROR and NXDOMAIN are final DNS answers. Other response codes
+            // (for example SERVFAIL or REFUSED) allow trying another resolver.
+            return isResponse && (responseCode == 0 || responseCode == 3);
+        }
+
+        private async Task<byte[]?> QueryDnsDirectAsync(byte[] dnsQuery, string dnsServer, CancellationToken token)
+        {
+            try
             {
-                udpForwarder.Client.ReceiveTimeout = 2000;
-                udpForwarder.Client.SendTimeout = 2000;
-
-                // Используем Connect, чтобы отфильтровать мусор
-                udpForwarder.Connect(dnsServer, 53);
-                await udpForwarder.SendAsync(dnsQuery, dnsQuery.Length);
-
-                var receiveTask = udpForwarder.ReceiveAsync();
-                var timeoutTask = Task.Delay(2000); // 2 сек таймаут
-
-                var completed = await Task.WhenAny(receiveTask, timeoutTask);
-                if (completed == receiveTask)
-                {
-                    var result = await receiveTask;
-                    if (result.Buffer != null && result.Buffer.Length > 0 && _udpListener != null)
-                    {
-                        await _udpListener.SendAsync(result.Buffer, result.Buffer.Length, clientEndpoint);
-                        return true;
-                    }
-                }
+                using var udpForwarder = new UdpClient();
+                var serverAddress = await DnsOverHttpsClient.ResolveHostAsync(dnsServer, token);
+                if (serverAddress == null) return null;
+                udpForwarder.Connect(serverAddress, 53);
+                await udpForwarder.SendAsync(dnsQuery, token);
+                var result = await udpForwarder.ReceiveAsync(token);
+                return result.Buffer;
             }
-
-            return false;
+            catch { return null; }
         }
 
         private IEnumerable<string> GetConfiguredDnsHosts()
@@ -575,14 +645,28 @@ namespace ProxyControl.Services
 
         private static string NormalizeDnsHost(string? value, string fallback)
         {
-            return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+            if (string.IsNullOrWhiteSpace(value)) return fallback;
+            var normalized = value.Trim();
+            if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            {
+                return uri.Host;
+            }
+            return normalized.TrimEnd('.');
         }
 
         public static string BuildDnsConfigSignature(AppConfig config)
         {
             return string.Join("|",
                 NormalizeDnsHost(config.DnsHost, "8.8.8.8"),
-                NormalizeDnsHost(config.DnsFallbackHost, "1.1.1.1"));
+                NormalizeDnsHost(config.DnsFallbackHost, "1.1.1.1"),
+                config.PreferPrimaryDns,
+                config.EnableDoh,
+                config.AutoDetectDohEndpoint,
+                config.DohEndpoint,
+                config.EnableDohFallback,
+                config.AutoDetectDohFallbackEndpoint,
+                config.DohFallbackEndpoint);
         }
 
         private void ApplySystemDnsIfNeeded(bool force)
@@ -601,12 +685,12 @@ namespace ProxyControl.Services
         {
             if (_currentMode == RuleMode.BlackList)
             {
-                var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                var mainProxy = GetMainProxy();
 
                 // Trusted 1: Exact Host Match (O(1))
                 if (_fastBlackListRules.TryGetValue(host, out var fastRule))
                 {
-                        if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
+                        if (IsDnsApplicableRule(fastRule) && IsHostMatch(fastRule, host))
                     {
                         if (fastRule.Action == RuleAction.Block) return (RuleAction.Block, null);
                         if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
@@ -622,7 +706,7 @@ namespace ProxyControl.Services
 
                 foreach (var rule in _localBlackList)
                 {
-                    if (!rule.IsEnabled) continue;
+                    if (!IsDnsApplicableRule(rule)) continue;
                     if (IsHostMatch(rule, host))
                     {
                         if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
@@ -637,7 +721,8 @@ namespace ProxyControl.Services
                     }
                 }
 
-                if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
+                // System DNS cannot identify the originating application. Keep the
+                // default resolver path direct; only explicit global DNS rules may proxy it.
                 return (RuleAction.Direct, null);
             }
             else // White List
@@ -645,7 +730,7 @@ namespace ProxyControl.Services
                 // Trusted 1: Exact Host Match (O(1))
                 if (_fastWhiteListRules.TryGetValue(host, out var fastRule))
                 {
-                    if (fastRule.IsEnabled && IsHostMatch(fastRule, host))
+                    if (IsDnsApplicableRule(fastRule) && IsHostMatch(fastRule, host))
                     {
                         if (fastRule.Action == RuleAction.Block) return (RuleAction.Block, null);
                         if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
@@ -654,17 +739,17 @@ namespace ProxyControl.Services
                             var p = _localProxies.FirstOrDefault(x => x.Id.Equals(fastRule.ProxyId, StringComparison.OrdinalIgnoreCase));
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
 
-                            var mainProxyFallback = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                            var mainProxyFallback = GetMainProxy();
                             if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
                         }
-                        var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                        var mainProxy = GetMainProxy();
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                     }
                 }
 
                 foreach (var rule in _localWhiteList)
                 {
-                    if (!rule.IsEnabled) continue;
+                    if (!IsDnsApplicableRule(rule)) continue;
                     if (IsHostMatch(rule, host))
                     {
                         if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
@@ -674,16 +759,52 @@ namespace ProxyControl.Services
                             var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
                             if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
 
-                            var mainProxyFallback = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                            var mainProxyFallback = GetMainProxy();
                             if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
                         }
 
-                        var mainProxy = _localProxies.FirstOrDefault(p => p.Id.Equals(_blackListProxyId, StringComparison.OrdinalIgnoreCase) && p.IsEnabled);
+                        var mainProxy = GetMainProxy();
                         if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                     }
                 }
                 return (RuleAction.Direct, null);
             }
+        }
+
+        private ProxyItem? GetMainProxy()
+        {
+            return _localProxies.FirstOrDefault(p => p.IsEnabled &&
+                       string.Equals(p.Id, _blackListProxyId, StringComparison.OrdinalIgnoreCase))
+                   ?? _localProxies.FirstOrDefault(p => p.IsEnabled);
+        }
+
+        private static bool IsDnsApplicableRule(TrafficRule rule)
+        {
+            if (!rule.IsEnabled || !IsInSchedule(rule)) return false;
+            // App-scoped DNS rules cannot be evaluated reliably because Windows
+            // forwards requests through the DNS Client service.
+            return rule.TargetApps.Count == 0 || rule.TargetApps.Contains("*");
+        }
+
+        private static bool IsInSchedule(TrafficRule rule)
+        {
+            if (!rule.IsScheduleEnabled) return true;
+
+            var now = DateTime.Now;
+            if (rule.ScheduleDays is { Length: > 0 } && !rule.ScheduleDays.Contains(now.DayOfWeek))
+            {
+                return false;
+            }
+
+            if (rule.ScheduleStart is not TimeSpan start || rule.ScheduleEnd is not TimeSpan end)
+            {
+                return true;
+            }
+
+            var time = now.TimeOfDay;
+            return start <= end
+                ? time >= start && time <= end
+                : time >= start || time <= end;
         }
 
         private bool IsHostMatch(TrafficRule rule, string host)
@@ -692,7 +813,7 @@ namespace ProxyControl.Services
             {
                 for (int i = 0; i < rule.TargetHosts.Count; i++)
                 {
-                    if (rule.TargetHosts[i] == "*" || host.Contains(rule.TargetHosts[i], StringComparison.OrdinalIgnoreCase))
+                    if (RoutingMatchHelper.HostMatches(host, rule.TargetHosts[i]))
                         return true;
                 }
                 return false;
@@ -763,7 +884,7 @@ namespace ProxyControl.Services
             return sb.ToString();
         }
 
-        private async Task<int> ReadExactAsync(NetworkStream stream, byte[] buffer, int length)
+        private async Task<int> ReadExactAsync(Stream stream, byte[] buffer, int length)
         {
             int totalRead = 0;
             while (totalRead < length)

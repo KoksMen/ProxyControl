@@ -118,6 +118,7 @@ namespace ProxyControl.Models
     {
         private long _bytesDown;
         private long _bytesUp;
+        private ImageSource? _siteIcon;
 
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string TimeStr => Timestamp.ToString("HH:mm:ss"); // Для отображения в гриде
@@ -127,6 +128,18 @@ namespace ProxyControl.Models
         public string Details { get; set; } = "";
         public string? FlagUrl { get; set; }
         public string Color { get; set; } = "White";
+
+        [JsonIgnore]
+        public ImageSource? SiteIcon
+        {
+            get => _siteIcon;
+            set
+            {
+                if (ReferenceEquals(_siteIcon, value)) return;
+                _siteIcon = value;
+                OnPropertyChanged();
+            }
+        }
 
         // Traffic type for Monitor display
         public TrafficType Type { get; set; } = TrafficType.TCP;

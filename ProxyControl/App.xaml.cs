@@ -30,7 +30,6 @@ namespace ProxyControl
 
         public App()
         {
-            SystemProxyHelper.RestoreSystemProxy();
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -48,6 +47,9 @@ namespace ProxyControl
                 return;
             }
 
+            // Only the owning instance may recover settings left by a crashed run.
+            // A second launch must never reset the active instance's proxy.
+            SystemProxyHelper.RestoreSystemProxy();
             base.OnStartup(e);
 
             // Reset DNS only if a previous ProxyControl-managed loopback DNS is still active.
@@ -105,17 +107,19 @@ namespace ProxyControl
                 try { _mutex.ReleaseMutex(); } catch { }
                 _mutex.Dispose();
             }
-            SystemProxyHelper.DisableSafetyNet();
-            SystemProxyHelper.RestoreSystemProxy();
-
-            SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
-
             // --- TUN Cleanup ---
             if (MainWindow is MainWindow mw && mw.DataContext is MainViewModel vm)
             {
                 vm.Cleanup();
             }
             // -------------------
+
+            // Final, synchronous cleanup after every background service has been
+            // stopped. This is intentionally last to prevent a worker from
+            // re-applying settings during shutdown.
+            SystemProxyHelper.DisableSafetyNet();
+            SystemProxyHelper.RestoreSystemProxy();
+            SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
 
             base.OnExit(e);
         }

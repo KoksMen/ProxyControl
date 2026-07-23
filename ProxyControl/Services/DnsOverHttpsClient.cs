@@ -1,4 +1,6 @@
 using ProxyControl.Models;
+using DnsClient;
+using DnsClient.Protocol;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -17,6 +19,8 @@ namespace ProxyControl.Services
     public static class DnsOverHttpsClient
     {
         private static readonly HttpClient Client = CreateClient();
+        private static readonly LookupClient BootstrapDns = new LookupClient(
+            IPAddress.Parse("1.1.1.1"), IPAddress.Parse("8.8.8.8"));
         private static readonly ConcurrentDictionary<string, DohLookupResult> WindowsDohCache = new();
         private static readonly ConcurrentDictionary<string, DohLookupResult> DdrCache = new();
         private const ushort DnsTypeSvcb = 64;
@@ -682,9 +686,52 @@ namespace ProxyControl.Services
             return await response.Content.ReadAsByteArrayAsync(token);
         }
 
+        public static async Task<IPAddress?> ResolveHostAsync(string host, CancellationToken token)
+        {
+            if (IPAddress.TryParse(host, out var address)) return address;
+
+            try
+            {
+                var result = await BootstrapDns.QueryAsync(host, QueryType.A, cancellationToken: token);
+                return result.Answers.OfType<ARecord>().Select(x => x.Address).FirstOrDefault();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static HttpClient CreateClient()
         {
-            var client = new HttpClient
+            var handler = new SocketsHttpHandler
+            {
+                UseProxy = false,
+                AutomaticDecompression = DecompressionMethods.None,
+                PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+                EnableMultipleHttp2Connections = true,
+                ConnectCallback = async (context, token) =>
+                {
+                    var address = await ResolveHostAsync(context.DnsEndPoint.Host, token)
+                        ?? throw new SocketException((int)SocketError.HostNotFound);
+                    var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+                    {
+                        NoDelay = true
+                    };
+                    try
+                    {
+                        await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                }
+            };
+
+            var client = new HttpClient(handler)
             {
                 Timeout = TimeSpan.FromSeconds(4)
             };

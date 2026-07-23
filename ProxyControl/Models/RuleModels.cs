@@ -45,7 +45,9 @@ namespace ProxyControl.Models
         private string? _proxyId;
         private BlockDirection _blockDirection = BlockDirection.Both;
         private ImageSource? _appIcon;
+        private ImageSource? _siteIcon;
         private string? _iconBase64;
+        private bool _isTemporary;
 
         // Backing fields for lists
         private List<string> _targetApps = new List<string>();
@@ -66,14 +68,29 @@ namespace ProxyControl.Models
         public RuleAction Action
         {
             get => _action;
-            set { _action = value; OnPropertyChanged(); }
+            set
+            {
+                _action = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ActionLabel));
+            }
         }
 
         public BlockDirection BlockDirection
         {
             get => _blockDirection;
-            set { _blockDirection = value; OnPropertyChanged(); }
+            set
+            {
+                _blockDirection = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ActionLabel));
+            }
         }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string ActionLabel => Action == RuleAction.Block
+            ? $"Block · {BlockDirection}"
+            : Action.ToString();
 
         public string? ProxyId
         {
@@ -88,11 +105,33 @@ namespace ProxyControl.Models
             set { _appIcon = value; OnPropertyChanged(); }
         }
 
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ImageSource? SiteIcon
+        {
+            get => _siteIcon;
+            set { _siteIcon = value; OnPropertyChanged(); }
+        }
+
         public string? IconBase64
         {
             get => _iconBase64;
             set { _iconBase64 = value; OnPropertyChanged(); }
         }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsTemporary
+        {
+            get => _isTemporary;
+            set
+            {
+                _isTemporary = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(PersistenceLabel));
+            }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string PersistenceLabel => IsTemporary ? "TEMP" : string.Empty;
 
         public List<string> TargetApps
         {
@@ -180,9 +219,20 @@ namespace ProxyControl.Models
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
+    public class ActiveProcessInfo
+    {
+        public string ProcessName { get; set; } = "";
+        public string FilePath { get; set; } = "";
+        public string DisplayText => string.IsNullOrWhiteSpace(FilePath)
+            ? ProcessName
+            : $"{ProcessName} — {FilePath}";
+    }
+
     // Класс для логов подключений (используется во вкладке Connection Logs)
     public class ConnectionLog : INotifyPropertyChanged
     {
+        private ImageSource? _siteIcon;
+
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
         public string Host { get; set; } = "";
@@ -190,6 +240,18 @@ namespace ProxyControl.Models
         public string Color { get; set; } = "#White";
         public ImageSource? AppIcon { get; set; }
         public string? CountryFlagUrl { get; set; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ImageSource? SiteIcon
+        {
+            get => _siteIcon;
+            set
+            {
+                if (ReferenceEquals(_siteIcon, value)) return;
+                _siteIcon = value;
+                OnPropertyChanged();
+            }
+        }
 
         // Traffic type (TCP, UDP, DNS, HTTPS)
         public TrafficType Type { get; set; } = TrafficType.TCP;
@@ -267,6 +329,7 @@ namespace ProxyControl.Models
     {
         public string AppName { get; set; } = "*";
         public int RuleCount { get; set; }
+        public ImageSource? AppIcon { get; set; }
         public string DisplayName => AppName == "*" ? "All Apps" : AppName;
         public string Icon => AppName == "*" ? "🌐" : "📱";
     }

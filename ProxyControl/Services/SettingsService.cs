@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace ProxyControl.Services
 {
@@ -17,7 +18,10 @@ namespace ProxyControl.Services
         private readonly string _filePath;
         private const string AppName = "ProxyManagerApp";
         private const string RegistryKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+        private const string StartupApprovedRunKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        private const string StartupApprovedRun32KeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run32";
         private const string ScheduledTaskName = "ProxyControl Autostart";
+        private readonly SemaphoreSlim _saveLock = new(1, 1);
 
         public SettingsService()
         {
@@ -53,14 +57,18 @@ namespace ProxyControl.Services
         {
             try
             {
-                RemoveLegacyRunEntry();
-
                 if (enable)
                 {
-                    RunSchtasks(BuildAutoStartTaskCreateArguments(GetExecutablePath()));
+                    // HKCU Run works for standard users and does not depend on Task
+                    // Scheduler elevation, locale, or task-service policy.
+                    using var key = Registry.CurrentUser.CreateSubKey(RegistryKeyPath, true);
+                    key?.SetValue(AppName, BuildAutoStartCommand(GetExecutablePath()), RegistryValueKind.String);
+                    ClearStartupApprovalState();
+                    RunSchtasks(BuildAutoStartTaskDeleteArguments());
                 }
                 else
                 {
+                    RemoveLegacyRunEntry();
                     RunSchtasks(BuildAutoStartTaskDeleteArguments());
                 }
             }
@@ -71,7 +79,7 @@ namespace ProxyControl.Services
         {
             try
             {
-                if (HasLegacyRunEntry())
+                if (HasEnabledRunEntry())
                 {
                     return true;
                 }
@@ -85,6 +93,94 @@ namespace ProxyControl.Services
         {
             var taskRun = $"\\\"{exePath}\\\" --autostart";
             return $"/Create /F /SC ONLOGON /RL HIGHEST /TN \"{ScheduledTaskName}\" /TR \"{taskRun}\"";
+        }
+
+        public async Task<bool> SaveAsync(AppSettings settings, CancellationToken token = default, string? path = null)
+        {
+            string targetPath = path ?? _filePath;
+            string tempPath = targetPath + ".tmp";
+            await _saveLock.WaitAsync(token);
+            try
+            {
+                var json = await Task.Run(
+                    () => JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }),
+                    token);
+                await File.WriteAllTextAsync(tempPath, json, token);
+                File.Move(tempPath, targetPath, true);
+                return true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                _saveLock.Release();
+            }
+        }
+
+        public async Task<bool> SaveDnsAsync(AppConfig dnsConfig, CancellationToken token = default)
+        {
+            string tempPath = _filePath + ".tmp";
+            await _saveLock.WaitAsync(token);
+            try
+            {
+                AppSettings settings;
+                if (File.Exists(_filePath))
+                {
+                    var existingJson = await File.ReadAllTextAsync(_filePath, token);
+                    settings = JsonSerializer.Deserialize<AppSettings>(existingJson) ?? new AppSettings();
+                }
+                else
+                {
+                    settings = new AppSettings();
+                }
+
+                settings.Config ??= new AppConfig();
+                CopyDnsSettings(dnsConfig, settings.Config);
+
+                var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(tempPath, json, token);
+                File.Move(tempPath, _filePath, true);
+                return true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                _saveLock.Release();
+            }
+        }
+
+        private static void CopyDnsSettings(AppConfig source, AppConfig destination)
+        {
+            destination.EnableDnsProtection = source.EnableDnsProtection;
+            destination.DnsProvider = source.DnsProvider;
+            destination.DnsHost = source.DnsHost;
+            destination.DnsFallbackHost = source.DnsFallbackHost;
+            destination.PreferPrimaryDns = source.PreferPrimaryDns;
+            destination.EnableDoh = source.EnableDoh;
+            destination.DohProvider = source.DohProvider;
+            destination.AutoDetectDohEndpoint = source.AutoDetectDohEndpoint;
+            destination.DohEndpoint = source.DohEndpoint;
+            destination.EnableDohFallback = source.EnableDohFallback;
+            destination.AutoDetectDohFallbackEndpoint = source.AutoDetectDohFallbackEndpoint;
+            destination.DohFallbackEndpoint = source.DohFallbackEndpoint;
+        }
+
+        public static string BuildAutoStartCommand(string exePath)
+        {
+            return $"\"{exePath}\" --autostart";
         }
 
         public static string BuildAutoStartTaskDeleteArguments()
@@ -141,16 +237,52 @@ namespace ProxyControl.Services
             catch { }
         }
 
-        private static bool HasLegacyRunEntry()
+        private static bool HasEnabledRunEntry()
         {
             try
             {
                 using var key = Registry.CurrentUser.OpenSubKey(RegistryKeyPath, false);
-                return key?.GetValue(AppName) != null;
+                if (key?.GetValue(AppName) == null) return false;
+
+                return !IsStartupEntryDisabled(StartupApprovedRunKeyPath) &&
+                       !IsStartupEntryDisabled(StartupApprovedRun32KeyPath);
             }
             catch
             {
                 return false;
+            }
+        }
+
+        private static bool IsStartupEntryDisabled(string keyPath)
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(keyPath, false);
+            if (key?.GetValue(AppName) is not byte[] state || state.Length == 0)
+            {
+                return false;
+            }
+
+            // Windows uses 0x03 as the disabled StartupApproved state and 0x02
+            // as enabled. A missing value also means that the Run entry is active.
+            return state[0] == 0x03;
+        }
+
+        private static void ClearStartupApprovalState()
+        {
+            ClearStartupApprovalState(StartupApprovedRunKeyPath);
+            ClearStartupApprovalState(StartupApprovedRun32KeyPath);
+        }
+
+        private static void ClearStartupApprovalState(string keyPath)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(keyPath, true);
+                key?.DeleteValue(AppName, false);
+            }
+            catch
+            {
+                // The Run entry itself is still valid on Windows versions that do
+                // not expose StartupApproved or restrict writes to this key.
             }
         }
     }

@@ -13,6 +13,8 @@ namespace ProxyControl.Models
 
     public class ProxyItem : INotifyPropertyChanged
     {
+        private string _id = Guid.NewGuid().ToString();
+        private string _name = "";
         private string _ipAddress = "";
         private int _port;
         private string? _username;
@@ -24,24 +26,55 @@ namespace ProxyControl.Models
 
         // Статистика
         private long _pingMs = 0;
-        private double _speedMbps = 0;
+        private double _speedMBps = 0;
+        private bool _isSpeedChecking;
 
         // --- Encryption Flags (Mutually Exclusive usually) ---
         private bool _useTls = false;
         private bool _useSsl = false;
 
-        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Id
+        {
+            get => _id;
+            set
+            {
+                _id = string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString() : value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplayName));
+            }
+        }
+
+        /// <summary>
+        /// User-facing proxy name. Older configurations do not contain this
+        /// property; MainViewModel migrates those entries to their stable id.
+        /// </summary>
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                _name = value?.Trim() ?? "";
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(DisplayName));
+            }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string DisplayName => Name;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string Endpoint => $"{IpAddress}:{Port}";
 
         public string IpAddress
         {
             get => _ipAddress;
-            set { _ipAddress = value; OnPropertyChanged(); }
+            set { _ipAddress = value; OnPropertyChanged(); OnPropertyChanged(nameof(Endpoint)); }
         }
 
         public int Port
         {
             get => _port;
-            set { _port = value; OnPropertyChanged(); }
+            set { _port = value; OnPropertyChanged(); OnPropertyChanged(nameof(Endpoint)); }
         }
 
         public string? Username
@@ -86,10 +119,39 @@ namespace ProxyControl.Models
             set { _pingMs = value; OnPropertyChanged(); OnPropertyChanged(nameof(PingFormatted)); }
         }
 
-        public double SpeedMbps
+        public double SpeedMBps
         {
-            get => _speedMbps;
-            set { _speedMbps = value; OnPropertyChanged(); OnPropertyChanged(nameof(SpeedFormatted)); }
+            get => _speedMBps;
+            set { _speedMBps = value; OnPropertyChanged(); OnPropertyChanged(nameof(SpeedFormatted)); }
+        }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool IsSpeedChecking
+        {
+            get => _isSpeedChecking;
+            set
+            {
+                if (_isSpeedChecking == value) return;
+                _isSpeedChecking = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// Reads speed values saved by versions that used Mbps.
+        /// The getter stays at zero so the legacy field is not written again.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("SpeedMbps")]
+        [System.Text.Json.Serialization.JsonIgnore(
+            Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+        public double LegacySpeedMbps
+        {
+            get => 0;
+            set
+            {
+                if (_speedMBps <= 0 && value > 0)
+                    SpeedMBps = value / 8d;
+            }
         }
 
         // --- TLS (Modern Security: 1.2, 1.3) ---
@@ -122,7 +184,7 @@ namespace ProxyControl.Models
             : "";
 
         public string PingFormatted => PingMs > 0 ? $"{PingMs} ms" : "-";
-        public string SpeedFormatted => SpeedMbps > 0 ? $"{SpeedMbps:0.##} Mb/s" : "-";
+        public string SpeedFormatted => SpeedMBps > 0 ? $"{SpeedMBps:0.##} MB/s" : "-";
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)

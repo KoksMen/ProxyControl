@@ -18,6 +18,8 @@ namespace ProxyControl.Services
 {
     public class TrafficMonitorService
     {
+        public event Action<ConnectionHistoryItem>? ConnectionCreated;
+
         private readonly ConcurrentDictionary<string, ProcessTrafficData> _liveProcessStats
             = new ConcurrentDictionary<string, ProcessTrafficData>();
 
@@ -30,6 +32,8 @@ namespace ProxyControl.Services
         private readonly CancellationTokenSource _servicesCts;
 
         private readonly ConcurrentQueue<ConnectionHistoryItem> _pendingConnections = new ConcurrentQueue<ConnectionHistoryItem>();
+        private int _pendingConnectionCount;
+        private const int MaxPendingConnections = 5000;
         private readonly ConcurrentDictionary<string, TrafficDelta> _pendingTraffic = new ConcurrentDictionary<string, TrafficDelta>();
 
         private readonly DispatcherTimer _uiBatchTimer;
@@ -48,7 +52,12 @@ namespace ProxyControl.Services
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
 
-            _logChannel = Channel.CreateUnbounded<ConnectionHistoryItem>();
+            _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(10000)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
             _servicesCts = new CancellationTokenSource();
 
             Task.Run(() => LogWriterLoop(_servicesCts.Token));
@@ -110,6 +119,12 @@ namespace ProxyControl.Services
 
             GetOrAddLiveProcess(processName, icon);
             _pendingConnections.Enqueue(item);
+            int count = Interlocked.Increment(ref _pendingConnectionCount);
+            while (count > MaxPendingConnections && _pendingConnections.TryDequeue(out _))
+            {
+                count = Interlocked.Decrement(ref _pendingConnectionCount);
+            }
+            ConnectionCreated?.Invoke(item);
             return item;
         }
 
@@ -125,6 +140,7 @@ namespace ProxyControl.Services
             bool hasNewConnections = !_pendingConnections.IsEmpty;
             while (_pendingConnections.TryDequeue(out var item))
             {
+                Interlocked.Decrement(ref _pendingConnectionCount);
                 if (_liveProcessStats.TryGetValue(item.ProcessName, out var stats))
                 {
                     stats.Connections.Insert(0, item);
@@ -213,7 +229,12 @@ namespace ProxyControl.Services
             catch (OperationCanceledException) { }
         }
 
-        public async Task LoadHistoryAsync(DateTime start, DateTime end, TimeSpan? startTime = null, TimeSpan? endTime = null)
+        public async Task LoadHistoryAsync(
+            DateTime start,
+            DateTime end,
+            TimeSpan? startTime = null,
+            TimeSpan? endTime = null,
+            CancellationToken token = default)
         {
             IsLiveMode = false;
             _uiBatchTimer.Stop();
@@ -227,6 +248,7 @@ namespace ProxyControl.Services
 
                 while (current <= endDate)
                 {
+                    token.ThrowIfCancellationRequested();
                     string fileName = $"log_{current:yyyy-MM-dd}.jsonl";
                     string fullPath = Path.Combine(_logsPath, fileName);
 
@@ -234,6 +256,7 @@ namespace ProxyControl.Services
                     {
                         foreach (var line in File.ReadLines(fullPath))
                         {
+                            token.ThrowIfCancellationRequested();
                             try
                             {
                                 var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
@@ -246,8 +269,7 @@ namespace ProxyControl.Services
                                     {
                                         resultDict[item.ProcessName] = new ProcessTrafficData
                                         {
-                                            ProcessName = item.ProcessName,
-                                            Icon = _liveProcessStats.TryGetValue(item.ProcessName, out var liveP) ? liveP.Icon : IconHelper.GetIconByProcessName(item.ProcessName)
+                                            ProcessName = item.ProcessName
                                         };
                                     }
 
@@ -262,23 +284,29 @@ namespace ProxyControl.Services
                     }
                     current = current.AddDays(1);
                 }
-            });
+            }, token);
+
+            token.ThrowIfCancellationRequested();
 
             foreach (var p in resultDict.Values)
             {
+                p.Icon = _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
+                    ? liveP.Icon
+                    : IconHelper.GetIconByProcessName(p.ProcessName);
                 var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
                 p.Connections.Clear();
                 foreach (var s in sorted) p.Connections.Add(s);
             }
 
-            Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () =>
+            await Application.Current.Dispatcher.InvokeAsync(() =>
             {
+                if (token.IsCancellationRequested) return;
                 DisplayedProcessList.Clear();
                 foreach (var p in resultDict.Values)
                 {
                     DisplayedProcessList.Add(p);
                 }
-            });
+            }, System.Windows.Threading.DispatcherPriority.Background);
         }
 
         public void SwitchToLiveMode()
