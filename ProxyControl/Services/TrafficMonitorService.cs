@@ -18,6 +18,8 @@ namespace ProxyControl.Services
 {
     public class TrafficMonitorService
     {
+        public event Action<ConnectionHistoryItem>? ConnectionCreated;
+
         private readonly ConcurrentDictionary<string, ProcessTrafficData> _liveProcessStats
             = new ConcurrentDictionary<string, ProcessTrafficData>();
 
@@ -122,6 +124,7 @@ namespace ProxyControl.Services
             {
                 count = Interlocked.Decrement(ref _pendingConnectionCount);
             }
+            ConnectionCreated?.Invoke(item);
             return item;
         }
 

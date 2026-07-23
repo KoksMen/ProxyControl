@@ -15,6 +15,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
@@ -52,8 +53,20 @@ namespace ProxyControl.ViewModels
         private int _pendingConnectionLogCount;
         private readonly DispatcherTimer _connectionLogTimer;
         private const int MaxPendingConnectionLogs = 2000;
+        private readonly CancellationTokenSource _connectionIconCts = new();
+        private readonly Channel<ConnectionIconRequest> _connectionIconQueue =
+            Channel.CreateBounded<ConnectionIconRequest>(new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
         private readonly List<TrafficRule> _temporaryBlackListRules = new();
         private readonly List<TrafficRule> _temporaryWhiteListRules = new();
+
+        private sealed record ConnectionIconRequest(
+            string Host,
+            Action<ImageSource?> Assign);
 
         public string DohSaveStatus
         {
@@ -512,7 +525,12 @@ namespace ProxyControl.ViewModels
                         {
                             AppName = app,
                             RuleCount = RulesList.Count(r => (r.GroupName ?? "General") == _selectedGroupName &&
-                                (r.TargetApps?.Contains(app) ?? false))
+                                (r.TargetApps?.Contains(app) ?? false)),
+                            AppIcon = RulesList
+                                .Where(r => (r.GroupName ?? "General") == _selectedGroupName &&
+                                    (r.TargetApps?.Contains(app) ?? false))
+                                .Select(r => r.AppIcon)
+                                .FirstOrDefault(icon => icon != null)
                         })
                         .ToList();
                 }
@@ -1624,7 +1642,9 @@ namespace ProxyControl.ViewModels
         public MainViewModel()
         {
             _trafficMonitorService = new TrafficMonitorService();
+            _trafficMonitorService.ConnectionCreated += OnMonitorConnectionCreated;
             _siteIconCacheService = new SiteIconCacheService();
+            _ = Task.Run(() => ProcessConnectionIconQueueAsync(_connectionIconCts.Token));
             _proxyService = new TcpProxyService(_trafficMonitorService);
             _dnsProxyService = new DnsProxyService(_trafficMonitorService);
             _tunService = new TunService();
@@ -1935,6 +1955,8 @@ namespace ProxyControl.ViewModels
 
                 await _trafficMonitorService.LoadHistoryAsync(start, end, timeStart, timeEnd, token);
                 token.ThrowIfCancellationRequested();
+                foreach (var connection in _trafficMonitorService.DisplayedProcessList.SelectMany(p => p.Connections))
+                    QueueConnectionSiteIcon(connection);
                 MonitorPeriodStatus = SelectedPeriodMode switch
                 {
                     TrafficPeriodMode.Today => "Today's history",
@@ -2611,6 +2633,7 @@ namespace ProxyControl.ViewModels
 
         private void OnLogReceived(ConnectionLog log)
         {
+            QueueConnectionSiteIcon(log);
             _pendingConnectionLogs.Enqueue(log);
             int count = Interlocked.Increment(ref _pendingConnectionLogCount);
             while (count > MaxPendingConnectionLogs && _pendingConnectionLogs.TryDequeue(out _))
@@ -2630,6 +2653,53 @@ namespace ProxyControl.ViewModels
             }
 
             while (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1);
+        }
+
+        private void OnMonitorConnectionCreated(ConnectionHistoryItem connection) =>
+            QueueConnectionSiteIcon(connection);
+
+        private void QueueConnectionSiteIcon(ConnectionLog log)
+        {
+            string host = log.Host;
+            _connectionIconQueue.Writer.TryWrite(new ConnectionIconRequest(host, icon =>
+            {
+                if (string.Equals(log.Host, host, StringComparison.Ordinal))
+                    log.SiteIcon = icon;
+            }));
+        }
+
+        private void QueueConnectionSiteIcon(ConnectionHistoryItem connection)
+        {
+            string host = connection.Host;
+            _connectionIconQueue.Writer.TryWrite(new ConnectionIconRequest(host, icon =>
+            {
+                if (string.Equals(connection.Host, host, StringComparison.Ordinal))
+                    connection.SiteIcon = icon;
+            }));
+        }
+
+        private async Task ProcessConnectionIconQueueAsync(CancellationToken token)
+        {
+            try
+            {
+                await foreach (ConnectionIconRequest request in
+                    _connectionIconQueue.Reader.ReadAllAsync(token).ConfigureAwait(false))
+                {
+                    ImageSource? icon = await _siteIconCacheService
+                        .GetFirstIconAsync(new[] { request.Host })
+                        .ConfigureAwait(false);
+
+                    if (Application.Current == null || token.IsCancellationRequested)
+                        continue;
+
+                    await Application.Current.Dispatcher.InvokeAsync(
+                        () => request.Assign(icon),
+                        DispatcherPriority.Background,
+                        token);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch { }
         }
 
         private void StartEnforcementLoop()
@@ -3790,6 +3860,9 @@ namespace ProxyControl.ViewModels
                 _monitorPeriodCts = null;
                 _connectionLogTimer.Stop();
                 _proxyService.OnConnectionLog -= OnLogReceived;
+                _trafficMonitorService.ConnectionCreated -= OnMonitorConnectionCreated;
+                _connectionIconQueue.Writer.TryComplete();
+                _connectionIconCts.Cancel();
                 _proxyService?.Stop();
                 _dnsProxyService?.Stop();
                 _tunService?.Stop();

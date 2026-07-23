@@ -2004,19 +2004,45 @@
                                                             </Border.InputBindings>
                                                             <Grid>
                                                                 <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="*" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
+                                                                <Border
+                                                                    Width="30"
+                                                                    Height="30"
+                                                                    Margin="0,0,10,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="#1AFFFFFF"
+                                                                    CornerRadius="7">
+                                                                    <Grid>
+                                                                        <TextBlock
+                                                                            HorizontalAlignment="Center"
+                                                                            VerticalAlignment="Center"
+                                                                            FontSize="15"
+                                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                            Text="{Binding Icon}" />
+                                                                        <Image
+                                                                            Width="22"
+                                                                            Height="22"
+                                                                            RenderOptions.BitmapScalingMode="HighQuality"
+                                                                            Source="{Binding AppIcon}"
+                                                                            Stretch="Uniform"
+                                                                            Visibility="{Binding AppIcon, Converter={StaticResource NullToBool}, ConverterParameter=Visible}" />
+                                                                    </Grid>
+                                                                </Border>
                                                                 <TextBlock
+                                                                    Grid.Column="1"
                                                                     VerticalAlignment="Center"
                                                                     FontSize="13"
                                                                     FontWeight="Medium"
                                                                     Foreground="{DynamicResource ForegroundBrush}"
-                                                                    Text="{Binding AppName}" />
+                                                                    Text="{Binding DisplayName}"
+                                                                    TextTrimming="CharacterEllipsis" />
 
                                                                 <!--  Rule Count Badge  -->
                                                                 <Border
-                                                                    Grid.Column="1"
+                                                                    Grid.Column="2"
                                                                     Margin="0,0,5,0"
                                                                     Padding="8,3"
                                                                     VerticalAlignment="Center"
@@ -3347,11 +3373,36 @@
                                                         Style="{StaticResource DataCardStyle}">
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
-                                                            <StackPanel>
+                                                            <Border
+                                                                Width="34"
+                                                                Height="34"
+                                                                Margin="0,0,11,0"
+                                                                VerticalAlignment="Center"
+                                                                Background="#1B1F29"
+                                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="8">
+                                                                <Grid>
+                                                                    <TextBlock
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center"
+                                                                        FontSize="16"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="🌐" />
+                                                                    <Image
+                                                                        Width="22"
+                                                                        Height="22"
+                                                                        Source="{Binding SiteIcon}"
+                                                                        Stretch="Uniform"
+                                                                        Visibility="{Binding SiteIcon, Converter={StaticResource NullToBool}, ConverterParameter=Visible}" />
+                                                                </Grid>
+                                                            </Border>
+                                                            <StackPanel Grid.Column="1">
                                                                 <StackPanel Orientation="Horizontal">
                                                                     <Border
                                                                         Padding="6,2"
@@ -3388,7 +3439,7 @@
                                                                     TextTrimming="CharacterEllipsis" />
                                                             </StackPanel>
                                                             <Border
-                                                                Grid.Column="1"
+                                                                Grid.Column="2"
                                                                 Margin="12,0"
                                                                 Padding="10,7"
                                                                 VerticalAlignment="Center"
@@ -3418,7 +3469,7 @@
                                                                 </StackPanel>
                                                             </Border>
                                                             <Button
-                                                                Grid.Column="2"
+                                                                Grid.Column="3"
                                                                 Padding="8,4"
                                                                 VerticalAlignment="Center"
                                                                 Command="{Binding DataContext.OpenRuleModalCommand, RelativeSource={RelativeSource AncestorType=Window}}"
@@ -3767,13 +3818,37 @@
                                                                         Foreground="{DynamicResource ForegroundMutedBrush}"
                                                                         Text="{Binding Time}" />
                                                                 </StackPanel>
-                                                                <TextBlock
-                                                                    Margin="0,7,0,0"
-                                                                    FontSize="14"
-                                                                    FontWeight="SemiBold"
-                                                                    Foreground="{DynamicResource ForegroundBrush}"
-                                                                    Text="{Binding Host}"
-                                                                    TextTrimming="CharacterEllipsis" />
+                                                                <StackPanel Margin="0,7,0,0" Orientation="Horizontal">
+                                                                    <Border
+                                                                        Width="24"
+                                                                        Height="24"
+                                                                        Margin="0,0,8,0"
+                                                                        VerticalAlignment="Center"
+                                                                        Background="#1B1F29"
+                                                                        CornerRadius="6">
+                                                                        <Grid>
+                                                                            <TextBlock
+                                                                                HorizontalAlignment="Center"
+                                                                                VerticalAlignment="Center"
+                                                                                FontSize="12"
+                                                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                                Text="🌐" />
+                                                                            <Image
+                                                                                Width="16"
+                                                                                Height="16"
+                                                                                Source="{Binding SiteIcon}"
+                                                                                Stretch="Uniform"
+                                                                                Visibility="{Binding SiteIcon, Converter={StaticResource NullToBool}, ConverterParameter=Visible}" />
+                                                                        </Grid>
+                                                                    </Border>
+                                                                    <TextBlock
+                                                                        VerticalAlignment="Center"
+                                                                        FontSize="14"
+                                                                        FontWeight="SemiBold"
+                                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                                        Text="{Binding Host}"
+                                                                        TextTrimming="CharacterEllipsis" />
+                                                                </StackPanel>
                                                             </StackPanel>
 
                                                             <Border
