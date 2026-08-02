@@ -112,6 +112,7 @@ namespace ProxyControl
             {
                 vm.Cleanup();
             }
+            TunService.StopOrphanedManagedProcesses();
             // -------------------
 
             // Final, synchronous cleanup after every background service has been

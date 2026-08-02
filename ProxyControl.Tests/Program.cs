@@ -38,6 +38,26 @@ Assert(webRtcHasMatch && Equals(webRtcMatch["network"], "udp"),
 Assert(((string[])webRtcMatch["port_range"]).Contains("3478"),
     "A WebRTC rule must include the standard STUN port.");
 
+var mutableTunConfig = new TunService.TunRulesConfig
+{
+    Mode = RuleMode.WhiteList,
+    Rules = new List<TrafficRule>
+    {
+        new()
+        {
+            IsEnabled = true,
+            Action = RuleAction.Proxy,
+            TrafficType = RuleTrafficType.HTTPS,
+            TargetApps = new List<string> { "browser.exe" },
+            TargetHosts = new List<string> { "example.com" }
+        }
+    }
+};
+var tunSnapshot = TunService.CreateSnapshot(mutableTunConfig);
+mutableTunConfig.Rules[0].TargetHosts[0] = "changed.example";
+Assert(tunSnapshot.Rules[0].TargetHosts[0] == "example.com",
+    "Queued TUN updates must use an immutable snapshot of the rule set.");
+
 var tunRoutes = new List<object>
 {
     new Dictionary<string, object> { ["process_name"] = new[] { "browser.exe" }, ["outbound"] = "proxy-out" }

@@ -1825,7 +1825,8 @@ namespace ProxyControl.ViewModels
             {
                 _proxyService.Stop();
                 _dnsProxyService.Stop();
-                if (IsTunMode) _tunService.Stop();
+                _tunService.Stop();
+                TunService.StopOrphanedManagedProcesses();
                 SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
                 MainWindow.AllowClose = true;
                 Application.Current.Shutdown();

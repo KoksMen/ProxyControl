@@ -30,6 +30,7 @@ namespace ProxyControl.Services
         private readonly SemaphoreSlim _stateGate = new(1, 1);
         private readonly string _dataDir;
         private readonly AppLoggerService _logger;
+        private long _requestedConfigVersion;
 
         public bool IsRunning => _isRunning;
         public event Action<bool>? StatusChanged;
@@ -42,13 +43,68 @@ namespace ProxyControl.Services
         }
 
         /// <summary>
+        /// Removes sing-box left behind by a previous ProxyControl process.
+        /// Only the binary stored in ProxyControl's own TUN directory is touched.
+        /// </summary>
+        public static int StopOrphanedManagedProcesses()
+        {
+            string expectedPath = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ProxyControl", "tun", SingBoxExe));
+            int stopped = 0;
+
+            foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(SingBoxExe)))
+            {
+                try
+                {
+                    string? processPath = process.MainModule?.FileName;
+                    if (string.IsNullOrWhiteSpace(processPath) ||
+                        !string.Equals(Path.GetFullPath(processPath), expectedPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(3000);
+                    stopped++;
+                }
+                catch
+                {
+                    // A process can exit between enumeration and inspection.
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            return stopped;
+        }
+
+        /// <summary>
         /// Start TUN mode - routes all traffic through local proxy
         /// </summary>
         public async Task<bool> StartAsync(TunRulesConfig rulesConfig)
         {
+            // Callers update rules from several UI paths. Capture the complete
+            // request now, rather than retaining references to mutable UI lists.
+            var configSnapshot = CreateSnapshot(rulesConfig);
+            long requestVersion = Interlocked.Increment(ref _requestedConfigVersion);
+
             await _stateGate.WaitAsync();
             try
             {
+                if (!IsLatestRequest(requestVersion)) return true;
+
+                // A previous application instance may have been terminated
+                // before it could stop its child process.
+                if (_singBoxProcess == null || _singBoxProcess.HasExited)
+                {
+                    int orphanCount = StopOrphanedManagedProcesses();
+                    if (orphanCount > 0)
+                        _logger.Warning("TUN", $"Stopped {orphanCount} orphaned sing-box process(es).");
+                }
+
                 // Ensure sing-box exists
                 var singBoxPath = Path.Combine(_dataDir, SingBoxExe);
                 if (!File.Exists(singBoxPath))
@@ -63,8 +119,11 @@ namespace ProxyControl.Services
 
                 // Generate config content first
                 var configPath = Path.Combine(_dataDir, ConfigFile);
-                var newJson = GenerateConfigJson(rulesConfig);
+                var newJson = GenerateConfigJson(configSnapshot);
                 var currentJson = File.Exists(configPath) ? File.ReadAllText(configPath) : null;
+
+                // A newer UI action superseded this request while it was queued.
+                if (!IsLatestRequest(requestVersion)) return true;
 
                 // Optimization: If config is same and process running, do nothing
                 if (_isRunning && _singBoxProcess != null && !_singBoxProcess.HasExited &&
@@ -76,6 +135,8 @@ namespace ProxyControl.Services
 
                 // Restart needed: Stop first if running
                 if (_isRunning) StopCore();
+
+                if (!IsLatestRequest(requestVersion)) return true;
 
                 File.WriteAllText(configPath, newJson);
                 _logger.Info("TUN", $"Config generated/updated.");
@@ -118,6 +179,14 @@ namespace ProxyControl.Services
                     return false;
                 }
 
+                // Do not leave an obsolete process running just because a new
+                // rule update arrived during sing-box startup.
+                if (!IsLatestRequest(requestVersion))
+                {
+                    StopCore();
+                    return true;
+                }
+
                 _isRunning = true;
                 _logger.Info("TUN", $"TUN mode started.");
                 StatusChanged?.Invoke(true);
@@ -139,6 +208,9 @@ namespace ProxyControl.Services
         /// </summary>
         public void Stop()
         {
+            // Invalidate queued StartAsync calls before waiting for the lock.
+            // Otherwise an old queued request can start TUN after the user turns it off.
+            Interlocked.Increment(ref _requestedConfigVersion);
             _stateGate.Wait();
             try
             {
@@ -148,6 +220,43 @@ namespace ProxyControl.Services
             {
                 _stateGate.Release();
             }
+        }
+
+        private bool IsLatestRequest(long requestVersion) =>
+            requestVersion == Volatile.Read(ref _requestedConfigVersion);
+
+        internal static TunRulesConfig CreateSnapshot(TunRulesConfig? source)
+        {
+            source ??= new TunRulesConfig();
+            return new TunRulesConfig
+            {
+                Mode = source.Mode,
+                ProxyType = source.ProxyType,
+                UpstreamProxyHosts = source.UpstreamProxyHosts?.ToList() ?? new List<string>(),
+                Rules = source.Rules?.Select(rule => new TrafficRule
+                {
+                    IsEnabled = rule.IsEnabled,
+                    Action = rule.Action,
+                    BlockDirection = rule.BlockDirection,
+                    ProxyId = rule.ProxyId,
+                    TrafficType = rule.TrafficType,
+                    TargetApps = new List<string>(rule.TargetApps ?? new List<string>()),
+                    TargetHosts = new List<string>(rule.TargetHosts ?? new List<string>())
+                }).ToList() ?? new List<TrafficRule>(),
+                Proxies = source.Proxies?.Select(proxy => new ProxyItem
+                {
+                    Id = proxy.Id,
+                    Name = proxy.Name,
+                    IpAddress = proxy.IpAddress,
+                    Port = proxy.Port,
+                    Username = proxy.Username,
+                    Password = proxy.Password,
+                    IsEnabled = proxy.IsEnabled,
+                    Type = proxy.Type,
+                    UseTls = proxy.UseTls,
+                    UseSsl = proxy.UseSsl
+                }).ToList() ?? new List<ProxyItem>()
+            };
         }
 
         private void StopCore()
@@ -166,6 +275,9 @@ namespace ProxyControl.Services
             {
                 _singBoxProcess?.Dispose();
                 _singBoxProcess = null;
+                int orphanCount = StopOrphanedManagedProcesses();
+                if (orphanCount > 0)
+                    _logger.Warning("TUN", $"Stopped {orphanCount} orphaned sing-box process(es).");
                 _isRunning = false;
                 _logger.Info("TUN", "TUN mode stopped");
                 StatusChanged?.Invoke(false);
