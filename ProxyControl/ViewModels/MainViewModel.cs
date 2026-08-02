@@ -1592,6 +1592,7 @@ namespace ProxyControl.ViewModels
                 _config.EnableDnsProtection = value;
                 OnPropertyChanged();
                 UpdateDnsServiceState();
+                RefreshTunRulesIfActive();
                 MarkDohSettingsChanged();
             }
         }
@@ -1956,7 +1957,6 @@ namespace ProxyControl.ViewModels
                 try
                 {
                     _proxyService.Start();
-                    UpdateDnsServiceState();
 
                     if (IsTunMode)
                     {
@@ -1969,6 +1969,10 @@ namespace ProxyControl.ViewModels
                     System.Diagnostics.Debug.WriteLine($"Proxy Start Failed: {ex.Message}");
                 }
             }
+
+            // DNS Protection must also start after application launch when the
+            // main TCP/SOCKS proxy was deliberately left switched off.
+            UpdateDnsServiceState();
 
             StartEnforcementLoop();
 
@@ -3081,6 +3085,7 @@ namespace ProxyControl.ViewModels
                 Mode = _config.CurrentMode,
                 Rules = GetRulesForMode(_config.CurrentMode),
                 ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                DnsServer = DnsHost,
                 UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                 Proxies = Proxies.Where(p => p.IsEnabled).ToList()
             };
@@ -3178,6 +3183,7 @@ namespace ProxyControl.ViewModels
                 // Apply the new upstreams to the already running DNS service before
                 // clearing Windows' cached answers.
                 ApplyConfig();
+                RefreshTunRulesIfActive();
 
                 if (IsDnsProtectionEnabled)
                 {
@@ -3551,6 +3557,7 @@ namespace ProxyControl.ViewModels
                             Mode = _config.CurrentMode,
                             Rules = GetRulesForMode(_config.CurrentMode),
                             ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                            DnsServer = DnsHost,
                             UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                             Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                         };
@@ -3566,7 +3573,8 @@ namespace ProxyControl.ViewModels
             else
             {
                 _proxyService.Stop();
-                _dnsProxyService.Stop();
+                // DNS Protection is independent from the main TCP/SOCKS proxy.
+                UpdateDnsServiceState();
                 if (IsTunMode) _tunService.Stop(); // Stop TUN if main proxy stops
             }
         }
@@ -3575,7 +3583,9 @@ namespace ProxyControl.ViewModels
         {
             bool hasDnsRules = GetRulesForMode(_config.CurrentMode).Any(rule =>
                 rule.IsEnabled && rule.TrafficType == RuleTrafficType.DNS);
-            bool shouldRun = IsProxyRunning && (IsDnsProtectionEnabled || hasDnsRules);
+            // DNS Protection owns its own local listener and upstream resolver.
+            // It must keep working even when the TCP/SOCKS proxy is stopped.
+            bool shouldRun = IsDnsProtectionEnabled || (IsProxyRunning && hasDnsRules);
             _ = Task.Run(() =>
             {
                 if (shouldRun) _dnsProxyService.Start();
@@ -3704,13 +3714,17 @@ namespace ProxyControl.ViewModels
                     Mode = _config.CurrentMode,
                     Rules = GetRulesForMode(_config.CurrentMode),
                     ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                    DnsServer = DnsHost,
                     UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                     Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                 };
                 var success = await _tunService.StartAsync(tunConfig);
                 if (!success)
                 {
-                    MessageBox.Show("Failed to start TUN mode. Ensure 'sing-box.exe' downloads successfully and you are running as Administrator.", "TUN Mode Start Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                    var error = string.IsNullOrWhiteSpace(_tunService.LastError)
+                        ? "Unknown sing-box error."
+                        : _tunService.LastError;
+                    MessageBox.Show($"Failed to start TUN mode:\n{error}", "TUN Mode Start Failed", MessageBoxButton.OK, MessageBoxImage.Error);
                     IsTunMode = false; // Revert
                     TunStatusDescription = "Failed to start";
                 }
@@ -4051,6 +4065,7 @@ namespace ProxyControl.ViewModels
                     Mode = _config.CurrentMode,
                     Rules = GetRulesForMode(_config.CurrentMode),
                     ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                    DnsServer = DnsHost,
                     UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                     Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                 };

@@ -31,8 +31,10 @@ namespace ProxyControl.Services
         private readonly string _dataDir;
         private readonly AppLoggerService _logger;
         private long _requestedConfigVersion;
+        private string _lastError = string.Empty;
 
         public bool IsRunning => _isRunning;
+        public string LastError => _lastError;
         public event Action<bool>? StatusChanged;
         public event Action<bool, string>? ApplyStatusChanged;
 
@@ -91,6 +93,7 @@ namespace ProxyControl.Services
             // request now, rather than retaining references to mutable UI lists.
             var configSnapshot = CreateSnapshot(rulesConfig);
             long requestVersion = Interlocked.Increment(ref _requestedConfigVersion);
+            _lastError = string.Empty;
             ReportApplyStatus(requestVersion, true, "Applying TUN rules…");
 
             await _stateGate.WaitAsync();
@@ -114,6 +117,7 @@ namespace ProxyControl.Services
                     _logger.Info("TUN", "sing-box not found, downloading...");
                     if (!await DownloadSingBoxAsync())
                     {
+                        _lastError = "sing-box could not be downloaded.";
                         _logger.Error("TUN", "Failed to download sing-box");
                         ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                         return false;
@@ -159,6 +163,7 @@ namespace ProxyControl.Services
                 };
 
                 _singBoxProcess = new Process { StartInfo = psi };
+                string? startupError = null;
                 _singBoxProcess.OutputDataReceived += (s, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
@@ -167,7 +172,10 @@ namespace ProxyControl.Services
                 _singBoxProcess.ErrorDataReceived += (s, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
+                    {
+                        startupError = e.Data;
                         _logger.Warning("TUN", e.Data);
+                    }
                 };
 
                 _singBoxProcess.Start();
@@ -179,7 +187,10 @@ namespace ProxyControl.Services
 
                 if (_singBoxProcess.HasExited)
                 {
-                    _logger.Error("TUN", $"sing-box exited with code {_singBoxProcess.ExitCode}");
+                    _lastError = string.IsNullOrWhiteSpace(startupError)
+                        ? $"sing-box exited with code {_singBoxProcess.ExitCode}."
+                        : startupError;
+                    _logger.Error("TUN", _lastError);
                     ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                     return false;
                 }
@@ -200,6 +211,7 @@ namespace ProxyControl.Services
             }
             catch (Exception ex)
             {
+                _lastError = ex.Message;
                 _logger.Error("TUN", $"Start failed: {ex.Message}");
                 ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                 return false;
@@ -246,6 +258,7 @@ namespace ProxyControl.Services
             {
                 Mode = source.Mode,
                 ProxyType = source.ProxyType,
+                DnsServer = source.DnsServer,
                 UpstreamProxyHosts = source.UpstreamProxyHosts?.ToList() ?? new List<string>(),
                 Rules = source.Rules?.Select(rule => new TrafficRule
                 {
@@ -474,6 +487,11 @@ namespace ProxyControl.Services
             public RuleMode Mode { get; set; }
             public List<TrafficRule> Rules { get; set; } = new();
             public ProxyType ProxyType { get; set; }
+            /// <summary>
+            /// DNS resolver used by sing-box while TUN is active. This avoids
+            /// routing system DNS back to the local loopback listener.
+            /// </summary>
+            public string DnsServer { get; set; } = "8.8.8.8";
             public List<string> UpstreamProxyHosts { get; set; } = new();
             public List<ProxyItem> Proxies { get; set; } = new();
         }
@@ -563,12 +581,7 @@ namespace ProxyControl.Services
                 {
                     finalOutbound = "proxy-out";
                     routes = GenerateRouteRules(rulesConfig);
-                    // System rules for local/loopback must be added to prevent loops
-                    routes.Insert(0, new { protocol = "dns", outbound = "dns-out" });
-                    routes.Insert(1, new { port = 53, outbound = "dns-out" });
-                    routes.Insert(2, new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
-                    routes.Insert(3, new { port = new[] { 8000, 8080 }, outbound = "direct" });
-                    routes.Insert(4, new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
+                    InsertSystemRoutes(routes);
                 }
                 else
                 {
@@ -578,12 +591,7 @@ namespace ProxyControl.Services
                     // Windows points DNS at the TUN peer (172.19.0.2). Without
                     // interception, a direct port-53 route loops back into the
                     // virtual adapter and every hostname lookup times out.
-                    routes.Insert(0, new { protocol = "dns", outbound = "dns-out" });
-                    routes.Insert(1, new { port = 53, outbound = "dns-out" });
-                    // Keep local services and ProxyControl itself outside wildcard rules.
-                    routes.Insert(2, new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
-                    routes.Insert(3, new { port = new[] { 8000, 8080 }, outbound = "direct" });
-                    routes.Insert(4, new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
+                    InsertSystemRoutes(routes);
                 }
             }
             else
@@ -592,19 +600,16 @@ namespace ProxyControl.Services
                 finalOutbound = "proxy-out";
                 routes = new List<object>();
                 // We don't need app-specific routes here because everything goes to proxy-out
-                // Exception: DNS still needs to be handled
-                routes.Add(new { protocol = "dns", outbound = "dns-out" });
-                routes.Add(new { port = 53, outbound = "dns-out" });
-                // We MUST exclude localhost/private from proxy-out to avoid loops, 
-                // OR rely on TcpProxyService to handle it? 
-                // Better to exclude essential system traffic here to be safe.
-                routes.Add(new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
-                routes.Add(new { port = new[] { 8000, 8080 }, outbound = "direct" });
-                routes.Add(new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
+                InsertSystemRoutes(routes, append: true);
             }
 
             // Must precede every user rule and the final outbound in both modes.
             InsertUpstreamProxyBypassRules(routes, rulesConfig);
+
+            var configuredDnsAddress = NormalizeDnsServer(rulesConfig.DnsServer);
+            object configuredDnsServer = IPAddress.TryParse(configuredDnsAddress, out _)
+                ? new { tag = "configured", address = configuredDnsAddress, detour = "direct" }
+                : new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" };
 
             var config = new
             {
@@ -613,12 +618,12 @@ namespace ProxyControl.Services
                 {
                     servers = new object[]
                     {
-                        new { tag = "google", address = "8.8.8.8", detour = "direct" },
+                        configuredDnsServer,
                         new { tag = "local", address = "local", detour = "direct" }
                     },
                     rules = new object[]
                     {
-                        new { outbound = "any", server = "google" }
+                        new { outbound = "any", server = "configured" }
                     },
                     strategy = "ipv4_only"
                 },
@@ -652,6 +657,37 @@ namespace ProxyControl.Services
                 WriteIndented = true,
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             });
+        }
+
+        private static string NormalizeDnsServer(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "8.8.8.8";
+            var normalized = value.Trim();
+            if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            {
+                return uri.Host;
+            }
+            return normalized.TrimEnd('.');
+        }
+
+        private static void InsertSystemRoutes(List<object> routes, bool append = false)
+        {
+            var systemRoutes = new List<object>();
+            // TUN must answer DNS itself; forwarding 127.0.0.1:53 through a
+            // direct outbound can leave Windows' DNS Client waiting forever.
+            // dns-out uses the DNS server selected in ProxyControl's settings.
+            systemRoutes.Add(new { protocol = "dns", outbound = "dns-out" });
+            systemRoutes.Add(new { port = 53, outbound = "dns-out" });
+
+            systemRoutes.Add(new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
+            systemRoutes.Add(new { port = new[] { 8000, 8080 }, outbound = "direct" });
+            systemRoutes.Add(new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
+
+            if (append)
+                routes.AddRange(systemRoutes);
+            else
+                routes.InsertRange(0, systemRoutes);
         }
 
         private object[] CreateOutbounds(TunRulesConfig rulesConfig)

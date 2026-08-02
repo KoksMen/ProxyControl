@@ -91,6 +91,37 @@ using (var tunService = new TunService())
     Assert(configDocument.RootElement.GetProperty("route").GetProperty("final").GetString() == "direct",
         "Unmatched WhiteList TUN traffic must remain direct.");
 
+    var protectedDnsConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
+    {
+        Mode = RuleMode.WhiteList,
+        ProxyType = ProxyType.Socks5,
+        DnsServer = "9.9.9.9"
+    });
+    using var protectedDnsDocument = JsonDocument.Parse(protectedDnsConfig);
+    var protectedDnsRoutes = protectedDnsDocument.RootElement.GetProperty("route").GetProperty("rules")
+        .EnumerateArray().ToArray();
+    Assert(protectedDnsRoutes.Any(rule =>
+            rule.TryGetProperty("port", out var port) && port.ValueKind == JsonValueKind.Number && port.GetInt32() == 53 &&
+            rule.GetProperty("outbound").GetString() == "dns-out"),
+        "TUN must send DNS through sing-box instead of routing loopback DNS directly.");
+    var dnsServers = protectedDnsDocument.RootElement.GetProperty("dns").GetProperty("servers").EnumerateArray().ToArray();
+    Assert(dnsServers.Any(server =>
+            server.GetProperty("tag").GetString() == "configured" &&
+            server.GetProperty("address").GetString() == "9.9.9.9"),
+        "TUN DNS must use the DNS server selected in ProxyControl settings.");
+
+    var hostnameDnsConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
+    {
+        Mode = RuleMode.WhiteList,
+        ProxyType = ProxyType.Socks5,
+        DnsServer = "resolver.example"
+    });
+    using var hostnameDnsDocument = JsonDocument.Parse(hostnameDnsConfig);
+    var hostnameDnsServer = hostnameDnsDocument.RootElement.GetProperty("dns").GetProperty("servers")
+        .EnumerateArray().First(server => server.GetProperty("tag").GetString() == "configured");
+    Assert(hostnameDnsServer.GetProperty("address_resolver").GetString() == "local",
+        "A hostname DNS server must declare an address resolver so sing-box can start.");
+
     const string httpProxyId = "http-rule-proxy";
     const string socksProxyId = "socks-rule-proxy";
     var perProxyConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
