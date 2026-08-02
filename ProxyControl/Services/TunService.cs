@@ -354,7 +354,17 @@ namespace ProxyControl.Services
 
             if (rulesConfig != null && rulesConfig.Rules != null)
             {
-                foreach (var rule in rulesConfig.Rules)
+                // sing-box uses the first matching route. A protocol-specific
+                // rule must therefore win over an older/broader Any rule for
+                // the same process or host.
+                var orderedRules = rulesConfig.Rules
+                    .Select((rule, index) => new { Rule = rule, Index = index })
+                    .OrderByDescending(item => GetRuleSpecificity(item.Rule))
+                    .ThenBy(item => item.Rule.TrafficType == RuleTrafficType.Any ? 1 : 0)
+                    .ThenBy(item => item.Index)
+                    .Select(item => item.Rule);
+
+                foreach (var rule in orderedRules)
                 {
                     if (!rule.IsEnabled) continue;
 
@@ -487,19 +497,22 @@ namespace ProxyControl.Services
                     hasMatch = true;
                     break;
                 case RuleTrafficType.DNS:
+                    matchObject["protocol"] = "dns";
                     matchObject["port"] = 53;
                     hasMatch = true;
                     break;
                 case RuleTrafficType.HTTPS:
                     matchObject["network"] = "tcp";
+                    matchObject["protocol"] = "tls";
                     matchObject["port"] = 443;
                     hasMatch = true;
                     break;
                 case RuleTrafficType.WebSocket:
-                    // sing-box cannot match the HTTP Upgrade header at route time.
-                    // Route the scoped TCP flow to ProxyControl, which performs the
-                    // final WebSocket classification from the request headers.
+                    // sing-box cannot inspect the Upgrade header in a route rule,
+                    // but requiring sniffed HTTP avoids treating every TCP flow as
+                    // WebSocket traffic.
                     matchObject["network"] = "tcp";
+                    matchObject["protocol"] = "http";
                     hasMatch = true;
                     break;
                 case RuleTrafficType.WebRTC:
@@ -508,6 +521,19 @@ namespace ProxyControl.Services
                     hasMatch = true;
                     break;
             }
+        }
+
+        /// <summary>
+        /// Converts sing-box's correlated inbound/outbound trace lines into one
+        /// connection event. WhiteList routes bypass TcpProxyService, so this is
+        /// the authoritative source for those connections.
+        /// </summary>
+        private static int GetRuleSpecificity(TrafficRule rule)
+        {
+            int score = 0;
+            if (rule.TargetApps?.Any(app => app != "*") == true) score++;
+            if (rule.TargetHosts?.Any(host => host != "*") == true) score++;
+            return score;
         }
 
         /// <summary>

@@ -30,6 +30,17 @@ bool dnsHasMatch = false;
 TunService.ApplyTrafficTypeMatch(dnsMatch, RuleTrafficType.DNS, ref dnsHasMatch);
 Assert(dnsHasMatch && Convert.ToInt32(dnsMatch["port"]) == 53,
     "A DNS rule must produce a real port 53 TUN match.");
+Assert(Equals(dnsMatch["protocol"], "dns"),
+    "A DNS rule must require sing-box DNS protocol detection.");
+
+var httpsMatch = new Dictionary<string, object>();
+bool httpsHasMatch = false;
+TunService.ApplyTrafficTypeMatch(httpsMatch, RuleTrafficType.HTTPS, ref httpsHasMatch);
+Assert(httpsHasMatch &&
+       Equals(httpsMatch["network"], "tcp") &&
+       Equals(httpsMatch["protocol"], "tls") &&
+       Convert.ToInt32(httpsMatch["port"]) == 443,
+    "An HTTPS rule must only match sniffed TLS over TCP port 443.");
 
 var webRtcMatch = new Dictionary<string, object>();
 bool webRtcHasMatch = false;
@@ -65,11 +76,11 @@ var tunRoutes = new List<object>
 };
 TunService.InsertUpstreamProxyBypassRules(tunRoutes, new TunService.TunRulesConfig
 {
-    UpstreamProxyHosts = new List<string> { "78.111.89.227", "proxy.example" }
+    UpstreamProxyHosts = new List<string> { "78.111.89.227", "localhost" }
 });
 var tunRoutesJson = JsonSerializer.Serialize(tunRoutes);
 Assert(tunRoutesJson.Contains("78.111.89.227/32") &&
-       tunRoutesJson.Contains("proxy.example") &&
+       tunRoutesJson.Contains("localhost") &&
        tunRoutesJson.IndexOf("78.111.89.227/32", StringComparison.Ordinal) <
        tunRoutesJson.IndexOf("browser.exe", StringComparison.Ordinal),
     "Upstream proxy endpoints must bypass TUN before user rules to prevent a routing loop.");
@@ -244,6 +255,11 @@ using (var tunService = new TunService())
             route.GetProperty("outbound").GetString() == TunService.GetProxyOutboundTag(socksProxyId)),
         "The SOCKS WhiteList rule must route to its selected SOCKS outbound.");
 }
+
+Assert(MainViewModel.ClassifyTunTraffic("tcp", 443) == TrafficType.HTTPS,
+    "TUN TCP port 443 must appear as HTTPS in logs.");
+Assert(MainViewModel.ClassifyTunTraffic("udp", 443) == TrafficType.UDP,
+    "TUN UDP port 443 must remain UDP instead of being mislabeled as HTTPS.");
 
 var historyJson = JsonSerializer.Serialize(new ConnectionHistoryItem
 {

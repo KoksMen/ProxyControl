@@ -2949,7 +2949,9 @@ namespace ProxyControl.ViewModels
             }
 
             var proxy = Proxies.FirstOrDefault(item =>
-                string.Equals(TunService.GetProxyOutboundTag(item.Id), traffic.OutboundTag,
+                string.Equals(
+                    TunService.GetProxyOutboundTag(item.Id),
+                    traffic.OutboundTag,
                     StringComparison.OrdinalIgnoreCase));
 
             string status;
@@ -2982,6 +2984,7 @@ namespace ProxyControl.ViewModels
             string host = traffic.Port > 0
                 ? $"{traffic.Host}:{traffic.Port}"
                 : traffic.Host;
+            var type = ClassifyTunTraffic(traffic.Network, traffic.Port);
             var item = _trafficMonitorService.CreateConnectionItem(
                 traffic.ProcessName,
                 null,
@@ -2990,7 +2993,7 @@ namespace ProxyControl.ViewModels
                 details,
                 flagUrl,
                 color,
-                ClassifyTunTraffic(traffic.Network, traffic.Port),
+                type,
                 traffic.ProcessPath);
             _trafficMonitorService.CompleteConnection(item);
         }
