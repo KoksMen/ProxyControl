@@ -57,6 +57,30 @@ namespace ProxyControl.Services
                 .Where(index => index > 0);
         }
 
+        /// <summary>
+        /// Returns the DNS servers currently assigned to physical active adapters.
+        /// This deliberately excludes the TUN adapter and loopback so a TUN DNS
+        /// request can be sent directly without resolving back into itself.
+        /// </summary>
+        public static IReadOnlyList<string> GetActiveSystemDnsServers()
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                            (n.NetworkInterfaceType == NetworkInterfaceType.Ethernet ||
+                             n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
+                .SelectMany(n =>
+                {
+                    try { return n.GetIPProperties().DnsAddresses.ToArray(); }
+                    catch { return Array.Empty<IPAddress>(); }
+                })
+                .Where(address => address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                                  !IPAddress.IsLoopback(address) &&
+                                  !address.Equals(IPAddress.Any))
+                .Select(address => address.ToString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
         private static readonly object _cacheLock = new object();
         private static Dictionary<int, int> _pidCache = new Dictionary<int, int>();
         private static DateTime _lastCacheUpdate = DateTime.MinValue;

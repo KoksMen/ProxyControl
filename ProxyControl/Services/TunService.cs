@@ -284,6 +284,8 @@ namespace ProxyControl.Services
                 Mode = source.Mode,
                 ProxyType = source.ProxyType,
                 DnsServer = source.DnsServer,
+                UseDnsProtection = source.UseDnsProtection,
+                SystemDnsServers = source.SystemDnsServers?.ToList() ?? new List<string>(),
                 UpstreamProxyHosts = source.UpstreamProxyHosts?.ToList() ?? new List<string>(),
                 Rules = source.Rules?.Select(rule => new TrafficRule
                 {
@@ -641,7 +643,13 @@ namespace ProxyControl.Services
             /// DNS resolver used by sing-box while TUN is active. This avoids
             /// routing system DNS back to the local loopback listener.
             /// </summary>
-            public string DnsServer { get; set; } = "8.8.8.8";
+            public string DnsServer { get; set; } = string.Empty;
+            /// <summary>
+            /// When disabled, TUN resolves through Windows' system DNS instead
+            /// of silently using ProxyControl's configured DNS server.
+            /// </summary>
+            public bool UseDnsProtection { get; set; }
+            public List<string> SystemDnsServers { get; set; } = new();
             public List<string> UpstreamProxyHosts { get; set; } = new();
             public List<ProxyItem> Proxies { get; set; } = new();
         }
@@ -757,9 +765,37 @@ namespace ProxyControl.Services
             InsertUpstreamProxyBypassRules(routes, rulesConfig);
 
             var configuredDnsAddress = NormalizeDnsServer(rulesConfig.DnsServer);
-            object configuredDnsServer = IPAddress.TryParse(configuredDnsAddress, out _)
-                ? new { tag = "configured", address = configuredDnsAddress, detour = "direct" }
-                : new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" };
+            if (rulesConfig.UseDnsProtection && string.IsNullOrWhiteSpace(configuredDnsAddress))
+                throw new InvalidOperationException("DNS Protection in TUN mode requires an explicitly configured DNS server.");
+
+            var dnsServers = new List<object>();
+            string dnsServerTag;
+            if (rulesConfig.UseDnsProtection)
+            {
+                object configuredDnsServer = IPAddress.TryParse(configuredDnsAddress, out _)
+                    ? new { tag = "configured", address = configuredDnsAddress, detour = "direct" }
+                    : new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" };
+                dnsServers.Insert(0, configuredDnsServer);
+                dnsServerTag = "configured";
+            }
+            else
+            {
+                var systemDns = rulesConfig.SystemDnsServers
+                    .Where(address => IPAddress.TryParse(address, out var parsed) &&
+                                      !IPAddress.IsLoopback(parsed) &&
+                                      !parsed.Equals(IPAddress.Any))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (systemDns.Length == 0)
+                    throw new InvalidOperationException("TUN requires a reachable system DNS server when DNS Protection is disabled.");
+
+                for (var index = 0; index < systemDns.Length; index++)
+                {
+                    var tag = $"system-{index}";
+                    dnsServers.Add(new { tag, address = systemDns[index], detour = "direct" });
+                }
+                dnsServerTag = "system-0";
+            }
 
             var config = new
             {
@@ -769,14 +805,10 @@ namespace ProxyControl.Services
                 log = new { level = "info", timestamp = true },
                 dns = new
                 {
-                    servers = new object[]
-                    {
-                        configuredDnsServer,
-                        new { tag = "local", address = "local", detour = "direct" }
-                    },
+                    servers = dnsServers.ToArray(),
                     rules = new object[]
                     {
-                        new { outbound = "any", server = "configured" }
+                        new { outbound = "any", server = dnsServerTag }
                     },
                     strategy = "ipv4_only"
                 },
@@ -814,7 +846,7 @@ namespace ProxyControl.Services
 
         private static string NormalizeDnsServer(string? value)
         {
-            if (string.IsNullOrWhiteSpace(value)) return "8.8.8.8";
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
             var normalized = value.Trim();
             if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
                 (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))

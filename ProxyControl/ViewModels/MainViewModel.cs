@@ -1602,7 +1602,18 @@ namespace ProxyControl.ViewModels
 
                 _config.EnableDnsProtection = value;
                 OnPropertyChanged();
-                UpdateDnsServiceState();
+                if (!value)
+                {
+                    // The toggle is the single owner of ProxyControl's local DNS
+                    // listener.  DNS rules must not keep Windows pointed at
+                    // 127.0.0.1 after protection has been turned off.
+                    _dnsProxyService.Stop();
+                    SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
+                }
+                else
+                {
+                    UpdateDnsServiceState();
+                }
                 RefreshTunRulesIfActive();
                 MarkDohSettingsChanged();
             }
@@ -3168,6 +3179,8 @@ namespace ProxyControl.ViewModels
                 Rules = GetRulesForMode(_config.CurrentMode),
                 ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
                 DnsServer = DnsHost,
+                UseDnsProtection = IsDnsProtectionEnabled,
+                SystemDnsServers = SystemProxyHelper.GetActiveSystemDnsServers().ToList(),
                 UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                 Proxies = Proxies.Where(p => p.IsEnabled).ToList()
             };
@@ -3640,6 +3653,8 @@ namespace ProxyControl.ViewModels
                             Rules = GetRulesForMode(_config.CurrentMode),
                             ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
                             DnsServer = DnsHost,
+                            UseDnsProtection = IsDnsProtectionEnabled,
+                            SystemDnsServers = SystemProxyHelper.GetActiveSystemDnsServers().ToList(),
                             UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                             Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                         };
@@ -3663,11 +3678,11 @@ namespace ProxyControl.ViewModels
 
         private void UpdateDnsServiceState()
         {
-            bool hasDnsRules = GetRulesForMode(_config.CurrentMode).Any(rule =>
-                rule.IsEnabled && rule.TrafficType == RuleTrafficType.DNS);
-            // DNS Protection owns its own local listener and upstream resolver.
-            // It must keep working even when the TCP/SOCKS proxy is stopped.
-            bool shouldRun = IsDnsProtectionEnabled || (IsProxyRunning && hasDnsRules);
+            // DNS Protection is the sole owner of the local listener and the
+            // system-DNS override.  A DNS routing rule is meaningful only while
+            // the protection feature is explicitly enabled; it must never keep
+            // the listener alive after the user turns the toggle off.
+            bool shouldRun = IsDnsProtectionEnabled;
             _ = Task.Run(() =>
             {
                 if (shouldRun) _dnsProxyService.Start();
@@ -3801,6 +3816,8 @@ namespace ProxyControl.ViewModels
                     Rules = GetRulesForMode(_config.CurrentMode),
                     ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
                     DnsServer = DnsHost,
+                    UseDnsProtection = IsDnsProtectionEnabled,
+                    SystemDnsServers = SystemProxyHelper.GetActiveSystemDnsServers().ToList(),
                     UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                     Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                 };
@@ -4152,6 +4169,8 @@ namespace ProxyControl.ViewModels
                     Rules = GetRulesForMode(_config.CurrentMode),
                     ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
                     DnsServer = DnsHost,
+                    UseDnsProtection = IsDnsProtectionEnabled,
+                    SystemDnsServers = SystemProxyHelper.GetActiveSystemDnsServers().ToList(),
                     UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                     Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                 };
