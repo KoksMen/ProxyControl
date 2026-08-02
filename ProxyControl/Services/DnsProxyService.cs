@@ -249,16 +249,27 @@ namespace ProxyControl.Services
                     return;
                 }
 
-                // WebRTC Protection: Block STUN/TURN server DNS resolution (if enabled)
-                if (_isWebRtcBlockingEnabled && IsStunServer(domain))
+                var explicitWebRtcDecision = IsStunServer(domain)
+                    ? ResolveExplicitWebRtcAction(domain)
+                    : null;
+                TrafficType logTrafficType = IsStunServer(domain)
+                    ? TrafficType.WebRTC
+                    : TrafficType.DNS;
+
+                // An explicit WebRTC rule takes precedence over the global leak
+                // protection switch. Unmatched STUN/TURN remains protected.
+                if (_isWebRtcBlockingEnabled && IsStunServer(domain) && explicitWebRtcDecision == null)
                 {
                     AppLoggerService.Instance.Warning("WebRTC", $"DNS blocked STUN/TURN: {domain}");
-                    _trafficMonitor.CreateConnectionItem("DNS System", null, domain, "BLOCKED (STUN)", "WebRTC Protection", null, "#FF5555");
+                    var blockedItem = _trafficMonitor.CreateConnectionItem(
+                        "DNS System", null, domain, "BLOCKED (STUN)", "WebRTC Protection",
+                        null, "#FF5555", TrafficType.WebRTC);
+                    _trafficMonitor.CompleteConnection(blockedItem);
                     // Don't respond - let it timeout (blocks WebRTC ICE candidate gathering)
                     return;
                 }
 
-                var decision = ResolveDnsAction(domain);
+                var decision = explicitWebRtcDecision ?? ResolveDnsAction(domain);
 
                 bool success = false;
 
@@ -291,13 +302,16 @@ namespace ProxyControl.Services
                 // Log to Traffic Monitor
                 // DNS is usually "svchost" or "System", but we can try to find process or just say "DNS"
                 // Ideally we map port to PID but for UDP 53 it's tricky.
-                _trafficMonitor.CreateConnectionItem("DNS System", null, domain, logResult, "UDP 53", null, logColor);
+                var historyItem = _trafficMonitor.CreateConnectionItem(
+                    "DNS System", null, domain, logResult, "UDP 53", null, logColor,
+                    logTrafficType);
 
                 // Если правило не прокси или туннелирование не удалось -> отправляем напрямую
                 if (!success && decision.Action != RuleAction.Block)
                 {
                     await ForwardDnsDirectly(dnsQuery, clientEndpoint);
                 }
+                _trafficMonitor.CompleteConnection(historyItem);
             }
             catch (Exception ex)
             {
@@ -781,9 +795,46 @@ namespace ProxyControl.Services
         private static bool IsDnsApplicableRule(TrafficRule rule)
         {
             if (!rule.IsEnabled || !IsInSchedule(rule)) return false;
+            if (rule.TrafficType != RuleTrafficType.Any &&
+                rule.TrafficType != RuleTrafficType.DNS)
+            {
+                return false;
+            }
             // App-scoped DNS rules cannot be evaluated reliably because Windows
             // forwards requests through the DNS Client service.
             return rule.TargetApps.Count == 0 || rule.TargetApps.Contains("*");
+        }
+
+        private (RuleAction Action, ProxyItem? Proxy)? ResolveExplicitWebRtcAction(string host)
+        {
+            var rules = _currentMode == RuleMode.BlackList ? _localBlackList : _localWhiteList;
+            foreach (var rule in rules)
+            {
+                if (!rule.IsEnabled ||
+                    rule.TrafficType != RuleTrafficType.WebRTC ||
+                    !IsInSchedule(rule) ||
+                    (rule.TargetApps.Count > 0 && !rule.TargetApps.Contains("*")) ||
+                    !IsHostMatch(rule, host))
+                {
+                    continue;
+                }
+
+                if (rule.Action == RuleAction.Block)
+                    return (RuleAction.Block, null);
+                if (rule.Action == RuleAction.Direct)
+                    return (RuleAction.Direct, null);
+
+                var proxy = !string.IsNullOrWhiteSpace(rule.ProxyId)
+                    ? _localProxies.FirstOrDefault(item =>
+                        item.IsEnabled &&
+                        item.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase))
+                    : GetMainProxy();
+                return proxy != null
+                    ? (RuleAction.Proxy, proxy)
+                    : (RuleAction.Direct, null);
+            }
+
+            return null;
         }
 
         private static bool IsInSchedule(TrafficRule rule)

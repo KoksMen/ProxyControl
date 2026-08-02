@@ -32,7 +32,19 @@ namespace ProxyControl.Models
         UDP,
         DNS,
         HTTPS,
-        WebSocket
+        WebSocket,
+        WebRTC
+    }
+
+    public enum RuleTrafficType
+    {
+        Any,
+        TCP,
+        UDP,
+        DNS,
+        HTTPS,
+        WebSocket,
+        WebRTC
     }
 
 
@@ -48,6 +60,7 @@ namespace ProxyControl.Models
         private ImageSource? _siteIcon;
         private string? _iconBase64;
         private bool _isTemporary;
+        private RuleTrafficType _trafficType = RuleTrafficType.Any;
 
         // Backing fields for lists
         private List<string> _targetApps = new List<string>();
@@ -96,6 +109,16 @@ namespace ProxyControl.Models
         {
             get => _proxyId;
             set { _proxyId = value; OnPropertyChanged(); }
+        }
+
+        public RuleTrafficType TrafficType
+        {
+            get => _trafficType;
+            set
+            {
+                _trafficType = value;
+                OnPropertyChanged();
+            }
         }
 
         [System.Text.Json.Serialization.JsonIgnore]
@@ -235,6 +258,7 @@ namespace ProxyControl.Models
 
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
+        public string ProcessPath { get; set; } = "";
         public string Host { get; set; } = "";
         public string Result { get; set; } = ""; // Blocked, Proxy IP, etc.
         public string Color { get; set; } = "#White";
@@ -264,6 +288,7 @@ namespace ProxyControl.Models
             TrafficType.DNS => "🟡",
             TrafficType.HTTPS => "🔒",
             TrafficType.WebSocket => "🔄",
+            TrafficType.WebRTC => "📡",
             _ => "⚪"
         };
 

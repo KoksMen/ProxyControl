@@ -40,6 +40,7 @@ namespace ProxyControl.ViewModels
         private AppConfig _config;
         // private CancellationTokenSource _enforceCts; // Unused in TUN mode
         private CancellationTokenSource? _saveDebounceCts;
+        private CancellationTokenSource? _tunRefreshCts;
         private CancellationTokenSource? _dohStatusRefreshCts;
         private bool _suppressSave = false;
         private string _dohSaveStatus = "Saved";
@@ -81,8 +82,7 @@ namespace ProxyControl.ViewModels
             }
         }
 
-        // TUN Mode (WebRTC/UDP bypass)
-        // TUN Mode (WebRTC/UDP bypass) - Only available for SOCKS5 + Blacklist
+        // TUN Mode is required to capture arbitrary UDP/WebRTC traffic at OS level.
         private bool _isTunMode;
         public bool IsTunMode
         {
@@ -91,7 +91,7 @@ namespace ProxyControl.ViewModels
             {
                 if (_isTunMode != value)
                 {
-                    // Validation: Only allow enabling if SOCKS5 and Blacklist
+                    // UDP relay requires a SOCKS5 upstream, but works in both list modes.
                     if (value && !CanEnableTunMode)
                     {
                         // Reset if user tries to force it (should be disabled in UI too)
@@ -114,16 +114,34 @@ namespace ProxyControl.ViewModels
         {
             get
             {
-                // Only allow TUN if SOCKS5 is selected AND we are in Blacklist mode
-                if (!IsBlackListMode) return false;
-                var proxy = SelectedBlackListMainProxy;
+                var proxy = GetTunRoutingProxy();
                 return proxy != null && proxy.Type == ProxyType.Socks5;
             }
+        }
+
+        private ProxyItem? GetTunRoutingProxy()
+        {
+            if (IsBlackListMode)
+                return SelectedBlackListMainProxy;
+
+            return _tunProxy is { IsEnabled: true, Type: ProxyType.Socks5 }
+                ? _tunProxy
+                : GetRulesForMode(RuleMode.WhiteList)
+                    .Where(rule =>
+                        rule.IsEnabled &&
+                        rule.Action == RuleAction.Proxy)
+                    .Select(rule => Proxies.FirstOrDefault(proxy =>
+                        proxy.IsEnabled &&
+                        proxy.Type == ProxyType.Socks5 &&
+                        proxy.Id == rule.ProxyId))
+                    .FirstOrDefault(proxy => proxy != null)
+                  ?? Proxies.FirstOrDefault(p => p.IsEnabled && p.Type == ProxyType.Socks5);
         }
         public string TunModeStatus => _isTunMode ? "🟢 TUN Active (Full UDP)" : "⚪ TUN Off";
 
         public IEnumerable<RuleAction> ActionTypes => Enum.GetValues(typeof(RuleAction)).Cast<RuleAction>();
         public IEnumerable<BlockDirection> BlockDirectionTypes => Enum.GetValues(typeof(BlockDirection)).Cast<BlockDirection>();
+        public IEnumerable<RuleTrafficType> RuleTrafficTypes => Enum.GetValues(typeof(RuleTrafficType)).Cast<RuleTrafficType>();
 
         private string _currentView = "Rules";
         public string CurrentView
@@ -156,7 +174,8 @@ namespace ProxyControl.ViewModels
         private ProxyItem? _tunProxy;
         public ProxyItem? TunProxy
         {
-            get => _tunProxy ?? Proxies.FirstOrDefault();
+            get => _tunProxy ?? Proxies.FirstOrDefault(p => p.IsEnabled && p.Type == ProxyType.Socks5)
+                ?? Proxies.FirstOrDefault();
             set
             {
                 if (_tunProxy != value)
@@ -183,7 +202,7 @@ namespace ProxyControl.ViewModels
         public ICollectionView ActiveProcessesView { get; private set; } = null!;
         private readonly ObservableCollection<ConnectionHistoryItem> _emptyMonitorConnections = new ObservableCollection<ConnectionHistoryItem>();
 
-        public IReadOnlyList<string> LogTypeFilters { get; } = new[] { "All", "TCP", "UDP", "DNS", "HTTPS", "WebSocket" };
+        public IReadOnlyList<string> LogTypeFilters { get; } = new[] { "All", "TCP", "UDP", "DNS", "HTTPS", "WebSocket", "WebRTC" };
         public IReadOnlyList<string> LogResultFilters { get; } = new[] { "All", "Proxy", "Direct", "Blocked" };
 
         private string _logSearchText = "";
@@ -869,9 +888,27 @@ namespace ProxyControl.ViewModels
         public RuleAction ModalAction
         {
             get => _modalAction;
-            set { _modalAction = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsModalProxyRequired)); }
+            set
+            {
+                _modalAction = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsModalProxyRequired));
+                OnPropertyChanged(nameof(ModalTunHint));
+            }
         }
         public bool IsModalProxyRequired => ModalAction == RuleAction.Proxy;
+
+        private RuleTrafficType _modalTrafficType = RuleTrafficType.Any;
+        public RuleTrafficType ModalTrafficType
+        {
+            get => _modalTrafficType;
+            set
+            {
+                _modalTrafficType = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModalTunHint));
+            }
+        }
 
         private BlockDirection _modalBlockDirection = BlockDirection.Both;
         public BlockDirection ModalBlockDirection
@@ -884,14 +921,36 @@ namespace ProxyControl.ViewModels
         public ProxyItem? ModalSelectedProxy
         {
             get => _modalSelectedProxy;
-            set { _modalSelectedProxy = value; OnPropertyChanged(); }
+            set
+            {
+                _modalSelectedProxy = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModalTunHint));
+            }
         }
 
         private RuleMode _modalTargetMode;
         public RuleMode ModalTargetMode
         {
             get => _modalTargetMode;
-            set { _modalTargetMode = value; OnPropertyChanged(); }
+            set
+            {
+                _modalTargetMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ModalTunHint));
+            }
+        }
+
+        public string ModalTunHint
+        {
+            get
+            {
+                if (ModalTargetMode != RuleMode.WhiteList || ModalAction != RuleAction.Proxy)
+                    return "This rule does not require WhiteList TUN routing.";
+                return ModalSelectedProxy?.Type == ProxyType.Socks5
+                    ? "WhiteList TUN will be enabled automatically. Matching traffic uses the proxy; unmatched traffic stays direct."
+                    : "WhiteList TUN requires an enabled SOCKS5 proxy.";
+            }
         }
 
         private string _modalGroupName = "QuickRules";
@@ -1479,9 +1538,9 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(CanEnableTunMode)); // Notify dependency
                 ApplyConfig();
                 RequestSaveSettings();
+                EnsureDefaultWhiteListTun();
+                RefreshTunRulesIfActive();
 
-                // If switched to WhiteList, disable TUN mode
-                if (!value && IsTunMode) IsTunMode = false;
             }
         }
 
@@ -1665,8 +1724,6 @@ namespace ProxyControl.ViewModels
             if (version != null)
                 CurrentVersion = $"{version.Major}.{version.Minor}.{version.Build}";
 
-            _proxyService.OnConnectionLog += OnLogReceived;
-
             Proxies.CollectionChanged += OnCollectionChanged;
             RulesList.CollectionChanged += OnCollectionChanged;
 
@@ -1844,21 +1901,27 @@ namespace ProxyControl.ViewModels
             {
                 LoadSettings();
 
+                // WhiteList always captures through TUN when a usable SOCKS5
+                // routing proxy is available. sing-box keeps unmatched traffic
+                // direct through its final outbound.
+                if (!IsBlackListMode && GetTunRoutingProxy() is { IsEnabled: true, Type: ProxyType.Socks5 } whiteListTunProxy)
+                {
+                    _tunProxy = whiteListTunProxy;
+                    _config.TunProxyId = whiteListTunProxy.Id;
+                    _config.IsTunMode = true;
+                    _isTunMode = true;
+                    OnPropertyChanged(nameof(TunProxy));
+                    OnPropertyChanged(nameof(IsTunMode));
+                    OnPropertyChanged(nameof(TunModeStatus));
+                    RequestSaveSettings();
+                }
+
                 // Validate TUN Mode on startup (must be after LoadSettings)
                 if (_config.IsTunMode)
                 {
-                    // Check if conditions are met: Blacklist Mode + SOCKS5 Proxy
-                    bool isSocks5 = false;
-                    var tunProxyId = _config.TunProxyId;
-                    // If TunProxyId is null/empty, it might default to first proxy, but let's check explicit or main proxy
-                    // Actually, TunProxy property uses _tunProxy ?? Proxies.FirstOrDefault()
-                    // Let's resolve the actual proxy being used for TUN
-
-                    var proxy = Proxies.FirstOrDefault(p => p.Id == tunProxyId) ?? Proxies.FirstOrDefault();
-
-                    if (proxy != null && proxy.Type == ProxyType.Socks5) isSocks5 = true;
-
-                    if (!IsBlackListMode || !isSocks5)
+                    // TUN works in both list modes, but UDP relay requires SOCKS5.
+                    var proxy = GetTunRoutingProxy();
+                    if (proxy == null || !proxy.IsEnabled || proxy.Type != ProxyType.Socks5)
                     {
                         _config.IsTunMode = false;
                         _isTunMode = false; // Sync backing field
@@ -2186,6 +2249,7 @@ namespace ProxyControl.ViewModels
                 ModalProcessName = rule.TargetApps?.FirstOrDefault() ?? "";
                 ModalHost = rule.TargetHosts?.FirstOrDefault() ?? "";
                 ModalAction = rule.Action;
+                ModalTrafficType = rule.TrafficType;
                 ModalBlockDirection = rule.BlockDirection;
                 ModalGroupName = rule.GroupName ?? "General";
                 ModalSelectedProxy = Proxies.FirstOrDefault(p => p.Id == rule.ProxyId);
@@ -2203,11 +2267,14 @@ namespace ProxyControl.ViewModels
                 ModalProcessName = log.ProcessName;
                 ModalHost = log.Host;
                 ModalAction = RuleAction.Proxy;
+                ModalTrafficType = ToRuleTrafficType(log.Type);
                 ModalBlockDirection = BlockDirection.Both;
                 ModalGroupName = _selectedGroupName ?? "General";
                 ModalSelectedProxy = Proxies.FirstOrDefault(p => p.IsEnabled) ?? Proxies.FirstOrDefault();
                 ModalTargetMode = IsBlackListMode ? RuleMode.BlackList : RuleMode.WhiteList;
-                _modalIcon = null;
+                _modalIcon = !string.IsNullOrWhiteSpace(log.ProcessPath)
+                    ? IconHelper.GetIconByPath(log.ProcessPath, log.ProcessPath)
+                    : log.AppIcon;
 
                 ModalIsScheduleEnabled = false;
                 ModalTimeStart = "";
@@ -2219,11 +2286,14 @@ namespace ProxyControl.ViewModels
                 ModalProcessName = historyItem.ProcessName;
                 ModalHost = historyItem.Host;
                 ModalAction = RuleAction.Proxy;
+                ModalTrafficType = ToRuleTrafficType(historyItem.Type);
                 ModalBlockDirection = BlockDirection.Both;
                 ModalGroupName = _selectedGroupName ?? "General";
                 ModalSelectedProxy = Proxies.FirstOrDefault(p => p.IsEnabled) ?? Proxies.FirstOrDefault();
                 ModalTargetMode = IsBlackListMode ? RuleMode.BlackList : RuleMode.WhiteList;
-                _modalIcon = null;
+                _modalIcon = !string.IsNullOrWhiteSpace(historyItem.ProcessPath)
+                    ? IconHelper.GetIconByPath(historyItem.ProcessPath, historyItem.ProcessPath)
+                    : null;
 
                 ModalIsScheduleEnabled = false;
                 ModalTimeStart = "";
@@ -2236,6 +2306,7 @@ namespace ProxyControl.ViewModels
                 ModalProcessName = !string.IsNullOrEmpty(_selectedAppName) ? _selectedAppName : "";
                 ModalHost = "";
                 ModalAction = RuleAction.Proxy;
+                ModalTrafficType = RuleTrafficType.Any;
                 ModalBlockDirection = BlockDirection.Both;
                 ModalGroupName = !string.IsNullOrEmpty(_selectedGroupName) ? _selectedGroupName : "QuickRules";
                 ModalSelectedProxy = Proxies.FirstOrDefault();
@@ -2264,6 +2335,20 @@ namespace ProxyControl.ViewModels
 
         private void SaveRuleFromModal()
         {
+            if (ModalTargetMode == RuleMode.WhiteList &&
+                ModalAction == RuleAction.Proxy &&
+                ModalTrafficType is RuleTrafficType.UDP or RuleTrafficType.WebRTC &&
+                (ModalSelectedProxy == null ||
+                 !ModalSelectedProxy.IsEnabled ||
+                 ModalSelectedProxy.Type != ProxyType.Socks5))
+            {
+                RequestShowNotification?.Invoke(
+                    "SOCKS5 required",
+                    "UDP and WebRTC WhiteList rules require an enabled SOCKS5 proxy.",
+                    4500);
+                return;
+            }
+
             if (!IsRenameGroupMode && ModalIsScheduleEnabled)
             {
                 if (ParseTime(ModalTimeStart) == null || ParseTime(ModalTimeEnd) == null)
@@ -2317,6 +2402,7 @@ namespace ProxyControl.ViewModels
                 {
                     // Update common properties
                     rule.Action = ModalAction;
+                    rule.TrafficType = ModalTrafficType;
                     rule.BlockDirection = ModalBlockDirection;
                     rule.ProxyId = (ModalAction == RuleAction.Proxy && ModalSelectedProxy != null) ? ModalSelectedProxy.Id : null;
 
@@ -2340,6 +2426,7 @@ namespace ProxyControl.ViewModels
                 _editingRule.TargetApps = new List<string> { ModalProcessName?.Trim() ?? "" };
                 _editingRule.TargetHosts = new List<string> { ModalHost?.Trim() ?? "" };
                 _editingRule.Action = ModalAction;
+                _editingRule.TrafficType = ModalTrafficType;
                 _editingRule.BlockDirection = ModalBlockDirection;
                 _editingRule.GroupName = ModalGroupName?.Trim() ?? "General";
                 _editingRule.ProxyId = (ModalAction == RuleAction.Proxy && ModalSelectedProxy != null) ? ModalSelectedProxy.Id : null;
@@ -2381,6 +2468,7 @@ namespace ProxyControl.ViewModels
                             TargetHosts = new List<string> { host },
                             IsEnabled = true,
                             Action = ModalAction,
+                            TrafficType = ModalTrafficType,
                             BlockDirection = ModalBlockDirection,
                             GroupName = ModalGroupName,
                             ProxyId = (ModalAction == RuleAction.Proxy && ModalSelectedProxy != null) ? ModalSelectedProxy.Id : null,
@@ -2405,9 +2493,44 @@ namespace ProxyControl.ViewModels
             }
             RequestSaveSettings();
             ReloadRulesForCurrentMode(); // Force reload to ensure active proxy service gets new rules immediately
+            EnsureTunForModalRule();
+            RefreshTunRulesIfActive();
             RefreshRuleGroups();
             OnPropertyChanged(nameof(ExistingGroups));
             IsModalVisible = false;
+        }
+
+        private void EnsureTunForModalRule()
+        {
+            bool shouldEnable =
+                ModalTargetMode == RuleMode.WhiteList &&
+                ModalAction == RuleAction.Proxy &&
+                ModalSelectedProxy is { IsEnabled: true, Type: ProxyType.Socks5 };
+
+            if (!shouldEnable) return;
+
+            TunProxy = ModalSelectedProxy;
+            if (!IsTunMode)
+            {
+                IsTunMode = true;
+                RequestShowNotification?.Invoke(
+                    "TUN enabled",
+                    "WhiteList TUN capture is active; traffic not matching a rule remains direct.",
+                    4000);
+            }
+        }
+
+        private void EnsureDefaultWhiteListTun()
+        {
+            if (IsBlackListMode || IsTunMode)
+                return;
+
+            var proxy = GetTunRoutingProxy();
+            if (proxy == null || !proxy.IsEnabled || proxy.Type != ProxyType.Socks5)
+                return;
+
+            TunProxy = proxy;
+            IsTunMode = true;
         }
 
         private bool FilterActiveProcess(object obj)
@@ -2629,13 +2752,14 @@ namespace ProxyControl.ViewModels
 
             if (UseAdvancedLogFilters)
             {
-                return MatchesText(log.ProcessName, LogProcessFilter)
+                return (MatchesText(log.ProcessName, LogProcessFilter) ||
+                        MatchesText(log.ProcessPath, LogProcessFilter))
                     && MatchesText(log.Host, LogHostFilter)
                     && MatchesText(log.Result, LogResultTextFilter)
                     && MatchesText(log.CountryFlagUrl, LogCountryFilter);
             }
 
-            return MatchesAny(LogSearchText, log.ProcessName, log.Host, log.Result, log.TypeStr, log.CountryFlagUrl);
+            return MatchesAny(LogSearchText, log.ProcessName, log.ProcessPath, log.Host, log.Result, log.TypeStr, log.CountryFlagUrl);
         }
 
         private bool FilterMonitorConnection(object obj)
@@ -2646,14 +2770,15 @@ namespace ProxyControl.ViewModels
 
             if (UseAdvancedLogFilters)
             {
-                return MatchesText(item.ProcessName, MonitorProcessFilter)
+                return (MatchesText(item.ProcessName, MonitorProcessFilter) ||
+                        MatchesText(item.ProcessPath, MonitorProcessFilter))
                     && MatchesText(item.Host, MonitorHostFilter)
                     && MatchesText(item.Status, MonitorStatusFilter)
                     && MatchesText(item.Details, MonitorDetailsFilter)
                     && MatchesText(item.FlagUrl, MonitorCountryFilter);
             }
 
-            return MatchesAny(MonitorSearchText, item.ProcessName, item.Host, item.Status, item.Details, item.Type.ToString(), item.FlagUrl);
+            return MatchesAny(MonitorSearchText, item.ProcessName, item.ProcessPath, item.Host, item.Status, item.Details, item.Type.ToString(), item.FlagUrl);
         }
 
         private static bool MatchesText(string? value, string? filter)
@@ -2747,8 +2872,38 @@ namespace ProxyControl.ViewModels
             while (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1);
         }
 
-        private void OnMonitorConnectionCreated(ConnectionHistoryItem connection) =>
+        private void OnMonitorConnectionCreated(ConnectionHistoryItem connection)
+        {
             QueueConnectionSiteIcon(connection);
+            ImageSource? icon = !string.IsNullOrWhiteSpace(connection.ProcessPath)
+                ? IconHelper.GetIconByPath(connection.ProcessPath, connection.ProcessPath)
+                : IconHelper.GetIconByProcessName(connection.ProcessName);
+
+            OnLogReceived(new ConnectionLog
+            {
+                Time = connection.TimeStr,
+                ProcessName = connection.ProcessName,
+                ProcessPath = connection.ProcessPath,
+                Host = connection.Host,
+                Result = connection.Status,
+                Color = connection.Color,
+                AppIcon = icon,
+                CountryFlagUrl = connection.FlagUrl,
+                Type = connection.Type
+            });
+        }
+
+        private static RuleTrafficType ToRuleTrafficType(TrafficType trafficType) =>
+            trafficType switch
+            {
+                TrafficType.TCP => RuleTrafficType.TCP,
+                TrafficType.UDP => RuleTrafficType.UDP,
+                TrafficType.DNS => RuleTrafficType.DNS,
+                TrafficType.HTTPS => RuleTrafficType.HTTPS,
+                TrafficType.WebSocket => RuleTrafficType.WebSocket,
+                TrafficType.WebRTC => RuleTrafficType.WebRTC,
+                _ => RuleTrafficType.Any
+            };
 
         private void QueueConnectionSiteIcon(ConnectionLog log)
         {
@@ -2806,13 +2961,15 @@ namespace ProxyControl.ViewModels
             if (sender is TrafficRule rule && e.PropertyName == nameof(TrafficRule.TargetHosts))
                 QueueSiteIconLoad(rule);
 
-            var triggers = new HashSet<string> { nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps), nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.GroupName), nameof(TrafficRule.BlockDirection), nameof(ProxyItem.Name), nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port), nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode), nameof(ProxyItem.SpeedMBps), nameof(ProxyItem.UseTls), nameof(ProxyItem.UseSsl), nameof(TrafficRule.IconBase64), nameof(ProxyItem.Type) };
+            var triggers = new HashSet<string> { nameof(TrafficRule.IsEnabled), nameof(TrafficRule.ProxyId), nameof(TrafficRule.TargetApps), nameof(TrafficRule.TargetHosts), nameof(TrafficRule.Action), nameof(TrafficRule.TrafficType), nameof(TrafficRule.GroupName), nameof(TrafficRule.BlockDirection), nameof(ProxyItem.Name), nameof(ProxyItem.IsEnabled), nameof(ProxyItem.IpAddress), nameof(ProxyItem.Port), nameof(ProxyItem.Username), nameof(ProxyItem.Password), nameof(ProxyItem.CountryCode), nameof(ProxyItem.SpeedMBps), nameof(ProxyItem.UseTls), nameof(ProxyItem.UseSsl), nameof(TrafficRule.IconBase64), nameof(ProxyItem.Type) };
 
             // Warning removed as support is being implemented
 
             if (!string.IsNullOrEmpty(e.PropertyName) && triggers.Contains(e.PropertyName))
             {
                 RequestSaveSettings();
+                if (sender is TrafficRule)
+                    RefreshTunRulesIfActive();
 
                 // If Proxy Type changed, re-evaluate TUN eligibility
                 if (e.PropertyName == nameof(ProxyItem.Type))
@@ -2876,10 +3033,42 @@ namespace ProxyControl.ViewModels
         {
             if (_suppressSave) return;
             try { ApplyConfig(); } catch { }
+            UpdateDnsServiceState();
             _saveDebounceCts?.Cancel();
             _saveDebounceCts?.Dispose();
             _saveDebounceCts = new CancellationTokenSource();
             _ = SaveSettingsAfterDelayAsync(_saveDebounceCts.Token);
+        }
+
+        private async void RefreshTunRulesIfActive()
+        {
+            if (!IsTunMode || !IsProxyRunning || !CanEnableTunMode) return;
+
+            _tunRefreshCts?.Cancel();
+            _tunRefreshCts?.Dispose();
+            _tunRefreshCts = new CancellationTokenSource();
+            CancellationToken token = _tunRefreshCts.Token;
+            try
+            {
+                await Task.Delay(300, token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (token.IsCancellationRequested || !IsTunMode || !IsProxyRunning || !CanEnableTunMode)
+                return;
+
+            var tunConfig = new TunService.TunRulesConfig
+            {
+                Mode = _config.CurrentMode,
+                Rules = GetRulesForMode(_config.CurrentMode),
+                ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
+                Proxies = Proxies.Where(p => p.IsEnabled).ToList()
+            };
+            _ = _tunService.StartAsync(tunConfig);
         }
 
         private async Task SaveSettingsAfterDelayAsync(CancellationToken token)
@@ -3329,7 +3518,9 @@ namespace ProxyControl.ViewModels
                         {
                             Mode = _config.CurrentMode,
                             Rules = GetRulesForMode(_config.CurrentMode),
-                            ProxyType = IsBlackListMode ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http) : ProxyType.Http,
+                            ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                            UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
+                            Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                         };
                         _ = _tunService.StartAsync(tunConfig); // Ensure TUN restarts if it was active
                     }
@@ -3350,9 +3541,12 @@ namespace ProxyControl.ViewModels
 
         private void UpdateDnsServiceState()
         {
+            bool hasDnsRules = GetRulesForMode(_config.CurrentMode).Any(rule =>
+                rule.IsEnabled && rule.TrafficType == RuleTrafficType.DNS);
+            bool shouldRun = IsProxyRunning && (IsDnsProtectionEnabled || hasDnsRules);
             _ = Task.Run(() =>
             {
-                if (IsProxyRunning && IsDnsProtectionEnabled) _dnsProxyService.Start();
+                if (shouldRun) _dnsProxyService.Start();
                 else _dnsProxyService.Stop();
             });
         }
@@ -3409,6 +3603,9 @@ namespace ProxyControl.ViewModels
                     EnsureProxyNames(d.Proxies);
                     d.Proxies.ForEach(p => { SubscribeToItem(p); Proxies.Add(p); });
                 }
+                _tunProxy = Proxies.FirstOrDefault(p => p.Id == _config.TunProxyId);
+                OnPropertyChanged(nameof(TunProxy));
+                OnPropertyChanged(nameof(CanEnableTunMode));
 
                 LoadProfilesFromSettings(d);
 
@@ -3474,7 +3671,9 @@ namespace ProxyControl.ViewModels
                 {
                     Mode = _config.CurrentMode,
                     Rules = GetRulesForMode(_config.CurrentMode),
-                    ProxyType = (_config.CurrentMode == RuleMode.BlackList) ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http) : ProxyType.Http
+                    ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                    UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
+                    Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                 };
                 var success = await _tunService.StartAsync(tunConfig);
                 if (!success)
@@ -3815,12 +4014,13 @@ namespace ProxyControl.ViewModels
 
             if (IsTunMode)
             {
-                _tunService.Stop();
                 var tunConfig = new TunService.TunRulesConfig
                 {
                     Mode = _config.CurrentMode,
                     Rules = GetRulesForMode(_config.CurrentMode),
-                    ProxyType = IsBlackListMode ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http) : ProxyType.Http
+                    ProxyType = GetTunRoutingProxy()?.Type ?? ProxyType.Http,
+                    UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
+                    Proxies = Proxies.Where(p => p.IsEnabled).ToList()
                 };
                 _ = _tunService.StartAsync(tunConfig);
             }
@@ -3858,6 +4058,7 @@ namespace ProxyControl.ViewModels
                     {
                         // Deep copy key properties
                         Action = r.Action,
+                        TrafficType = r.TrafficType,
                         BlockDirection = r.BlockDirection,
                         GroupName = r.GroupName,
                         IsEnabled = r.IsEnabled,
@@ -3909,6 +4110,7 @@ namespace ProxyControl.ViewModels
                 var newRules = SelectedPreset.Rules.Select(r => new TrafficRule
                 {
                     Action = r.Action,
+                    TrafficType = r.TrafficType,
                     BlockDirection = r.BlockDirection,
                     GroupName = r.GroupName,
                     IsEnabled = r.IsEnabled,
@@ -3963,8 +4165,10 @@ namespace ProxyControl.ViewModels
                 _monitorPeriodCts?.Cancel();
                 _monitorPeriodCts?.Dispose();
                 _monitorPeriodCts = null;
+                _tunRefreshCts?.Cancel();
+                _tunRefreshCts?.Dispose();
+                _tunRefreshCts = null;
                 _connectionLogTimer.Stop();
-                _proxyService.OnConnectionLog -= OnLogReceived;
                 _trafficMonitorService.ConnectionCreated -= OnMonitorConnectionCreated;
                 _connectionIconQueue.Writer.TryComplete();
                 _connectionIconCts.Cancel();

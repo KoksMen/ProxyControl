@@ -26,6 +26,26 @@ namespace ProxyControl.Services
             try { return ResolveProcessName(pid); } catch { return "Unknown"; }
         }
 
+        public (string Name, string Path) GetProcessIdentity(int pid)
+        {
+            if (pid <= 0) return ("Unknown", "");
+
+            string path = GetProcessPathNative(pid);
+            if (!string.IsNullOrWhiteSpace(path))
+                return (Path.GetFileName(path), path);
+
+            try
+            {
+                using var process = Process.GetProcessById(pid);
+                path = process.MainModule?.FileName ?? "";
+                return (process.ProcessName + ".exe", path);
+            }
+            catch
+            {
+                return (GetProcessName(pid), "");
+            }
+        }
+
         private string ResolveProcessName(int pid)
         {
             // 1. Try Native method (fast, low overhead)
@@ -50,18 +70,24 @@ namespace ProxyControl.Services
 
         private string GetProcessNameNative(int pid)
         {
+            string path = GetProcessPathNative(pid);
+            return string.IsNullOrWhiteSpace(path) ? "Unknown" : Path.GetFileName(path);
+        }
+
+        private string GetProcessPathNative(int pid)
+        {
             // PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             IntPtr hProcess = OpenProcess(0x1000, false, pid);
-            if (hProcess == IntPtr.Zero) return "Unknown";
+            if (hProcess == IntPtr.Zero) return "";
             try
             {
                 int cap = 1024;
                 StringBuilder sb = new StringBuilder(cap);
                 int size = cap;
-                if (QueryFullProcessImageName(hProcess, 0, sb, ref size)) return Path.GetFileName(sb.ToString());
+                if (QueryFullProcessImageName(hProcess, 0, sb, ref size)) return sb.ToString();
             }
             finally { CloseHandle(hProcess); }
-            return "Unknown";
+            return "";
         }
     }
 }

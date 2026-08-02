@@ -68,11 +68,16 @@ namespace ProxyControl.Services
             _uiBatchTimer.Start();
         }
 
-        public ProcessTrafficData GetOrAddLiveProcess(string processName, ImageSource? icon)
+        public ProcessTrafficData GetOrAddLiveProcess(string processName, string processPath, ImageSource? icon)
         {
-            return _liveProcessStats.GetOrAdd(processName, name =>
+            var process = _liveProcessStats.GetOrAdd(processName, name =>
             {
-                var newData = new ProcessTrafficData { ProcessName = name, Icon = icon };
+                var newData = new ProcessTrafficData
+                {
+                    ProcessName = name,
+                    ProcessPath = processPath,
+                    Icon = icon
+                };
 
                 if (IsLiveMode)
                 {
@@ -84,6 +89,12 @@ namespace ProxyControl.Services
                 }
                 return newData;
             });
+
+            if (string.IsNullOrWhiteSpace(process.ProcessPath) && !string.IsNullOrWhiteSpace(processPath))
+                process.ProcessPath = processPath;
+            if (process.Icon == null && icon != null)
+                process.Icon = icon;
+            return process;
         }
 
         public void AddLiveTraffic(string processName, long bytes, bool isDownload)
@@ -104,20 +115,31 @@ namespace ProxyControl.Services
                 });
         }
 
-        public ConnectionHistoryItem CreateConnectionItem(string processName, ImageSource? icon, string host, string status, string details, string? flagUrl, string color)
+        public ConnectionHistoryItem CreateConnectionItem(
+            string processName,
+            ImageSource? icon,
+            string host,
+            string status,
+            string details,
+            string? flagUrl,
+            string color,
+            TrafficType trafficType = TrafficType.TCP,
+            string processPath = "")
         {
             var item = new ConnectionHistoryItem
             {
                 Timestamp = DateTime.Now,
                 ProcessName = processName,
+                ProcessPath = processPath,
                 Host = host,
                 Status = status,
                 Details = details,
                 FlagUrl = flagUrl,
-                Color = color
+                Color = color,
+                Type = trafficType
             };
 
-            GetOrAddLiveProcess(processName, icon);
+            GetOrAddLiveProcess(processName, processPath, icon);
             _pendingConnections.Enqueue(item);
             int count = Interlocked.Increment(ref _pendingConnectionCount);
             while (count > MaxPendingConnections && _pendingConnections.TryDequeue(out _))
@@ -269,11 +291,17 @@ namespace ProxyControl.Services
                                     {
                                         resultDict[item.ProcessName] = new ProcessTrafficData
                                         {
-                                            ProcessName = item.ProcessName
+                                            ProcessName = item.ProcessName,
+                                            ProcessPath = item.ProcessPath
                                         };
                                     }
 
                                     var pData = resultDict[item.ProcessName];
+                                    if (string.IsNullOrWhiteSpace(pData.ProcessPath) &&
+                                        !string.IsNullOrWhiteSpace(item.ProcessPath))
+                                    {
+                                        pData.ProcessPath = item.ProcessPath;
+                                    }
                                     pData.TotalDownload += item.BytesDown;
                                     pData.TotalUpload += item.BytesUp;
                                     pData.Connections.Add(item);
@@ -290,9 +318,11 @@ namespace ProxyControl.Services
 
             foreach (var p in resultDict.Values)
             {
-                p.Icon = _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
-                    ? liveP.Icon
-                    : IconHelper.GetIconByProcessName(p.ProcessName);
+                p.Icon = !string.IsNullOrWhiteSpace(p.ProcessPath)
+                    ? IconHelper.GetIconByPath(p.ProcessPath, p.ProcessPath)
+                    : _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
+                        ? liveP.Icon
+                        : IconHelper.GetIconByProcessName(p.ProcessName);
                 var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
                 p.Connections.Clear();
                 foreach (var s in sorted) p.Connections.Add(s);

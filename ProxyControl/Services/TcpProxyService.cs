@@ -46,6 +46,7 @@ namespace ProxyControl.Services
         private Dictionary<string, TrafficRule> _fastWhiteListRules = new Dictionary<string, TrafficRule>(StringComparer.OrdinalIgnoreCase);
 
         private string? _blackListProxyId;
+        private string? _tunProxyId;
         private RuleMode _currentMode;
         private bool _isWebRtcBlockingEnabled = true;
         private bool _isTunMode = false;
@@ -189,6 +190,7 @@ namespace ProxyControl.Services
             _fastWhiteListRules = newFastWhiteListRules;
 
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
+            _tunProxyId = config.TunProxyId;
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
             _isTunMode = config.IsTunMode;
@@ -326,6 +328,7 @@ namespace ProxyControl.Services
             var sb = new StringBuilder(8192);
             sb.Append("mode=").Append(config.CurrentMode).Append('|');
             sb.Append("main=").Append(config.BlackListSelectedProxyId?.ToString() ?? "").Append('|');
+            sb.Append("tunProxy=").Append(config.TunProxyId ?? "").Append('|');
             sb.Append("webrtc=").Append(config.IsWebRtcBlockingEnabled).Append('|');
             sb.Append("tun=").Append(config.IsTunMode).Append('|');
             sb.Append("proxies=").Append(proxies.Count).Append('|');
@@ -535,6 +538,7 @@ namespace ProxyControl.Services
                 string headerStr = headerData.HeaderStr;
                 var identity = await identityTask;
                 string processName = identity.Name;
+                string processPath = identity.Path;
                 ImageSource? icon = identity.Icon;
 
                 if (bytesRead == 0) return;
@@ -542,7 +546,7 @@ namespace ProxyControl.Services
                 if (bytesRead > 0 && buffer[0] == 0x05)
                 {
                     // SOCKS5 detected (from TUN/sing-box)
-                    await HandleSocks5ServerAsync(clientStream, buffer, bytesRead, client, processName, ctx, ctx.Cts.Token);
+                    await HandleSocks5ServerAsync(clientStream, buffer, bytesRead, client, processName, processPath, ctx, ctx.Cts.Token);
                     return;
                 }
 
@@ -560,7 +564,8 @@ namespace ProxyControl.Services
                 }
                 */
 
-                var decision = ResolveAction(processName, targetHost);
+                TrafficType trafficType = ClassifyTcpTraffic(targetHost, targetPort, headerStr, isConnectMethod);
+                var decision = ResolveAction(processName, targetHost, trafficType);
                 ctx.AppName = processName;
                 ctx.Host = targetHost;
                 ctx.InitialAction = decision.Action;
@@ -595,17 +600,20 @@ namespace ProxyControl.Services
                 }
 
                 string details = decision.Proxy != null ? $"{decision.Proxy.Name} ({decision.Proxy.Endpoint})" : "";
-                historyItem = _trafficMonitor.CreateConnectionItem(processName, icon, targetHost, logResult, details, flagUrl, logColor);
+                historyItem = _trafficMonitor.CreateConnectionItem(
+                    processName, icon, targetHost, logResult, details, flagUrl, logColor,
+                    trafficType, processPath);
 
                 OnConnectionLog?.Invoke(new ConnectionLog
                 {
                     ProcessName = processName,
+                    ProcessPath = processPath,
                     Host = targetHost,
                     Result = logResult,
                     Color = logColor,
                     AppIcon = icon,
                     CountryFlagUrl = flagUrl,
-                    Type = isConnectMethod ? TrafficType.HTTPS : TrafficType.TCP
+                    Type = trafficType
                 });
 
                 // Enhanced logging
@@ -907,8 +915,23 @@ namespace ProxyControl.Services
             }
         }
 
-        private (RuleAction Action, ProxyItem? Proxy, BlockDirection BlockDir) ResolveAction(string app, string host)
+        private (RuleAction Action, ProxyItem? Proxy, BlockDirection BlockDir) ResolveAction(
+            string app,
+            string host,
+            TrafficType trafficType = TrafficType.TCP)
         {
+            if (trafficType == TrafficType.WebRTC)
+            {
+                var explicitWebRtcRule = (_currentMode == RuleMode.BlackList ? _localBlackList : _localWhiteList)
+                    .FirstOrDefault(rule =>
+                        rule.IsEnabled &&
+                        rule.TrafficType == RuleTrafficType.WebRTC &&
+                        IsInSchedule(rule) &&
+                        IsRuleMatch(rule, app, host, trafficType));
+                if (explicitWebRtcRule != null)
+                    return GetRuleDecision(explicitWebRtcRule, GetMainProxy());
+            }
+
             // WebRTC Protection: Spoof/Block STUN/TURN servers to prevent IP leaks
             if (_isWebRtcBlockingEnabled && IsStunServer(host))
             {
@@ -942,7 +965,7 @@ namespace ProxyControl.Services
                 {
                     if (IsInSchedule(fastRule))
                     {
-                        if (IsRuleMatch(fastRule, app, host))
+                        if (IsRuleMatch(fastRule, app, host, trafficType))
                             return GetRuleDecision(fastRule, mainProxy);
                     }
                 }
@@ -953,7 +976,7 @@ namespace ProxyControl.Services
                     if (!rule.IsEnabled) continue;
 
                     bool inSchedule = IsInSchedule(rule);
-                    bool isMatch = IsRuleMatch(rule, app, host);
+                    bool isMatch = IsRuleMatch(rule, app, host, trafficType);
 
                     if (isMatch && !inSchedule)
                     {
@@ -986,7 +1009,7 @@ namespace ProxyControl.Services
                 {
                     if (IsInSchedule(fastRule))
                     {
-                        if (IsRuleMatch(fastRule, app, host))
+                        if (IsRuleMatch(fastRule, app, host, trafficType))
                             return GetRuleDecision(fastRule, mainProxy);
                     }
                 }
@@ -999,7 +1022,7 @@ namespace ProxyControl.Services
 
                     if (!inSchedule) continue; // Check schedule
 
-                    if (IsRuleMatch(rule, app, host))
+                    if (IsRuleMatch(rule, app, host, trafficType))
                     {
                         return GetRuleDecision(rule, mainProxy);
                     }
@@ -1010,6 +1033,16 @@ namespace ProxyControl.Services
 
         private ProxyItem? GetMainProxy()
         {
+            if (_currentMode == RuleMode.WhiteList && _isTunMode && !string.IsNullOrWhiteSpace(_tunProxyId))
+            {
+                var tunProxy = _localProxies.FirstOrDefault(p =>
+                    p.IsEnabled &&
+                    p.Type == ProxyType.Socks5 &&
+                    string.Equals(p.Id, _tunProxyId, StringComparison.OrdinalIgnoreCase));
+                if (tunProxy != null)
+                    return tunProxy;
+            }
+
             return _localProxies.FirstOrDefault(p => p.IsEnabled &&
                        string.Equals(p.Id, _blackListProxyId, StringComparison.OrdinalIgnoreCase))
                    ?? _localProxies.FirstOrDefault(p => p.IsEnabled);
@@ -1113,8 +1146,11 @@ namespace ProxyControl.Services
             return false;
         }
 
-        private bool IsRuleMatch(TrafficRule rule, string app, string host)
+        private bool IsRuleMatch(TrafficRule rule, string app, string host, TrafficType trafficType)
         {
+            if (!RuleMatchesTrafficType(rule.TrafficType, trafficType))
+                return false;
+
             if (rule.TargetApps.Count > 0)
             {
                 if (app.Contains("sing-box", StringComparison.OrdinalIgnoreCase) || app.Contains("System/TUN", StringComparison.OrdinalIgnoreCase))
@@ -1162,6 +1198,42 @@ namespace ProxyControl.Services
             }
             return true;
         }
+
+        private static bool RuleMatchesTrafficType(RuleTrafficType ruleType, TrafficType actualType)
+        {
+            if (ruleType == RuleTrafficType.Any) return true;
+            return ruleType switch
+            {
+                RuleTrafficType.TCP => actualType == TrafficType.TCP,
+                RuleTrafficType.UDP => actualType == TrafficType.UDP,
+                RuleTrafficType.DNS => actualType == TrafficType.DNS,
+                RuleTrafficType.HTTPS => actualType == TrafficType.HTTPS,
+                RuleTrafficType.WebSocket => actualType == TrafficType.WebSocket,
+                RuleTrafficType.WebRTC => actualType == TrafficType.WebRTC,
+                _ => false
+            };
+        }
+
+        private TrafficType ClassifyTcpTraffic(string host, int port, string header, bool isConnectMethod)
+        {
+            if (IsStunServer(host) || IsWebRtcControlPort(port)) return TrafficType.WebRTC;
+            if (header.IndexOf("Upgrade: websocket", StringComparison.OrdinalIgnoreCase) >= 0)
+                return TrafficType.WebSocket;
+            return isConnectMethod || port == 443 ? TrafficType.HTTPS : TrafficType.TCP;
+        }
+
+        private TrafficType ClassifyUdpTraffic(string host, int port)
+        {
+            if (port == 53) return TrafficType.DNS;
+            if (IsStunServer(host) || IsWebRtcPort(port)) return TrafficType.WebRTC;
+            return TrafficType.UDP;
+        }
+
+        private static bool IsWebRtcPort(int port) =>
+            port == 3478 || port == 5349 || port >= 49152;
+
+        private static bool IsWebRtcControlPort(int port) =>
+            port == 3478 || port == 5349;
 
         public async Task<(bool IsSuccess, string CountryCode, long Ping, double Speed, string SslError)> CheckProxy(
             ProxyItem proxy,
@@ -1575,7 +1647,15 @@ namespace ProxyControl.Services
 
         // --- SOCKS5 Server Logic ---
 
-        private async Task HandleSocks5ServerAsync(NetworkStream stream, byte[] initialBuffer, int initialLength, TcpClient client, string processName, ClientContext ctx, CancellationToken token)
+        private async Task HandleSocks5ServerAsync(
+            NetworkStream stream,
+            byte[] initialBuffer,
+            int initialLength,
+            TcpClient client,
+            string processName,
+            string processPath,
+            ClientContext ctx,
+            CancellationToken token)
         {
             if (initialLength <= 0) return;
 
@@ -1705,11 +1785,11 @@ namespace ProxyControl.Services
 
             if (cmd == 0x01) // CONNECT
             {
-                await HandleSocks5Connect(stream, targetHost, targetPort, processName, client, ctx, token);
+                await HandleSocks5Connect(stream, targetHost, targetPort, processName, processPath, client, ctx, token);
             }
             else if (cmd == 0x03) // UDP ASSOCIATE
             {
-                await HandleSocks5UdpAssociate(stream, processName, token);
+                await HandleSocks5UdpAssociate(stream, processName, processPath, token);
             }
             else
             {
@@ -1770,7 +1850,15 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task HandleSocks5Connect(NetworkStream stream, string targetHost, int targetPort, string processName, TcpClient client, ClientContext ctx, CancellationToken token)
+        private async Task HandleSocks5Connect(
+            NetworkStream stream,
+            string targetHost,
+            int targetPort,
+            string processName,
+            string processPath,
+            TcpClient client,
+            ClientContext ctx,
+            CancellationToken token)
         {
             // For active TUN traffic, processName might be "sing-box" or unknown
             if (string.IsNullOrEmpty(processName) || processName == "Unknown" || processName.Contains("sing-box", StringComparison.OrdinalIgnoreCase))
@@ -1785,7 +1873,9 @@ namespace ProxyControl.Services
                         int realPid = SystemProxyHelper.GetPidByDestAddress(ip, targetPort);
                         if (realPid > 0)
                         {
-                            processName = _processMonitor.GetProcessName(realPid);
+                            var realIdentity = _processMonitor.GetProcessIdentity(realPid);
+                            processName = realIdentity.Name;
+                            processPath = realIdentity.Path;
                             // Log success debug
                             System.Diagnostics.Debug.WriteLine($"TUN Resolved: {targetHost}:{targetPort} -> PID {realPid} ({processName})");
                         }
@@ -1805,7 +1895,8 @@ namespace ProxyControl.Services
                 }
             }
 
-            var decision = ResolveAction(processName, targetHost);
+            TrafficType trafficType = ClassifyTcpTraffic(targetHost, targetPort, "", targetPort == 443);
+            var decision = ResolveAction(processName, targetHost, trafficType);
             ConnectionHistoryItem? historyItem = null;
             ctx.AppName = processName;
             ctx.Host = targetHost;
@@ -1829,7 +1920,13 @@ namespace ProxyControl.Services
                 flagUrl = $"https://flagcdn.com/w40/{decision.Proxy.CountryCode.ToLower()}.png";
 
             string details = decision.Proxy != null ? $"{decision.Proxy.Name} ({decision.Proxy.Endpoint})" : "";
-            historyItem = _trafficMonitor.CreateConnectionItem(processName, null, targetHost, decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(), details, flagUrl, logColor);
+            ImageSource? appIcon = !string.IsNullOrWhiteSpace(processPath)
+                ? IconHelper.GetIconByPath(processPath, processPath)
+                : IconHelper.GetIconByProcessName(processName);
+            historyItem = _trafficMonitor.CreateConnectionItem(
+                processName, appIcon, targetHost,
+                decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(),
+                details, flagUrl, logColor, trafficType, processPath);
 
             if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both)
             {
@@ -1909,7 +2006,11 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task HandleSocks5UdpAssociate(NetworkStream stream, string processName, CancellationToken token)
+        private async Task HandleSocks5UdpAssociate(
+            NetworkStream stream,
+            string processName,
+            string processPath,
+            CancellationToken token)
         {
             TcpClient? proxyControlClient = null;
             UdpClient? proxyUdpClient = null;
@@ -1918,6 +2019,7 @@ namespace ProxyControl.Services
 
             // Map: Destination (Host:Port) -> Direct UdpClient
             var directUdpClients = new ConcurrentDictionary<string, UdpClient>();
+            var udpHistory = new ConcurrentDictionary<string, ConnectionHistoryItem>();
 
             try
             {
@@ -1933,12 +2035,21 @@ namespace ProxyControl.Services
                     if (BitConverter.IsLittleEndian) Array.Reverse(portBytes);
 
                     // Determine if we need to use a proxy for UDP
-                    var decision = ResolveAction(processName, "*"); // Check global UDP rule
+                    var decision = ResolveAction(processName, "*", TrafficType.UDP); // Check global UDP rule
                     ProxyItem? udpProxy = decision.Proxy;
 
                     // Fix: In BlackList mode, even if default is Direct, we might need Proxy for specific sites.
                     if (udpProxy == null && _currentMode == RuleMode.BlackList && !string.IsNullOrEmpty(_blackListProxyId))
                     {
+                        udpProxy = GetMainProxy();
+                    }
+                    else if (udpProxy == null &&
+                             _currentMode == RuleMode.WhiteList &&
+                             (processName.Contains("sing-box", StringComparison.OrdinalIgnoreCase) ||
+                              processName.Contains("System/TUN", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        // sing-box only opens this UDP association after a WhiteList
+                        // route selected ProxyControl's SOCKS outbound.
                         udpProxy = GetMainProxy();
                     }
 
@@ -1960,14 +2071,17 @@ namespace ProxyControl.Services
                             proxyUdpClient = new UdpClient();
                             proxyUdpClient.Connect(proxyUdpEndpoint);
 
-                            _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Proxied",
-                                $"via {udpProxy.Name} ({udpProxy.IpAddress}:{proxyUdpEndpoint.Port})", null, "#55FF55");
+                            var relayHistory = _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Proxied",
+                                $"via {udpProxy.Name} ({udpProxy.IpAddress}:{proxyUdpEndpoint.Port})", null, "#55FF55",
+                                TrafficType.UDP, processPath);
+                            _trafficMonitor.CompleteConnection(relayHistory);
                         }
                         catch (Exception ex)
                         {
                             _logger.Error("Socks5", $"Failed to establish UDP proxy: {ex.Message}");
-                            _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Failed",
-                               $"Proxy Error: {ex.Message}", null, "#FF5555");
+                            var failedRelayHistory = _trafficMonitor.CreateConnectionItem(processName, null, "UDP Relay", "Failed",
+                               $"Proxy Error: {ex.Message}", null, "#FF5555", TrafficType.UDP, processPath);
+                            _trafficMonitor.CompleteConnection(failedRelayHistory);
                             byte[] fail = { 0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
                             await stream.WriteAsync(fail, 0, fail.Length, token);
                             return;
@@ -2001,7 +2115,33 @@ namespace ProxyControl.Services
                                 _trafficMonitor.AddLiveTraffic(processName, payload.Length, false);
 
                                 // Check specific rule for this target
-                                var specificDecision = ResolveAction(processName, targetHost);
+                                TrafficType packetType = ClassifyUdpTraffic(targetHost, targetPort);
+                                var specificDecision = ResolveAction(processName, targetHost, packetType);
+                                string historyKey = $"{packetType}|{targetHost}:{targetPort}|{specificDecision.Action}|{specificDecision.Proxy?.Id}";
+                                var packetHistory = udpHistory.GetOrAdd(historyKey, _ =>
+                                {
+                                    string resultText = specificDecision.Action == RuleAction.Block
+                                        ? "BLOCKED"
+                                        : specificDecision.Proxy != null
+                                            ? $"Proxy: {specificDecision.Proxy.Name}"
+                                            : "Direct";
+                                    string detailText = specificDecision.Proxy != null
+                                        ? $"{specificDecision.Proxy.Name} ({specificDecision.Proxy.Endpoint})"
+                                        : $"UDP {targetPort}";
+                                    string color = specificDecision.Action == RuleAction.Block
+                                        ? "#FF5555"
+                                        : specificDecision.Proxy != null ? "#55FF55" : "#AAAAAA";
+                                    string? flag = specificDecision.Proxy?.CountryCode is { Length: > 0 } country
+                                        ? $"https://flagcdn.com/w40/{country.ToLowerInvariant()}.png"
+                                        : null;
+                                    ImageSource? icon = !string.IsNullOrWhiteSpace(processPath)
+                                        ? IconHelper.GetIconByPath(processPath, processPath)
+                                        : IconHelper.GetIconByProcessName(processName);
+                                    return _trafficMonitor.CreateConnectionItem(
+                                        processName, icon, targetHost, resultText, detailText, flag, color,
+                                        packetType, processPath);
+                                });
+                                packetHistory.BytesUp += payload.Length;
                                 if (specificDecision.Action == RuleAction.Block) continue;
 
                                 if (proxyUdpClient != null && proxyUdpEndpoint != null && specificDecision.Proxy != null)
@@ -2066,6 +2206,8 @@ namespace ProxyControl.Services
             }
             finally
             {
+                foreach (var history in udpHistory.Values)
+                    _trafficMonitor.CompleteConnection(history);
                 proxyControlClient?.Close();
                 proxyUdpClient?.Close();
                 foreach (var c in directUdpClients.Values) try { c.Dispose(); } catch { }

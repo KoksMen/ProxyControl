@@ -27,6 +27,7 @@ namespace ProxyControl.Services
 
         private Process? _singBoxProcess;
         private bool _isRunning;
+        private readonly SemaphoreSlim _stateGate = new(1, 1);
         private readonly string _dataDir;
         private readonly AppLoggerService _logger;
 
@@ -45,8 +46,7 @@ namespace ProxyControl.Services
         /// </summary>
         public async Task<bool> StartAsync(TunRulesConfig rulesConfig)
         {
-            if (_isRunning) return true;
-
+            await _stateGate.WaitAsync();
             try
             {
                 // Ensure sing-box exists
@@ -75,7 +75,7 @@ namespace ProxyControl.Services
                 }
 
                 // Restart needed: Stop first if running
-                if (_isRunning) Stop();
+                if (_isRunning) StopCore();
 
                 File.WriteAllText(configPath, newJson);
                 _logger.Info("TUN", $"Config generated/updated.");
@@ -128,6 +128,10 @@ namespace ProxyControl.Services
                 _logger.Error("TUN", $"Start failed: {ex.Message}");
                 return false;
             }
+            finally
+            {
+                _stateGate.Release();
+            }
         }
 
         /// <summary>
@@ -135,8 +139,20 @@ namespace ProxyControl.Services
         /// </summary>
         public void Stop()
         {
-            if (!_isRunning) return;
+            _stateGate.Wait();
+            try
+            {
+                StopCore();
+            }
+            finally
+            {
+                _stateGate.Release();
+            }
+        }
 
+        private void StopCore()
+        {
+            if (!_isRunning && _singBoxProcess == null) return;
             try
             {
                 if (_singBoxProcess != null && !_singBoxProcess.HasExited)
@@ -195,12 +211,44 @@ namespace ProxyControl.Services
                         // Rules define what to PROXY or BLOCK.
 
                         if (rule.Action == RuleAction.Block) outboundTag = "block";
-                        else if (rule.Action == RuleAction.Proxy) outboundTag = "proxy-out";
+                        else if (rule.Action == RuleAction.Proxy)
+                        {
+                            var selectedProxy = rulesConfig.Proxies.FirstOrDefault(proxy =>
+                                proxy.IsEnabled &&
+                                string.Equals(proxy.Id, rule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                            if (selectedProxy == null)
+                                continue;
+
+                            // HTTP CONNECT cannot carry raw UDP. For legacy Any
+                            // rules, proxy TCP and leave UDP on WhiteList's direct
+                            // final route.
+                            if (selectedProxy.Type == ProxyType.Http &&
+                                rule.TrafficType is RuleTrafficType.UDP or RuleTrafficType.DNS or RuleTrafficType.WebRTC)
+                                continue;
+
+                            outboundTag = GetProxyOutboundTag(selectedProxy.Id);
+                        }
                         else continue; // Direct action is default, so skip rule
                     }
 
                     var matchObject = new Dictionary<string, object> { { "outbound", outboundTag } };
                     bool hasMatch = false;
+
+                    ApplyTrafficTypeMatch(matchObject, rule.TrafficType, ref hasMatch);
+
+                    if (rulesConfig.Mode == RuleMode.WhiteList &&
+                        rule.Action == RuleAction.Proxy &&
+                        rule.TrafficType == RuleTrafficType.Any)
+                    {
+                        var selectedProxy = rulesConfig.Proxies.FirstOrDefault(proxy =>
+                            proxy.IsEnabled &&
+                            string.Equals(proxy.Id, rule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                        if (selectedProxy?.Type == ProxyType.Http)
+                        {
+                            matchObject["network"] = "tcp";
+                            hasMatch = true;
+                        }
+                    }
 
                     // Match Apps
                     if (rule.TargetApps != null && rule.TargetApps.Count > 0)
@@ -217,15 +265,36 @@ namespace ProxyControl.Services
                     // Match Hosts (Domains)
                     if (rule.TargetHosts != null && rule.TargetHosts.Count > 0)
                     {
-                        var domains = rule.TargetHosts.Where(h => h != "*").ToArray();
+                        var domains = rule.TargetHosts
+                            .Where(h => h != "*" && !IPAddress.TryParse(h, out _))
+                            .Select(h => h.StartsWith("*.") ? h.Substring(2) : h)
+                            .ToArray();
                         if (domains.Length > 0)
                         {
                             matchObject["domain_suffix"] = domains;
                             hasMatch = true;
                         }
+
+                        var addresses = rule.TargetHosts
+                            .Where(h => h != "*" && IPAddress.TryParse(h, out _))
+                            .ToArray();
+                        if (addresses.Length > 0)
+                        {
+                            matchObject["ip_cidr"] = addresses
+                                .Select(address => address.Contains(':') ? address + "/128" : address + "/32")
+                                .ToArray();
+                            hasMatch = true;
+                        }
                     }
 
-                    if (hasMatch)
+                    bool isGlobalAppScope = rule.TargetApps == null ||
+                                            rule.TargetApps.Count == 0 ||
+                                            rule.TargetApps.Contains("*");
+                    bool isGlobalHostScope = rule.TargetHosts == null ||
+                                             rule.TargetHosts.Count == 0 ||
+                                             rule.TargetHosts.Contains("*");
+
+                    if (hasMatch || (isGlobalAppScope && isGlobalHostScope))
                     {
                         singboxRules.Add(matchObject);
                     }
@@ -235,14 +304,117 @@ namespace ProxyControl.Services
             return singboxRules;
         }
 
+        internal static void ApplyTrafficTypeMatch(
+            Dictionary<string, object> matchObject,
+            RuleTrafficType trafficType,
+            ref bool hasMatch)
+        {
+            switch (trafficType)
+            {
+                case RuleTrafficType.TCP:
+                    matchObject["network"] = "tcp";
+                    hasMatch = true;
+                    break;
+                case RuleTrafficType.UDP:
+                    matchObject["network"] = "udp";
+                    hasMatch = true;
+                    break;
+                case RuleTrafficType.DNS:
+                    matchObject["port"] = 53;
+                    hasMatch = true;
+                    break;
+                case RuleTrafficType.HTTPS:
+                    matchObject["network"] = "tcp";
+                    matchObject["port"] = 443;
+                    hasMatch = true;
+                    break;
+                case RuleTrafficType.WebSocket:
+                    // sing-box cannot match the HTTP Upgrade header at route time.
+                    // Route the scoped TCP flow to ProxyControl, which performs the
+                    // final WebSocket classification from the request headers.
+                    matchObject["network"] = "tcp";
+                    hasMatch = true;
+                    break;
+                case RuleTrafficType.WebRTC:
+                    matchObject["network"] = "udp";
+                    matchObject["port_range"] = new[] { "3478", "5349", "49152:65535" };
+                    hasMatch = true;
+                    break;
+            }
+        }
+
         public class TunRulesConfig
         {
             public RuleMode Mode { get; set; }
             public List<TrafficRule> Rules { get; set; } = new();
             public ProxyType ProxyType { get; set; }
+            public List<string> UpstreamProxyHosts { get; set; } = new();
+            public List<ProxyItem> Proxies { get; set; } = new();
         }
 
-        private string GenerateConfigJson(TunRulesConfig? rulesConfig = null)
+        internal static string GetProxyOutboundTag(string proxyId)
+        {
+            var safeId = new string((proxyId ?? string.Empty)
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+            return "proxy-" + (safeId.Length > 0 ? safeId : "unknown");
+        }
+
+        internal static void InsertUpstreamProxyBypassRules(List<object> routes, TunRulesConfig rulesConfig)
+        {
+            var hosts = rulesConfig.UpstreamProxyHosts
+                .Where(host => !string.IsNullOrWhiteSpace(host))
+                .Select(host => host.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            var resolvedAddresses = new HashSet<IPAddress>();
+            foreach (var host in hosts)
+            {
+                if (IPAddress.TryParse(host, out var address))
+                {
+                    resolvedAddresses.Add(address);
+                    continue;
+                }
+
+                try
+                {
+                    // ProxyControl resolves an upstream hostname before opening
+                    // its socket. TUN therefore sees the numeric destination,
+                    // not the original hostname.
+                    foreach (var resolved in Dns.GetHostAddresses(host))
+                        resolvedAddresses.Add(resolved);
+                }
+                catch
+                {
+                    // Keep the domain rule below; a later config refresh can
+                    // add its resolved addresses when DNS is available.
+                }
+            }
+
+            var addresses = resolvedAddresses
+                .Select(address => address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                    ? address + "/128"
+                    : address + "/32")
+                .ToArray();
+            if (addresses.Length > 0)
+            {
+                // ProxyControl opens the real upstream connection itself. If that
+                // socket is captured again by TUN, proxy-out points back to
+                // ProxyControl and creates an infinite connection loop.
+                routes.Insert(0, new { ip_cidr = addresses, outbound = "direct" });
+            }
+
+            var domains = hosts
+                .Where(host => !IPAddress.TryParse(host, out _))
+                .ToArray();
+            if (domains.Length > 0)
+            {
+                routes.Insert(0, new { domain = domains, outbound = "direct" });
+            }
+        }
+
+        internal string GenerateConfigJson(TunRulesConfig? rulesConfig = null)
         {
             if (rulesConfig == null) rulesConfig = new TunRulesConfig { Mode = RuleMode.BlackList, ProxyType = ProxyType.Socks5 };
 
@@ -277,7 +449,15 @@ namespace ProxyControl.Services
                     // Whitelist Mode
                     finalOutbound = "direct";
                     routes = GenerateRouteRules(rulesConfig);
-                    // No need for system excludes if default is direct, unless specific rules force proxy
+                    // Windows points DNS at the TUN peer (172.19.0.2). Without
+                    // interception, a direct port-53 route loops back into the
+                    // virtual adapter and every hostname lookup times out.
+                    routes.Insert(0, new { protocol = "dns", outbound = "dns-out" });
+                    routes.Insert(1, new { port = 53, outbound = "dns-out" });
+                    // Keep local services and ProxyControl itself outside wildcard rules.
+                    routes.Insert(2, new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
+                    routes.Insert(3, new { port = new[] { 8000, 8080 }, outbound = "direct" });
+                    routes.Insert(4, new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
                 }
             }
             else
@@ -296,6 +476,9 @@ namespace ProxyControl.Services
                 routes.Add(new { port = new[] { 8000, 8080 }, outbound = "direct" });
                 routes.Add(new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
             }
+
+            // Must precede every user rule and the final outbound in both modes.
+            InsertUpstreamProxyBypassRules(routes, rulesConfig);
 
             var config = new
             {
@@ -329,7 +512,7 @@ namespace ProxyControl.Services
                         sniff_override_destination = true
                     }
                 },
-                outbounds = CreateOutbounds(),
+                outbounds = CreateOutbounds(rulesConfig),
                 route = new
                 {
                     auto_detect_interface = true,
@@ -345,7 +528,7 @@ namespace ProxyControl.Services
             });
         }
 
-        private object[] CreateOutbounds()
+        private object[] CreateOutbounds(TunRulesConfig rulesConfig)
         {
             // Route to LOCAL ProxyControl SOCKS5 server (127.0.0.1:8000)
             var proxyOutbound = new
@@ -357,13 +540,54 @@ namespace ProxyControl.Services
                 version = "5"
             };
 
-            return new object[]
+            var outbounds = new List<object>
             {
                 proxyOutbound,
                 new { type = "direct", tag = "direct" },
                 new { type = "block", tag = "block" },
                 new { type = "dns", tag = "dns-out" }
             };
+
+            foreach (var proxy in rulesConfig.Proxies
+                         .Where(proxy => proxy.IsEnabled)
+                         .GroupBy(proxy => proxy.Id, StringComparer.OrdinalIgnoreCase)
+                         .Select(group => group.First()))
+            {
+                var outbound = new Dictionary<string, object>
+                {
+                    ["tag"] = GetProxyOutboundTag(proxy.Id),
+                    ["server"] = proxy.IpAddress,
+                    ["server_port"] = proxy.Port
+                };
+
+                if (!string.IsNullOrEmpty(proxy.Username))
+                    outbound["username"] = proxy.Username;
+                if (!string.IsNullOrEmpty(proxy.Password))
+                    outbound["password"] = proxy.Password;
+
+                if (proxy.Type == ProxyType.Http)
+                {
+                    outbound["type"] = "http";
+                    if (proxy.UseTls || proxy.UseSsl)
+                    {
+                        outbound["tls"] = new
+                        {
+                            enabled = true,
+                            server_name = proxy.IpAddress,
+                            insecure = true
+                        };
+                    }
+                }
+                else
+                {
+                    outbound["type"] = "socks";
+                    outbound["version"] = proxy.Type == ProxyType.Socks4 ? "4" : "5";
+                }
+
+                outbounds.Add(outbound);
+            }
+
+            return outbounds.ToArray();
         }
 
         private async Task<bool> DownloadSingBoxAsync()
@@ -407,6 +631,7 @@ namespace ProxyControl.Services
         public void Dispose()
         {
             Stop();
+            _stateGate.Dispose();
         }
     }
 }

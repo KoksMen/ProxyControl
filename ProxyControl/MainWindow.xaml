@@ -2275,6 +2275,10 @@
                                                                         Text="{Binding TargetApps, Converter={StaticResource ListToStr}}" />
                                                                     <TextBlock
                                                                         FontSize="9"
+                                                                        Foreground="#60A5FA"
+                                                                        Text="{Binding TrafficType, StringFormat='Traffic: {0}'}" />
+                                                                    <TextBlock
+                                                                        FontSize="9"
                                                                         FontWeight="Bold"
                                                                         Foreground="#F59E0B"
                                                                         Text="{Binding PersistenceLabel}" />
@@ -3853,7 +3857,8 @@
                                                                         FontWeight="SemiBold"
                                                                         Foreground="{DynamicResource ForegroundBrush}"
                                                                         Text="{Binding ProcessName}"
-                                                                        TextTrimming="CharacterEllipsis" />
+                                                                        TextTrimming="CharacterEllipsis"
+                                                                        ToolTip="{Binding ProcessPath}" />
                                                                     <Border
                                                                         Margin="9,0,0,0"
                                                                         Padding="6,2"
@@ -4270,6 +4275,27 @@
                                     SelectedItem="{Binding ModalTargetMode}" />
                             </StackPanel>
                         </Grid>
+
+                        <!--  Traffic protocol  -->
+                        <StackPanel Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
+                            <TextBlock
+                                Margin="0,0,0,8"
+                                FontSize="12"
+                                FontWeight="Medium"
+                                Foreground="#A1A1AA"
+                                Text="TRAFFIC TYPE" />
+                            <ComboBox
+                                MinHeight="40"
+                                Padding="12,10"
+                                ItemsSource="{Binding RuleTrafficTypes}"
+                                SelectedItem="{Binding ModalTrafficType}" />
+                            <TextBlock
+                                Margin="0,6,0,0"
+                                FontSize="10"
+                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                Text="{Binding ModalTunHint}"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
 
                         <!--  Block Direction  -->
                         <StackPanel Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
