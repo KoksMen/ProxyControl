@@ -78,7 +78,9 @@ using (var tunService = new TunService())
     var whiteListConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
     {
         Mode = RuleMode.WhiteList,
-        ProxyType = ProxyType.Socks5
+        ProxyType = ProxyType.Socks5,
+        DnsServer = "9.9.9.9",
+        UseDnsProtection = true
     });
     using var configDocument = JsonDocument.Parse(whiteListConfig);
     var routeRules = configDocument.RootElement.GetProperty("route").GetProperty("rules");
@@ -91,11 +93,45 @@ using (var tunService = new TunService())
     Assert(configDocument.RootElement.GetProperty("route").GetProperty("final").GetString() == "direct",
         "Unmatched WhiteList TUN traffic must remain direct.");
 
+    bool missingTunDnsRejected = false;
+    try
+    {
+        tunService.GenerateConfigJson(new TunService.TunRulesConfig
+        {
+            Mode = RuleMode.WhiteList,
+            ProxyType = ProxyType.Socks5,
+            UseDnsProtection = true
+        });
+    }
+    catch (InvalidOperationException)
+    {
+        missingTunDnsRejected = true;
+    }
+    Assert(missingTunDnsRejected,
+        "TUN must not silently fall back to a hard-coded DNS server.");
+
+    var systemDnsConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
+    {
+        Mode = RuleMode.WhiteList,
+        ProxyType = ProxyType.Socks5,
+        DnsServer = "9.9.9.9",
+        UseDnsProtection = false,
+        SystemDnsServers = new List<string> { "192.0.2.53" }
+    });
+    using var systemDnsDocument = JsonDocument.Parse(systemDnsConfig);
+    var systemDnsRule = systemDnsDocument.RootElement.GetProperty("dns").GetProperty("rules")[0];
+    Assert(systemDnsRule.GetProperty("server").GetString() == "system-0",
+        "TUN must use Windows system DNS when DNS Protection is disabled.");
+    Assert(systemDnsDocument.RootElement.GetProperty("dns").GetProperty("servers")[0]
+            .GetProperty("address").GetString() == "192.0.2.53",
+        "TUN must query the system DNS address directly instead of creating a resolver loop.");
+
     var protectedDnsConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
     {
         Mode = RuleMode.WhiteList,
         ProxyType = ProxyType.Socks5,
-        DnsServer = "9.9.9.9"
+        DnsServer = "9.9.9.9",
+        UseDnsProtection = true
     });
     using var protectedDnsDocument = JsonDocument.Parse(protectedDnsConfig);
     var protectedDnsRoutes = protectedDnsDocument.RootElement.GetProperty("route").GetProperty("rules")
@@ -114,7 +150,8 @@ using (var tunService = new TunService())
     {
         Mode = RuleMode.WhiteList,
         ProxyType = ProxyType.Socks5,
-        DnsServer = "resolver.example"
+        DnsServer = "resolver.example",
+        UseDnsProtection = true
     });
     using var hostnameDnsDocument = JsonDocument.Parse(hostnameDnsConfig);
     var hostnameDnsServer = hostnameDnsDocument.RootElement.GetProperty("dns").GetProperty("servers")
@@ -128,6 +165,8 @@ using (var tunService = new TunService())
     {
         Mode = RuleMode.WhiteList,
         ProxyType = ProxyType.Socks5,
+        DnsServer = "9.9.9.9",
+        SystemDnsServers = new List<string> { "192.0.2.53" },
         Proxies = new List<ProxyItem>
         {
             new()
