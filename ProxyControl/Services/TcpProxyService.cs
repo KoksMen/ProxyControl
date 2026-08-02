@@ -1242,8 +1242,9 @@ namespace ProxyControl.Services
             if (string.IsNullOrEmpty(proxy.IpAddress) || proxy.Port == 0) return (false, "", 0, 0, "Invalid IP/Port");
 
             bool connectionSuccess = false;
-            long ping = await MeasureTcpConnectPingAsync(proxy.IpAddress, proxy.Port);
+            long ping = 0;
             string sslError = "None";
+            var latencyTimer = Stopwatch.StartNew();
 
             if (proxy.Type == ProxyType.Socks5)
             {
@@ -1274,7 +1275,9 @@ namespace ProxyControl.Services
                     {
                         Timeout = TimeSpan.FromSeconds(10)
                     };
-                    using var response = await client.GetAsync("https://www.google.com/generate_204");
+                    using var response = await client.GetAsync(
+                        "https://www.google.com/generate_204",
+                        HttpCompletionOption.ResponseHeadersRead);
                     connectionSuccess = response.IsSuccessStatusCode;
                 }
                 catch (Exception ex)
@@ -1283,6 +1286,13 @@ namespace ProxyControl.Services
                     if (sslError == "None") sslError = ex.Message;
                 }
             }
+
+            latencyTimer.Stop();
+            // A raw TCP connection measures only the listener and often reports
+            // 1 ms for every endpoint. This value measures a real request that
+            // passed through authentication and the selected proxy.
+            if (connectionSuccess)
+                ping = Math.Max(1, latencyTimer.ElapsedMilliseconds);
 
             double speedMBps = connectionSuccess && measureSpeed
                 ? await MeasureProxySpeedAsync(proxy)

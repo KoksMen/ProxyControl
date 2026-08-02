@@ -137,11 +137,25 @@ namespace ProxyControl.ViewModels
                     .FirstOrDefault(proxy => proxy != null)
                   ?? Proxies.FirstOrDefault(p => p.IsEnabled && p.Type == ProxyType.Socks5);
         }
-        public string TunModeStatus => _isTunMode ? "🟢 TUN Active (Full UDP)" : "⚪ TUN Off";
+        public string TunModeStatus => _isTunApplying
+            ? "🟣 Applying TUN rules…"
+            : _isTunMode ? "🟢 TUN Active" : "⚪ TUN Off";
+
+        private bool _isTunApplying;
+        public bool IsTunApplying
+        {
+            get => _isTunApplying;
+            private set
+            {
+                if (_isTunApplying == value) return;
+                _isTunApplying = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(TunModeStatus));
+            }
+        }
 
         public IEnumerable<RuleAction> ActionTypes => Enum.GetValues(typeof(RuleAction)).Cast<RuleAction>();
         public IEnumerable<BlockDirection> BlockDirectionTypes => Enum.GetValues(typeof(BlockDirection)).Cast<BlockDirection>();
-        public IEnumerable<RuleTrafficType> RuleTrafficTypes => Enum.GetValues(typeof(RuleTrafficType)).Cast<RuleTrafficType>();
 
         private string _currentView = "Rules";
         public string CurrentView
@@ -1707,6 +1721,7 @@ namespace ProxyControl.ViewModels
             _proxyService = new TcpProxyService(_trafficMonitorService);
             _dnsProxyService = new DnsProxyService(_trafficMonitorService);
             _tunService = new TunService();
+            _tunService.ApplyStatusChanged += OnTunApplyStatusChanged;
 
             _settingsService = new SettingsService();
             _updateService = new GithubUpdateService();
@@ -3069,7 +3084,23 @@ namespace ProxyControl.ViewModels
                 UpstreamProxyHosts = Proxies.Where(p => p.IsEnabled).Select(p => p.IpAddress).ToList(),
                 Proxies = Proxies.Where(p => p.IsEnabled).ToList()
             };
-            _ = _tunService.StartAsync(tunConfig);
+            await _tunService.StartAsync(tunConfig);
+        }
+
+        private void OnTunApplyStatusChanged(bool isApplying, string status)
+        {
+            void Update()
+            {
+                IsTunApplying = isApplying;
+                TunStatusDescription = status;
+                OnPropertyChanged(nameof(TunModeStatus));
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess())
+                Update();
+            else
+                dispatcher.BeginInvoke((Action)Update);
         }
 
         private async Task SaveSettingsAfterDelayAsync(CancellationToken token)

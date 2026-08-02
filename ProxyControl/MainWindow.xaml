@@ -1706,8 +1706,7 @@
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="7"
-                                        ToolTip="Route all traffic through a virtual network interface. Available for SOCKS5 in BlackList mode."
-                                        Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
+                                        ToolTip="Route traffic through a virtual network interface using the current rule list. Requires SOCKS5.">
                                         <StackPanel Orientation="Horizontal">
                                             <StackPanel Margin="0,0,12,0">
                                                 <TextBlock
@@ -1718,7 +1717,7 @@
                                                 <TextBlock
                                                     FontSize="9"
                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="Full traffic routing" />
+                                                    Text="Rule-based routing" />
                                             </StackPanel>
                                             <CheckBox
                                                 VerticalAlignment="Center"
@@ -1732,6 +1731,29 @@
                                                 FontWeight="SemiBold"
                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
                                                 Text="{Binding TunModeStatus}" />
+                                            <Ellipse
+                                                Width="7"
+                                                Height="7"
+                                                Margin="7,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Fill="#A855F7"
+                                                Visibility="{Binding IsTunApplying, Converter={StaticResource BoolToVis}}">
+                                                <Ellipse.Style>
+                                                    <Style TargetType="Ellipse">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsTunApplying}" Value="True">
+                                                                <DataTrigger.EnterActions>
+                                                                    <BeginStoryboard>
+                                                                        <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.25" To="1" Duration="0:0:0.55" />
+                                                                        </Storyboard>
+                                                                    </BeginStoryboard>
+                                                                </DataTrigger.EnterActions>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Ellipse.Style>
+                                            </Ellipse>
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -4275,27 +4297,6 @@
                                     SelectedItem="{Binding ModalTargetMode}" />
                             </StackPanel>
                         </Grid>
-
-                        <!--  Traffic protocol  -->
-                        <StackPanel Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">
-                            <TextBlock
-                                Margin="0,0,0,8"
-                                FontSize="12"
-                                FontWeight="Medium"
-                                Foreground="#A1A1AA"
-                                Text="TRAFFIC TYPE" />
-                            <ComboBox
-                                MinHeight="40"
-                                Padding="12,10"
-                                ItemsSource="{Binding RuleTrafficTypes}"
-                                SelectedItem="{Binding ModalTrafficType}" />
-                            <TextBlock
-                                Margin="0,6,0,0"
-                                FontSize="10"
-                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                Text="{Binding ModalTunHint}"
-                                TextWrapping="Wrap" />
-                        </StackPanel>
 
                         <!--  Block Direction  -->
                         <StackPanel Margin="0,0,0,16" Visibility="{Binding IsRenameGroupMode, Converter={StaticResource InvBoolToVis}}">

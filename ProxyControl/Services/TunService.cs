@@ -34,6 +34,7 @@ namespace ProxyControl.Services
 
         public bool IsRunning => _isRunning;
         public event Action<bool>? StatusChanged;
+        public event Action<bool, string>? ApplyStatusChanged;
 
         public TunService()
         {
@@ -90,6 +91,7 @@ namespace ProxyControl.Services
             // request now, rather than retaining references to mutable UI lists.
             var configSnapshot = CreateSnapshot(rulesConfig);
             long requestVersion = Interlocked.Increment(ref _requestedConfigVersion);
+            ReportApplyStatus(requestVersion, true, "Applying TUN rules…");
 
             await _stateGate.WaitAsync();
             try
@@ -113,6 +115,7 @@ namespace ProxyControl.Services
                     if (!await DownloadSingBoxAsync())
                     {
                         _logger.Error("TUN", "Failed to download sing-box");
+                        ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                         return false;
                     }
                 }
@@ -130,6 +133,7 @@ namespace ProxyControl.Services
                     string.Equals(newJson, currentJson, StringComparison.Ordinal))
                 {
                     _logger.Info("TUN", "Config unchanged, skipping restart.");
+                    ReportApplyStatus(requestVersion, false, "TUN rules are up to date");
                     return true;
                 }
 
@@ -176,6 +180,7 @@ namespace ProxyControl.Services
                 if (_singBoxProcess.HasExited)
                 {
                     _logger.Error("TUN", $"sing-box exited with code {_singBoxProcess.ExitCode}");
+                    ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                     return false;
                 }
 
@@ -190,11 +195,13 @@ namespace ProxyControl.Services
                 _isRunning = true;
                 _logger.Info("TUN", $"TUN mode started.");
                 StatusChanged?.Invoke(true);
+                ReportApplyStatus(requestVersion, false, "TUN rules applied");
                 return true;
             }
             catch (Exception ex)
             {
                 _logger.Error("TUN", $"Start failed: {ex.Message}");
+                ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                 return false;
             }
             finally
@@ -211,6 +218,7 @@ namespace ProxyControl.Services
             // Invalidate queued StartAsync calls before waiting for the lock.
             // Otherwise an old queued request can start TUN after the user turns it off.
             Interlocked.Increment(ref _requestedConfigVersion);
+            ApplyStatusChanged?.Invoke(false, "TUN is off");
             _stateGate.Wait();
             try
             {
@@ -224,6 +232,12 @@ namespace ProxyControl.Services
 
         private bool IsLatestRequest(long requestVersion) =>
             requestVersion == Volatile.Read(ref _requestedConfigVersion);
+
+        private void ReportApplyStatus(long requestVersion, bool isApplying, string message)
+        {
+            if (IsLatestRequest(requestVersion))
+                ApplyStatusChanged?.Invoke(isApplying, message);
+        }
 
         internal static TunRulesConfig CreateSnapshot(TunRulesConfig? source)
         {
