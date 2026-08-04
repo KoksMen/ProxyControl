@@ -91,7 +91,8 @@ namespace ProxyControl.ViewModels
             {
                 if (_isTunMode != value)
                 {
-                    // UDP relay requires a SOCKS5 upstream, but works in both list modes.
+                    // WhiteList TUN can route TCP through HTTP or SOCKS5. SOCKS5
+                    // remains necessary in BlackList mode and for UDP relay.
                     if (value && !CanEnableTunMode)
                     {
                         // Reset if user tries to force it (should be disabled in UI too)
@@ -3788,8 +3789,9 @@ namespace ProxyControl.ViewModels
         {
             if (_isTunMode)
             {
-                // TUN owns routing while active. Do not leave the legacy
-                // Windows proxy override pointed at the local listener.
+                // TUN owns routing while active. Restore the user's prior Windows
+                // proxy settings so proxy-aware applications cannot bypass the
+                // virtual interface through ProxyControl's old local listener.
                 SystemProxyHelper.RestoreSystemProxy();
 
                 // Ensure the main proxy service is running (as SOCKS5 receiver)
