@@ -91,7 +91,8 @@ namespace ProxyControl.ViewModels
             {
                 if (_isTunMode != value)
                 {
-                    // UDP relay requires a SOCKS5 upstream, but works in both list modes.
+                    // WhiteList TUN can route TCP through HTTP or SOCKS5. SOCKS5
+                    // remains necessary in BlackList mode and for UDP relay.
                     if (value && !CanEnableTunMode)
                     {
                         // Reset if user tries to force it (should be disabled in UI too)
@@ -115,16 +116,24 @@ namespace ProxyControl.ViewModels
             get
             {
                 var proxy = GetTunRoutingProxy();
-                return proxy != null && proxy.Type == ProxyType.Socks5;
+                if (proxy == null || !proxy.IsEnabled)
+                    return false;
+
+                return IsBlackListMode
+                    ? proxy.Type == ProxyType.Socks5
+                    : IsTunCompatibleWhiteListProxy(proxy);
             }
         }
+
+        private static bool IsTunCompatibleWhiteListProxy(ProxyItem proxy) =>
+            proxy.Type is ProxyType.Socks5 or ProxyType.Http;
 
         private ProxyItem? GetTunRoutingProxy()
         {
             if (IsBlackListMode)
                 return SelectedBlackListMainProxy;
 
-            return _tunProxy is { IsEnabled: true, Type: ProxyType.Socks5 }
+            return _tunProxy is { IsEnabled: true } selectedProxy && IsTunCompatibleWhiteListProxy(selectedProxy)
                 ? _tunProxy
                 : GetRulesForMode(RuleMode.WhiteList)
                     .Where(rule =>
@@ -132,10 +141,10 @@ namespace ProxyControl.ViewModels
                         rule.Action == RuleAction.Proxy)
                     .Select(rule => Proxies.FirstOrDefault(proxy =>
                         proxy.IsEnabled &&
-                        proxy.Type == ProxyType.Socks5 &&
+                        IsTunCompatibleWhiteListProxy(proxy) &&
                         proxy.Id == rule.ProxyId))
                     .FirstOrDefault(proxy => proxy != null)
-                  ?? Proxies.FirstOrDefault(p => p.IsEnabled && p.Type == ProxyType.Socks5);
+                  ?? Proxies.FirstOrDefault(IsTunCompatibleWhiteListProxy);
         }
         public string TunModeStatus => _isTunApplying
             ? "🟣 Applying TUN rules…"
@@ -188,7 +197,7 @@ namespace ProxyControl.ViewModels
         private ProxyItem? _tunProxy;
         public ProxyItem? TunProxy
         {
-            get => _tunProxy ?? Proxies.FirstOrDefault(p => p.IsEnabled && p.Type == ProxyType.Socks5)
+            get => _tunProxy ?? Proxies.FirstOrDefault(IsTunCompatibleWhiteListProxy)
                 ?? Proxies.FirstOrDefault();
             set
             {
@@ -961,9 +970,12 @@ namespace ProxyControl.ViewModels
             {
                 if (ModalTargetMode != RuleMode.WhiteList || ModalAction != RuleAction.Proxy)
                     return "This rule does not require WhiteList TUN routing.";
-                return ModalSelectedProxy?.Type == ProxyType.Socks5
-                    ? "WhiteList TUN will be enabled automatically. Matching traffic uses the proxy; unmatched traffic stays direct."
-                    : "WhiteList TUN requires an enabled SOCKS5 proxy.";
+                return ModalSelectedProxy?.Type switch
+                {
+                    ProxyType.Socks5 => "WhiteList TUN will be enabled automatically. Matching traffic uses the proxy; unmatched traffic stays direct.",
+                    ProxyType.Http => "WhiteList TUN can route this HTTP proxy rule. HTTP proxies carry TCP only; UDP, QUIC, and WebRTC remain direct.",
+                    _ => "WhiteList TUN requires an enabled HTTP or SOCKS5 proxy."
+                };
             }
         }
 
@@ -1929,10 +1941,10 @@ namespace ProxyControl.ViewModels
             {
                 LoadSettings();
 
-                // WhiteList always captures through TUN when a usable SOCKS5
+                // WhiteList always captures through TUN when a usable HTTP or SOCKS5
                 // routing proxy is available. sing-box keeps unmatched traffic
                 // direct through its final outbound.
-                if (!IsBlackListMode && GetTunRoutingProxy() is { IsEnabled: true, Type: ProxyType.Socks5 } whiteListTunProxy)
+                if (!IsBlackListMode && GetTunRoutingProxy() is { IsEnabled: true } whiteListTunProxy)
                 {
                     _tunProxy = whiteListTunProxy;
                     _config.TunProxyId = whiteListTunProxy.Id;
@@ -1947,9 +1959,9 @@ namespace ProxyControl.ViewModels
                 // Validate TUN Mode on startup (must be after LoadSettings)
                 if (_config.IsTunMode)
                 {
-                    // TUN works in both list modes, but UDP relay requires SOCKS5.
+                    // WhiteList supports HTTP and SOCKS5; BlackList and UDP relay require SOCKS5.
                     var proxy = GetTunRoutingProxy();
-                    if (proxy == null || !proxy.IsEnabled || proxy.Type != ProxyType.Socks5)
+                    if (proxy == null || !CanEnableTunMode)
                     {
                         _config.IsTunMode = false;
                         _isTunMode = false; // Sync backing field
@@ -2536,7 +2548,8 @@ namespace ProxyControl.ViewModels
             bool shouldEnable =
                 ModalTargetMode == RuleMode.WhiteList &&
                 ModalAction == RuleAction.Proxy &&
-                ModalSelectedProxy is { IsEnabled: true, Type: ProxyType.Socks5 };
+                ModalSelectedProxy is { IsEnabled: true } selectedProxy &&
+                IsTunCompatibleWhiteListProxy(selectedProxy);
 
             if (!shouldEnable) return;
 
@@ -2557,7 +2570,7 @@ namespace ProxyControl.ViewModels
                 return;
 
             var proxy = GetTunRoutingProxy();
-            if (proxy == null || !proxy.IsEnabled || proxy.Type != ProxyType.Socks5)
+            if (proxy == null || !CanEnableTunMode)
                 return;
 
             TunProxy = proxy;
@@ -3706,6 +3719,11 @@ namespace ProxyControl.ViewModels
         {
             if (_isTunMode)
             {
+                // TUN owns routing while active. Restore the user's prior Windows
+                // proxy settings so proxy-aware applications cannot bypass the
+                // virtual interface through ProxyControl's old local listener.
+                SystemProxyHelper.RestoreSystemProxy();
+
                 // Ensure the main proxy service is running (as SOCKS5 receiver)
                 if (!IsProxyRunning)
                 {
