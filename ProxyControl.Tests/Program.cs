@@ -175,32 +175,19 @@ using (var tunService = new TunService())
             server.GetProperty("address").GetString() == "9.9.9.9"),
         "TUN DNS must use the DNS server selected in ProxyControl settings.");
 
-    var hostnameDnsConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
-    {
-        Mode = RuleMode.WhiteList,
-        ProxyType = ProxyType.Socks5,
-        DnsServer = "resolver.example",
-        UseDnsProtection = true
-    });
-    using var hostnameDnsDocument = JsonDocument.Parse(hostnameDnsConfig);
-    var hostnameDnsServer = hostnameDnsDocument.RootElement.GetProperty("dns").GetProperty("servers")
-        .EnumerateArray().First(server => server.GetProperty("tag").GetString() == "configured");
-    Assert(hostnameDnsServer.GetProperty("address_resolver").GetString() == "local",
-        "A hostname DNS server must declare an address resolver so sing-box can start.");
-
     var dohUrlConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
     {
         Mode = RuleMode.WhiteList,
         ProxyType = ProxyType.Socks5,
-        DnsServer = "https://cloudflare-dns.com/dns-query",
+        DnsServer = "https://1.1.1.1/dns-query",
         UseDnsProtection = true
     });
     using var dohUrlDocument = JsonDocument.Parse(dohUrlConfig);
     var dohUrlServer = dohUrlDocument.RootElement.GetProperty("dns").GetProperty("servers")
         .EnumerateArray().First(server => server.GetProperty("tag").GetString() == "configured");
-    Assert(dohUrlServer.GetProperty("address").GetString() == "https://cloudflare-dns.com/dns-query" &&
-           dohUrlServer.GetProperty("address_resolver").GetString() == "local",
-        "TUN must preserve a DoH URL and give its hostname an address resolver in sing-box configuration.");
+    Assert(dohUrlServer.GetProperty("address").GetString() == "https://1.1.1.1/dns-query" &&
+           !dohUrlServer.TryGetProperty("address_resolver", out _),
+        "TUN must use a pre-resolved DoH URL without an unavailable sing-box resolver.");
 
     const string httpProxyId = "http-rule-proxy";
     const string socksProxyId = "socks-rule-proxy";

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Sockets;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -120,6 +121,13 @@ namespace ProxyControl.Services
             await _stateGate.WaitAsync();
             try
             {
+                if (!IsLatestRequest(requestVersion)) return true;
+
+                // sing-box 1.8 cannot resolve a hostname in a legacy DNS URL
+                // without a separate resolver server. Resolve it before the
+                // TUN adapter changes Windows' routing, then give sing-box a
+                // concrete IP address instead.
+                await ResolveDnsServerAddressAsync(configSnapshot);
                 if (!IsLatestRequest(requestVersion)) return true;
 
                 // A previous application instance may have been terminated
@@ -269,6 +277,44 @@ namespace ProxyControl.Services
 
         private bool IsLatestRequest(long requestVersion) =>
             requestVersion == Volatile.Read(ref _requestedConfigVersion);
+
+        private async Task ResolveDnsServerAddressAsync(TunRulesConfig config)
+        {
+            if (!config.UseDnsProtection) return;
+
+            string configured = NormalizeDnsServer(config.DnsServer);
+            if (string.IsNullOrWhiteSpace(configured)) return;
+
+            if (Uri.TryCreate(configured, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            {
+                if (IPAddress.TryParse(uri.Host, out _)) return;
+
+                var address = await ResolveHostAddressAsync(uri.Host);
+                config.DnsServer = new UriBuilder(uri) { Host = address.ToString() }.Uri.AbsoluteUri;
+                _logger.Info("TUN", $"Resolved DNS endpoint host {uri.Host} to {address} before starting TUN.");
+                return;
+            }
+
+            if (!IPAddress.TryParse(configured, out _))
+            {
+                var address = await ResolveHostAddressAsync(configured);
+                config.DnsServer = address.ToString();
+                _logger.Info("TUN", $"Resolved DNS server {configured} to {address} before starting TUN.");
+            }
+        }
+
+        private static async Task<IPAddress> ResolveHostAddressAsync(string host)
+        {
+            var lookupTask = Dns.GetHostAddressesAsync(host);
+            if (await Task.WhenAny(lookupTask, Task.Delay(TimeSpan.FromSeconds(8))) != lookupTask)
+                throw new InvalidOperationException($"Timed out while resolving DNS server host '{host}'.");
+
+            var address = (await lookupTask)
+                .FirstOrDefault(candidate => candidate.AddressFamily == AddressFamily.InterNetwork)
+                ?? (await lookupTask).FirstOrDefault();
+            return address ?? throw new InvalidOperationException($"DNS server host '{host}' did not return an IP address.");
+        }
 
         private void ReportApplyStatus(long requestVersion, bool isApplying, string message)
         {
@@ -800,12 +846,12 @@ namespace ProxyControl.Services
             {
                 bool isDnsUrl = Uri.TryCreate(configuredDnsAddress, UriKind.Absolute, out var dnsUri) &&
                     (dnsUri.Scheme == Uri.UriSchemeHttps || dnsUri.Scheme == Uri.UriSchemeHttp);
-                bool requiresAddressResolver = isDnsUrl
-                    ? !IPAddress.TryParse(dnsUri!.Host, out _)
-                    : !IPAddress.TryParse(configuredDnsAddress, out _);
-                object configuredDnsServer = requiresAddressResolver
-                    ? new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" }
-                    : new { tag = "configured", address = configuredDnsAddress, detour = "direct" };
+                bool hasAddress = isDnsUrl
+                    ? IPAddress.TryParse(dnsUri!.Host, out _)
+                    : IPAddress.TryParse(configuredDnsAddress, out _);
+                if (!hasAddress)
+                    throw new InvalidOperationException("DNS server hostname must be resolved before generating the TUN configuration.");
+                object configuredDnsServer = new { tag = "configured", address = configuredDnsAddress, detour = "direct" };
                 dnsServers.Insert(0, configuredDnsServer);
                 dnsServerTag = "configured";
             }
