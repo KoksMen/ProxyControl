@@ -800,9 +800,12 @@ namespace ProxyControl.Services
             {
                 bool isDnsUrl = Uri.TryCreate(configuredDnsAddress, UriKind.Absolute, out var dnsUri) &&
                     (dnsUri.Scheme == Uri.UriSchemeHttps || dnsUri.Scheme == Uri.UriSchemeHttp);
-                object configuredDnsServer = isDnsUrl || IPAddress.TryParse(configuredDnsAddress, out _)
-                    ? new { tag = "configured", address = configuredDnsAddress, detour = "direct" }
-                    : new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" };
+                bool requiresAddressResolver = isDnsUrl
+                    ? !IPAddress.TryParse(dnsUri!.Host, out _)
+                    : !IPAddress.TryParse(configuredDnsAddress, out _);
+                object configuredDnsServer = requiresAddressResolver
+                    ? new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" }
+                    : new { tag = "configured", address = configuredDnsAddress, detour = "direct" };
                 dnsServers.Insert(0, configuredDnsServer);
                 dnsServerTag = "configured";
             }

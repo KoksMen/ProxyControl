@@ -199,8 +199,8 @@ using (var tunService = new TunService())
     var dohUrlServer = dohUrlDocument.RootElement.GetProperty("dns").GetProperty("servers")
         .EnumerateArray().First(server => server.GetProperty("tag").GetString() == "configured");
     Assert(dohUrlServer.GetProperty("address").GetString() == "https://cloudflare-dns.com/dns-query" &&
-           !dohUrlServer.TryGetProperty("address_resolver", out _),
-        "TUN must preserve a DoH URL, including its scheme and path, in sing-box configuration.");
+           dohUrlServer.GetProperty("address_resolver").GetString() == "local",
+        "TUN must preserve a DoH URL and give its hostname an address resolver in sing-box configuration.");
 
     const string httpProxyId = "http-rule-proxy";
     const string socksProxyId = "socks-rule-proxy";
