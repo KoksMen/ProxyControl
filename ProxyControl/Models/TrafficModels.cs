@@ -123,7 +123,12 @@ namespace ProxyControl.Models
 
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string TimeStr => Timestamp.ToString("HH:mm:ss"); // Для отображения в гриде
-        public string Host { get; set; } = "";
+        private string _host = "";
+        public string Host
+        {
+            get => _host;
+            set { _host = value; OnPropertyChanged(); }
+        }
         public string ProcessName { get; set; } = ""; // Для сохранения в лог
         public string ProcessPath { get; set; } = ""; // Стабильный источник иконки
         public string Status { get; set; } = "";

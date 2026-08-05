@@ -798,7 +798,9 @@ namespace ProxyControl.Services
             string dnsServerTag;
             if (rulesConfig.UseDnsProtection)
             {
-                object configuredDnsServer = IPAddress.TryParse(configuredDnsAddress, out _)
+                bool isDnsUrl = Uri.TryCreate(configuredDnsAddress, UriKind.Absolute, out var dnsUri) &&
+                    (dnsUri.Scheme == Uri.UriSchemeHttps || dnsUri.Scheme == Uri.UriSchemeHttp);
+                object configuredDnsServer = isDnsUrl || IPAddress.TryParse(configuredDnsAddress, out _)
                     ? new { tag = "configured", address = configuredDnsAddress, detour = "direct" }
                     : new { tag = "configured", address = configuredDnsAddress, address_resolver = "local", detour = "direct" };
                 dnsServers.Insert(0, configuredDnsServer);
@@ -876,9 +878,7 @@ namespace ProxyControl.Services
             var normalized = value.Trim();
             if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
                 (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
-            {
-                return uri.Host;
-            }
+                return uri.AbsoluteUri;
             return normalized.TrimEnd('.');
         }
 

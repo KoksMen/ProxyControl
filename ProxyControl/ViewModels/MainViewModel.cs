@@ -11,6 +11,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -563,16 +564,17 @@ namespace ProxyControl.ViewModels
                     return query
                         .SelectMany(r => r.TargetApps ?? new List<string>())
                         .Distinct()
-                        .Select(app => new AppRuleInfo
+                        .Select(app =>
                         {
-                            AppName = app,
-                            RuleCount = RulesList.Count(r => (r.GroupName ?? "General") == _selectedGroupName &&
-                                (r.TargetApps?.Contains(app) ?? false)),
-                            AppIcon = RulesList
-                                .Where(r => (r.GroupName ?? "General") == _selectedGroupName &&
-                                    (r.TargetApps?.Contains(app) ?? false))
-                                .Select(r => r.AppIcon)
-                                .FirstOrDefault(icon => icon != null)
+                            var rules = RulesList.Where(r => (r.GroupName ?? "General") == _selectedGroupName &&
+                                (r.TargetApps?.Contains(app) ?? false)).ToList();
+                            return new AppRuleInfo
+                            {
+                                AppName = app,
+                                RuleCount = rules.Count,
+                                Rules = rules,
+                                AppIcon = rules.Select(r => r.AppIcon).FirstOrDefault(icon => icon != null)
+                            };
                         })
                         .ToList();
                 }
@@ -648,6 +650,19 @@ namespace ProxyControl.ViewModels
             OnPropertyChanged(nameof(RuleGroups));
             OnPropertyChanged(nameof(SelectedGroupApps));
             OnPropertyChanged(nameof(SelectedGroupRules));
+        }
+
+        private void SetRulesEnabled(IEnumerable<TrafficRule> rules, bool enabled)
+        {
+            var affectedRules = rules.Distinct().ToList();
+            if (affectedRules.Count == 0) return;
+
+            foreach (var rule in affectedRules)
+                rule.IsEnabled = enabled;
+
+            RefreshRuleGroups();
+            ApplyConfig();
+            RequestSaveSettings();
         }
 
         // Application Logs (startup, connections, errors, WebRTC blocks)
@@ -1734,6 +1749,8 @@ namespace ProxyControl.ViewModels
         public ICommand DeleteAppRulesCommand { get; }
         public ICommand DeleteGroupRulesCommand { get; }
         public ICommand SelectRuleCommand { get; }
+        public ICommand ToggleGroupRulesCommand { get; }
+        public ICommand ToggleAppRulesCommand { get; }
 
 
         public MainViewModel()
@@ -1826,6 +1843,14 @@ namespace ProxyControl.ViewModels
 
             EditRuleCommand = new RelayCommand(rule => OpenRuleModal(rule as TrafficRule));
             SelectRuleCommand = new RelayCommand(rule => { SelectedRule = rule as TrafficRule; });
+            ToggleGroupRulesCommand = new RelayCommand(group =>
+            {
+                if (group is RuleGroupInfo info) SetRulesEnabled(info.Rules, info.IsEnabled != true);
+            });
+            ToggleAppRulesCommand = new RelayCommand(app =>
+            {
+                if (app is AppRuleInfo info) SetRulesEnabled(info.Rules, info.IsEnabled != true);
+            });
             DeleteGroupRulesCommand = new RelayCommand(_ => DeleteRules(false));
 
             SelectGroupCommand = new RelayCommand(groupName =>
@@ -2924,7 +2949,7 @@ namespace ProxyControl.ViewModels
                 ? IconHelper.GetIconByPath(connection.ProcessPath, connection.ProcessPath)
                 : IconHelper.GetIconByProcessName(connection.ProcessName);
 
-            OnLogReceived(new ConnectionLog
+            var log = new ConnectionLog
             {
                 Time = connection.TimeStr,
                 ProcessName = connection.ProcessName,
@@ -2935,7 +2960,60 @@ namespace ProxyControl.ViewModels
                 AppIcon = icon,
                 CountryFlagUrl = connection.FlagUrl,
                 Type = connection.Type
-            });
+            };
+            OnLogReceived(log);
+            QueueHostNameResolution(connection, log);
+        }
+
+        private readonly ConcurrentDictionary<string, Task<string?>> _reverseDnsLookups = new(StringComparer.OrdinalIgnoreCase);
+
+        // TUN and some raw socket connections report only an IP. Resolve it in
+        // the background so the UI and traffic path are never delayed.
+        private void QueueHostNameResolution(ConnectionHistoryItem connection, ConnectionLog log)
+        {
+            if (!TrySplitIpDestination(connection.Host, out var address, out var port)) return;
+
+            string original = connection.Host;
+            var lookup = _reverseDnsLookups.GetOrAdd(address.ToString(), ResolveHostNameAsync);
+            _ = lookup.ContinueWith(task =>
+            {
+                var hostName = task.Status == TaskStatus.RanToCompletion ? task.Result : null;
+                if (string.IsNullOrWhiteSpace(hostName) || Application.Current == null) return;
+
+                Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    string display = port > 0 ? $"{hostName}:{port}" : hostName;
+                    if (connection.Host == original) connection.Host = display;
+                    if (log.Host == original) log.Host = display;
+                    QueueConnectionSiteIcon(connection);
+                    QueueConnectionSiteIcon(log);
+                }), DispatcherPriority.Background);
+            }, TaskScheduler.Default);
+        }
+
+        private static bool TrySplitIpDestination(string value, out IPAddress address, out int port)
+        {
+            address = IPAddress.None;
+            port = 0;
+            if (string.IsNullOrWhiteSpace(value)) return false;
+
+            string candidate = value.Trim();
+            int separator = candidate.LastIndexOf(':');
+            if (separator > 0 && int.TryParse(candidate[(separator + 1)..], out port))
+                candidate = candidate[..separator].Trim('[', ']');
+            return IPAddress.TryParse(candidate, out address);
+        }
+
+        private static async Task<string?> ResolveHostNameAsync(string address)
+        {
+            try
+            {
+                var lookup = await Dns.GetHostEntryAsync(address).ConfigureAwait(false);
+                var host = lookup.HostName?.TrimEnd('.');
+                return string.IsNullOrWhiteSpace(host) || string.Equals(host, address, StringComparison.OrdinalIgnoreCase)
+                    ? null : host;
+            }
+            catch { return null; }
         }
 
         private void OnTunTrafficObserved(TunService.TunTrafficEvent traffic)

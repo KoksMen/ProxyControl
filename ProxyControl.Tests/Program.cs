@@ -188,6 +188,20 @@ using (var tunService = new TunService())
     Assert(hostnameDnsServer.GetProperty("address_resolver").GetString() == "local",
         "A hostname DNS server must declare an address resolver so sing-box can start.");
 
+    var dohUrlConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
+    {
+        Mode = RuleMode.WhiteList,
+        ProxyType = ProxyType.Socks5,
+        DnsServer = "https://cloudflare-dns.com/dns-query",
+        UseDnsProtection = true
+    });
+    using var dohUrlDocument = JsonDocument.Parse(dohUrlConfig);
+    var dohUrlServer = dohUrlDocument.RootElement.GetProperty("dns").GetProperty("servers")
+        .EnumerateArray().First(server => server.GetProperty("tag").GetString() == "configured");
+    Assert(dohUrlServer.GetProperty("address").GetString() == "https://cloudflare-dns.com/dns-query" &&
+           !dohUrlServer.TryGetProperty("address_resolver", out _),
+        "TUN must preserve a DoH URL, including its scheme and path, in sing-box configuration.");
+
     const string httpProxyId = "http-rule-proxy";
     const string socksProxyId = "socks-rule-proxy";
     var perProxyConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig

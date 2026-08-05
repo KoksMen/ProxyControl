@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Media;
 
@@ -259,7 +260,12 @@ namespace ProxyControl.Models
         public string Time { get; set; } = DateTime.Now.ToString("HH:mm:ss");
         public string ProcessName { get; set; } = "";
         public string ProcessPath { get; set; } = "";
-        public string Host { get; set; } = "";
+        private string _host = "";
+        public string Host
+        {
+            get => _host;
+            set { _host = value; OnPropertyChanged(); }
+        }
         public string Result { get; set; } = ""; // Blocked, Proxy IP, etc.
         public string Color { get; set; } = "#White";
         public ImageSource? AppIcon { get; set; }
@@ -307,6 +313,9 @@ namespace ProxyControl.Models
         public int RuleCount { get; set; }
         public int AppCount { get; set; }
         public List<TrafficRule> Rules { get; set; } = new();
+        public bool? IsEnabled => Rules.Count == 0 ? false :
+            Rules.All(rule => rule.IsEnabled) ? true :
+            Rules.Any(rule => rule.IsEnabled) ? null : false;
 
         public string GradientStart => GetGradientStart(GroupName);
         public string GradientEnd => GetGradientEnd(GroupName);
@@ -355,6 +364,10 @@ namespace ProxyControl.Models
         public string AppName { get; set; } = "*";
         public int RuleCount { get; set; }
         public ImageSource? AppIcon { get; set; }
+        public List<TrafficRule> Rules { get; set; } = new();
+        public bool? IsEnabled => Rules.Count == 0 ? false :
+            Rules.All(rule => rule.IsEnabled) ? true :
+            Rules.Any(rule => rule.IsEnabled) ? null : false;
         public string DisplayName => AppName == "*" ? "All Apps" : AppName;
         public string Icon => AppName == "*" ? "🌐" : "📱";
     }
