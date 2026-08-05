@@ -1,5 +1,6 @@
 using ProxyControl.Services;
 using ProxyControl.Models;
+using ProxyControl.ViewModels;
 using System.Text.Json;
 
 static void Assert(bool condition, string message)
@@ -75,6 +76,23 @@ Assert(tunRoutesJson.Contains("78.111.89.227/32") &&
 
 using (var tunService = new TunService())
 {
+    TunService.TunTrafficEvent? observedTraffic = null;
+    tunService.TrafficObserved += traffic => observedTraffic = traffic;
+    tunService.ProcessSingBoxLogLine(
+        "[123456 0ms] inbound/tun[tun-in]: inbound connection to api.example:443");
+    tunService.ProcessSingBoxLogLine(
+        @"[123456 1ms] router: found process path: C:\Apps\Browser\browser.exe");
+    tunService.ProcessSingBoxLogLine(
+        "[123456 2ms] outbound/socks[proxy-test]: outbound connection to api.example:443");
+    Assert(observedTraffic != null &&
+           observedTraffic.ProcessName == "browser.exe" &&
+           observedTraffic.ProcessPath == @"C:\Apps\Browser\browser.exe" &&
+           observedTraffic.Host == "api.example" &&
+           observedTraffic.Port == 443 &&
+           observedTraffic.Network == "tcp" &&
+           observedTraffic.OutboundTag == "proxy-test",
+        "TUN connection logs must retain process path, destination and selected outbound.");
+
     var whiteListConfig = tunService.GenerateConfigJson(new TunService.TunRulesConfig
     {
         Mode = RuleMode.WhiteList,

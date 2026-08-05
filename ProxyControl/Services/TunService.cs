@@ -8,7 +8,11 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 using ProxyControl.Models;
 using ProxyControl.ViewModels;
 
@@ -30,13 +34,30 @@ namespace ProxyControl.Services
         private readonly SemaphoreSlim _stateGate = new(1, 1);
         private readonly string _dataDir;
         private readonly AppLoggerService _logger;
+        private readonly ConcurrentDictionary<string, TunTraceContext> _trafficTraces = new();
         private long _requestedConfigVersion;
+        private long _processedLogLineCount;
         private string _lastError = string.Empty;
+
+        private static readonly Regex AnsiEscapeRegex = new(
+            @"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
+        private static readonly Regex TraceIdRegex = new(
+            @"\[(?<id>\d+)\s+[^\]]+\]", RegexOptions.Compiled);
+        private static readonly Regex InboundConnectionRegex = new(
+            @"inbound/tun\[[^\]]+\]: inbound (?<packet>packet )?connection to (?<host>.+):(?<port>\d+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex ProcessPathRegex = new(
+            @"router: found process path:\s*(?<path>.+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex OutboundConnectionRegex = new(
+            @"outbound/(?<type>[^\[]+)\[(?<tag>[^\]]+)\]: outbound (?<packet>packet )?connection to (?<host>.+):(?<port>\d+)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public bool IsRunning => _isRunning;
         public string LastError => _lastError;
         public event Action<bool>? StatusChanged;
         public event Action<bool, string>? ApplyStatusChanged;
+        public event Action<TunTrafficEvent>? TrafficObserved;
 
         public TunService()
         {
@@ -167,7 +188,10 @@ namespace ProxyControl.Services
                 _singBoxProcess.OutputDataReceived += (s, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
+                    {
                         _logger.Debug("TUN", e.Data);
+                        ProcessSingBoxLogLine(e.Data);
+                    }
                 };
                 _singBoxProcess.ErrorDataReceived += (s, e) =>
                 {
@@ -175,6 +199,7 @@ namespace ProxyControl.Services
                     {
                         startupError = e.Data;
                         _logger.Warning("TUN", e.Data);
+                        ProcessSingBoxLogLine(e.Data);
                     }
                 };
 
@@ -302,6 +327,7 @@ namespace ProxyControl.Services
             {
                 _singBoxProcess?.Dispose();
                 _singBoxProcess = null;
+                _trafficTraces.Clear();
                 int orphanCount = StopOrphanedManagedProcesses();
                 if (orphanCount > 0)
                     _logger.Warning("TUN", $"Stopped {orphanCount} orphaned sing-box process(es).");
@@ -482,6 +508,130 @@ namespace ProxyControl.Services
             }
         }
 
+        /// <summary>
+        /// Converts sing-box's correlated inbound/outbound trace lines into one
+        /// connection event. WhiteList routes bypass TcpProxyService, so this is
+        /// the authoritative source for those connections.
+        /// </summary>
+        internal void ProcessSingBoxLogLine(string rawLine)
+        {
+            if (string.IsNullOrWhiteSpace(rawLine)) return;
+
+            string line = AnsiEscapeRegex.Replace(rawLine, string.Empty).Trim();
+            var traceIdMatch = TraceIdRegex.Match(line);
+            if (!traceIdMatch.Success) return;
+
+            string traceId = traceIdMatch.Groups["id"].Value;
+            var inboundMatch = InboundConnectionRegex.Match(line);
+            if (inboundMatch.Success)
+            {
+                _trafficTraces[traceId] = new TunTraceContext
+                {
+                    Host = inboundMatch.Groups["host"].Value,
+                    Port = ParsePort(inboundMatch.Groups["port"].Value),
+                    Network = inboundMatch.Groups["packet"].Success ? "udp" : "tcp",
+                    LastSeenUtc = DateTime.UtcNow
+                };
+                CleanupOldTrafficTraces();
+                return;
+            }
+
+            if (!_trafficTraces.TryGetValue(traceId, out var trace)) return;
+            trace.LastSeenUtc = DateTime.UtcNow;
+
+            var processMatch = ProcessPathRegex.Match(line);
+            if (processMatch.Success)
+            {
+                trace.ProcessPath = NormalizeProcessPath(processMatch.Groups["path"].Value.Trim());
+                trace.ProcessName = Path.GetFileName(trace.ProcessPath);
+                return;
+            }
+
+            var outboundMatch = OutboundConnectionRegex.Match(line);
+            if (!outboundMatch.Success) return;
+
+            trace.OutboundType = outboundMatch.Groups["type"].Value;
+            trace.OutboundTag = outboundMatch.Groups["tag"].Value;
+            if (string.IsNullOrWhiteSpace(trace.Host))
+                trace.Host = outboundMatch.Groups["host"].Value;
+            if (trace.Port <= 0)
+                trace.Port = ParsePort(outboundMatch.Groups["port"].Value);
+            if (string.IsNullOrWhiteSpace(trace.Network))
+                trace.Network = outboundMatch.Groups["packet"].Success ? "udp" : "tcp";
+
+            _trafficTraces.TryRemove(traceId, out _);
+            TrafficObserved?.Invoke(new TunTrafficEvent(
+                string.IsNullOrWhiteSpace(trace.ProcessName) ? "System/TUN" : trace.ProcessName,
+                trace.ProcessPath ?? string.Empty,
+                trace.Host ?? string.Empty,
+                trace.Port,
+                trace.Network ?? "tcp",
+                trace.OutboundTag ?? string.Empty,
+                trace.OutboundType ?? string.Empty));
+        }
+
+        private void CleanupOldTrafficTraces()
+        {
+            if (Interlocked.Increment(ref _processedLogLineCount) % 256 != 0) return;
+
+            DateTime cutoff = DateTime.UtcNow.AddMinutes(-1);
+            foreach (var pair in _trafficTraces)
+            {
+                if (pair.Value.LastSeenUtc < cutoff)
+                    _trafficTraces.TryRemove(pair.Key, out _);
+            }
+        }
+
+        private static int ParsePort(string value) =>
+            int.TryParse(value, out int port) ? port : 0;
+
+        private static string NormalizeProcessPath(string processPath)
+        {
+            const string devicePrefix = @"\Device\";
+            if (!processPath.StartsWith(devicePrefix, StringComparison.OrdinalIgnoreCase))
+                return processPath;
+
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                string driveName = drive.Name.TrimEnd('\\');
+                var target = new StringBuilder(512);
+                if (QueryDosDevice(driveName, target, target.Capacity) == 0) continue;
+
+                string devicePath = target.ToString();
+                if (processPath.StartsWith(devicePath, StringComparison.OrdinalIgnoreCase))
+                    return driveName + processPath.Substring(devicePath.Length);
+            }
+
+            return processPath;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        private static extern uint QueryDosDevice(
+            string lpDeviceName,
+            StringBuilder lpTargetPath,
+            int ucchMax);
+
+        private sealed class TunTraceContext
+        {
+            public string? ProcessName { get; set; }
+            public string? ProcessPath { get; set; }
+            public string? Host { get; set; }
+            public int Port { get; set; }
+            public string? Network { get; set; }
+            public string? OutboundTag { get; set; }
+            public string? OutboundType { get; set; }
+            public DateTime LastSeenUtc { get; set; }
+        }
+
+        public sealed record TunTrafficEvent(
+            string ProcessName,
+            string ProcessPath,
+            string Host,
+            int Port,
+            string Network,
+            string OutboundTag,
+            string OutboundType);
+
         public class TunRulesConfig
         {
             public RuleMode Mode { get; set; }
@@ -613,6 +763,9 @@ namespace ProxyControl.Services
 
             var config = new
             {
+                // Keep sing-box's normal connection traces enabled. The output
+                // is observed for Monitor/Connection Logs but does not change
+                // TUN routing behaviour.
                 log = new { level = "info", timestamp = true },
                 dns = new
                 {
