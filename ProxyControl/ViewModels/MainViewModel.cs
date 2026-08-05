@@ -35,6 +35,9 @@ namespace ProxyControl.ViewModels
         private readonly GithubUpdateService _updateService;
         private readonly TrafficMonitorService _trafficMonitorService;
         private readonly SiteIconCacheService _siteIconCacheService;
+        // A scope switch mutes rules temporarily. Its snapshot keeps individual
+        // rule checkboxes exactly as the user left them for restoration.
+        private readonly Dictionary<string, Dictionary<TrafficRule, bool>> _disabledRuleScopes = new(StringComparer.Ordinal);
 
 
 
@@ -431,7 +434,8 @@ namespace ProxyControl.ViewModels
                             GroupName = g.Key,
                             RuleCount = g.Count(),
                             AppCount = g.SelectMany(r => r.TargetApps ?? new List<string>()).Distinct().Count(),
-                            Rules = g.ToList()
+                            Rules = g.ToList(),
+                            IsScopeEnabled = !_disabledRuleScopes.ContainsKey(GetGroupScopeKey(g.Key))
                         })
                         .OrderBy(g => g.GroupName);
                 }
@@ -573,6 +577,7 @@ namespace ProxyControl.ViewModels
                                 AppName = app,
                                 RuleCount = rules.Count,
                                 Rules = rules,
+                                IsScopeEnabled = !_disabledRuleScopes.ContainsKey(GetAppScopeKey(_selectedGroupName!, app)),
                                 AppIcon = rules.Select(r => r.AppIcon).FirstOrDefault(icon => icon != null)
                             };
                         })
@@ -652,13 +657,24 @@ namespace ProxyControl.ViewModels
             OnPropertyChanged(nameof(SelectedGroupRules));
         }
 
-        private void SetRulesEnabled(IEnumerable<TrafficRule> rules, bool enabled)
+        private static string GetGroupScopeKey(string groupName) => $"group:{groupName}";
+        private static string GetAppScopeKey(string groupName, string appName) => $"app:{groupName}\u001f{appName}";
+
+        private void ToggleRulesScope(string scopeKey, IEnumerable<TrafficRule> rules, bool isScopeEnabled)
         {
             var affectedRules = rules.Distinct().ToList();
             if (affectedRules.Count == 0) return;
 
-            foreach (var rule in affectedRules)
-                rule.IsEnabled = enabled;
+            if (isScopeEnabled)
+            {
+                _disabledRuleScopes[scopeKey] = affectedRules.ToDictionary(rule => rule, rule => rule.IsEnabled);
+                foreach (var rule in affectedRules) rule.IsEnabled = false;
+            }
+            else if (_disabledRuleScopes.Remove(scopeKey, out var savedStates))
+            {
+                foreach (var rule in affectedRules)
+                    if (savedStates.TryGetValue(rule, out bool wasEnabled)) rule.IsEnabled = wasEnabled;
+            }
 
             RefreshRuleGroups();
             ApplyConfig();
@@ -1845,11 +1861,13 @@ namespace ProxyControl.ViewModels
             SelectRuleCommand = new RelayCommand(rule => { SelectedRule = rule as TrafficRule; });
             ToggleGroupRulesCommand = new RelayCommand(group =>
             {
-                if (group is RuleGroupInfo info) SetRulesEnabled(info.Rules, info.IsEnabled != true);
+                if (group is RuleGroupInfo info)
+                    ToggleRulesScope(GetGroupScopeKey(info.GroupName), info.Rules, info.IsScopeEnabled);
             });
             ToggleAppRulesCommand = new RelayCommand(app =>
             {
-                if (app is AppRuleInfo info) SetRulesEnabled(info.Rules, info.IsEnabled != true);
+                if (app is AppRuleInfo info && !string.IsNullOrEmpty(SelectedGroupName))
+                    ToggleRulesScope(GetAppScopeKey(SelectedGroupName, info.AppName), info.Rules, info.IsScopeEnabled);
             });
             DeleteGroupRulesCommand = new RelayCommand(_ => DeleteRules(false));
 

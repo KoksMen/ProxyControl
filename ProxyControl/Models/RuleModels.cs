@@ -313,9 +313,7 @@ namespace ProxyControl.Models
         public int RuleCount { get; set; }
         public int AppCount { get; set; }
         public List<TrafficRule> Rules { get; set; } = new();
-        public bool? IsEnabled => Rules.Count == 0 ? false :
-            Rules.All(rule => rule.IsEnabled) ? true :
-            Rules.Any(rule => rule.IsEnabled) ? null : false;
+        public bool IsScopeEnabled { get; set; } = true;
 
         public string GradientStart => GetGradientStart(GroupName);
         public string GradientEnd => GetGradientEnd(GroupName);
@@ -365,9 +363,7 @@ namespace ProxyControl.Models
         public int RuleCount { get; set; }
         public ImageSource? AppIcon { get; set; }
         public List<TrafficRule> Rules { get; set; } = new();
-        public bool? IsEnabled => Rules.Count == 0 ? false :
-            Rules.All(rule => rule.IsEnabled) ? true :
-            Rules.Any(rule => rule.IsEnabled) ? null : false;
+        public bool IsScopeEnabled { get; set; } = true;
         public string DisplayName => AppName == "*" ? "All Apps" : AppName;
         public string Icon => AppName == "*" ? "🌐" : "📱";
     }

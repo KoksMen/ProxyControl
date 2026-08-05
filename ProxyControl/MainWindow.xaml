@@ -1985,11 +1985,11 @@
                                                                     Grid.Column="3"
                                                                     Margin="3,0,0,0"
                                                                     VerticalAlignment="Center"
-                                                                    IsThreeState="True"
-                                                                    IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                                                    IsChecked="{Binding IsScopeEnabled, Mode=OneWay}"
+                                                                    Style="{StaticResource ToggleSwitchStyle}"
                                                                     Command="{Binding DataContext.ToggleGroupRulesCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"
-                                                                    ToolTip="Enable or disable all rules in this group" />
+                                                                    ToolTip="Temporarily disable or restore all rules in this group" />
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>
@@ -2153,11 +2153,11 @@
                                                                     Grid.Column="3"
                                                                     Margin="3,0,0,0"
                                                                     VerticalAlignment="Center"
-                                                                    IsThreeState="True"
-                                                                    IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                                                    IsChecked="{Binding IsScopeEnabled, Mode=OneWay}"
+                                                                    Style="{StaticResource ToggleSwitchStyle}"
                                                                     Command="{Binding DataContext.ToggleAppRulesCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"
-                                                                    ToolTip="Enable or disable all rules for this application" />
+                                                                    ToolTip="Temporarily disable or restore all rules for this application" />
 
                                                             </Grid>
                                                         </Border>
