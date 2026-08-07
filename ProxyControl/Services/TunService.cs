@@ -38,7 +38,14 @@ namespace ProxyControl.Services
         private readonly ConcurrentDictionary<string, TunTraceContext> _trafficTraces = new();
         private long _requestedConfigVersion;
         private long _processedLogLineCount;
+        private long _processGeneration;
+        private int _consecutiveUnexpectedExitCount;
+        private TunRulesConfig? _activeConfig;
         private string _lastError = string.Empty;
+
+        private static readonly TimeSpan UnexpectedRestartDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan StableRunResetDelay = TimeSpan.FromSeconds(30);
+        private const int MaxConsecutiveUnexpectedRestarts = 3;
 
         private static readonly Regex AnsiEscapeRegex = new(
             @"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
@@ -191,9 +198,10 @@ namespace ProxyControl.Services
                     Verb = "runas" // Request admin
                 };
 
-                _singBoxProcess = new Process { StartInfo = psi };
+                var singBoxProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
+                long processGeneration = Interlocked.Increment(ref _processGeneration);
                 string? startupError = null;
-                _singBoxProcess.OutputDataReceived += (s, e) =>
+                singBoxProcess.OutputDataReceived += (s, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
@@ -201,7 +209,7 @@ namespace ProxyControl.Services
                         ProcessSingBoxLogLine(e.Data);
                     }
                 };
-                _singBoxProcess.ErrorDataReceived += (s, e) =>
+                singBoxProcess.ErrorDataReceived += (s, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
@@ -211,17 +219,20 @@ namespace ProxyControl.Services
                     }
                 };
 
-                _singBoxProcess.Start();
-                _singBoxProcess.BeginOutputReadLine();
-                _singBoxProcess.BeginErrorReadLine();
+                singBoxProcess.Exited += (_, _) => OnSingBoxExited(singBoxProcess, processGeneration);
+                _singBoxProcess = singBoxProcess;
+
+                singBoxProcess.Start();
+                singBoxProcess.BeginOutputReadLine();
+                singBoxProcess.BeginErrorReadLine();
 
                 // Wait a bit to check if it started successfully
                 await Task.Delay(1500);
 
-                if (_singBoxProcess.HasExited)
+                if (singBoxProcess.HasExited)
                 {
                     _lastError = string.IsNullOrWhiteSpace(startupError)
-                        ? $"sing-box exited with code {_singBoxProcess.ExitCode}."
+                        ? $"sing-box exited with code {singBoxProcess.ExitCode}."
                         : startupError;
                     _logger.Error("TUN", _lastError);
                     ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
@@ -237,9 +248,11 @@ namespace ProxyControl.Services
                 }
 
                 _isRunning = true;
+                _activeConfig = configSnapshot;
                 _logger.Info("TUN", $"TUN mode started.");
                 StatusChanged?.Invoke(true);
                 ReportApplyStatus(requestVersion, false, "TUN rules applied");
+                _ = ResetUnexpectedExitCountAfterStableRunAsync(singBoxProcess, processGeneration);
                 return true;
             }
             catch (Exception ex)
@@ -362,6 +375,8 @@ namespace ProxyControl.Services
         private void StopCore()
         {
             if (!_isRunning && _singBoxProcess == null) return;
+            // Ignore the Exited callback for a child that we stop deliberately.
+            Interlocked.Increment(ref _processGeneration);
             try
             {
                 if (_singBoxProcess != null && !_singBoxProcess.HasExited)
@@ -375,6 +390,7 @@ namespace ProxyControl.Services
             {
                 _singBoxProcess?.Dispose();
                 _singBoxProcess = null;
+                _activeConfig = null;
                 _trafficTraces.Clear();
                 int orphanCount = StopOrphanedManagedProcesses();
                 if (orphanCount > 0)
@@ -382,6 +398,77 @@ namespace ProxyControl.Services
                 _isRunning = false;
                 _logger.Info("TUN", "TUN mode stopped");
                 StatusChanged?.Invoke(false);
+            }
+        }
+
+        private void OnSingBoxExited(Process process, long processGeneration)
+        {
+            // Process.Exited runs on a worker thread. Serialize recovery with
+            // ordinary start/stop requests before touching shared state.
+            _ = HandleUnexpectedSingBoxExitAsync(process, processGeneration);
+        }
+
+        private async Task HandleUnexpectedSingBoxExitAsync(Process process, long processGeneration)
+        {
+            TunRulesConfig? restartConfig = null;
+            long requestVersion = 0;
+            bool shouldRestart = false;
+            int exitCode = -1;
+
+            await _stateGate.WaitAsync();
+            try
+            {
+                // A deliberate stop or a newer process superseded this one.
+                if (processGeneration != Volatile.Read(ref _processGeneration) ||
+                    !ReferenceEquals(_singBoxProcess, process))
+                {
+                    return;
+                }
+
+                try { exitCode = process.ExitCode; } catch { }
+                _singBoxProcess = null;
+                _isRunning = false;
+                _trafficTraces.Clear();
+                _lastError = $"sing-box exited unexpectedly with code {exitCode}.";
+                _logger.Error("TUN", _lastError);
+                StatusChanged?.Invoke(false);
+
+                requestVersion = Volatile.Read(ref _requestedConfigVersion);
+                restartConfig = _activeConfig == null ? null : CreateSnapshot(_activeConfig);
+                int failures = Interlocked.Increment(ref _consecutiveUnexpectedExitCount);
+                shouldRestart = restartConfig != null && failures <= MaxConsecutiveUnexpectedRestarts;
+                ReportApplyStatus(
+                    requestVersion,
+                    shouldRestart,
+                    shouldRestart
+                        ? "TUN stopped unexpectedly; restarting…"
+                        : "TUN stopped unexpectedly; automatic restart paused");
+            }
+            finally
+            {
+                _stateGate.Release();
+                process.Dispose();
+            }
+
+            if (!shouldRestart || restartConfig == null) return;
+
+            await Task.Delay(UnexpectedRestartDelay);
+            // Do not revive TUN after the user turned it off or changed rules.
+            if (!IsLatestRequest(requestVersion)) return;
+
+            _logger.Warning("TUN", "Restarting sing-box after an unexpected exit.");
+            await StartAsync(restartConfig);
+        }
+
+        private async Task ResetUnexpectedExitCountAfterStableRunAsync(Process process, long processGeneration)
+        {
+            await Task.Delay(StableRunResetDelay);
+            if (processGeneration == Volatile.Read(ref _processGeneration) &&
+                ReferenceEquals(_singBoxProcess, process) &&
+                _isRunning &&
+                !process.HasExited)
+            {
+                Interlocked.Exchange(ref _consecutiveUnexpectedExitCount, 0);
             }
         }
 
@@ -900,9 +987,10 @@ namespace ProxyControl.Services
                         mtu = 1400,
                         auto_route = true,
                         strict_route = true,
-                        stack = "system",
+                        stack = "gvisor",
                         sniff = true,
-                        sniff_override_destination = true
+                        sniff_override_destination = true,
+                        sniff_timeout = "500ms"
                     }
                 },
                 outbounds = CreateOutbounds(rulesConfig),
@@ -939,6 +1027,12 @@ namespace ProxyControl.Services
             // dns-out uses the DNS server selected in ProxyControl's settings.
             systemRoutes.Add(new { protocol = "dns", outbound = "dns-out" });
             systemRoutes.Add(new { port = 53, outbound = "dns-out" });
+
+            // Block QUIC (HTTP/3 over UDP/443). SOCKS5 UDP relay is unreliable
+            // and browsers aggressively retry QUIC before falling back to TCP,
+            // causing periodic failures for Google services (Gemini, etc.).
+            // Blocking forces an immediate, stable HTTP/2 fallback over TCP.
+            systemRoutes.Add(new { network = "udp", port = 443, outbound = "block" });
 
             systemRoutes.Add(new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
             systemRoutes.Add(new { port = new[] { 8000, 8080 }, outbound = "direct" });

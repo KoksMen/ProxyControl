@@ -152,9 +152,12 @@ namespace ProxyControl.ViewModels
         }
         public string TunModeStatus => _isTunApplying
             ? "🟣 Applying TUN rules…"
-            : _isTunMode ? "🟢 TUN Active" : "⚪ TUN Off";
+            : _isTunMode
+                ? _isTunProcessRunning ? "🟢 TUN Active" : "🔴 TUN unavailable"
+                : "⚪ TUN Off";
 
         private bool _isTunApplying;
+        private bool _isTunProcessRunning;
         public bool IsTunApplying
         {
             get => _isTunApplying;
@@ -1779,6 +1782,7 @@ namespace ProxyControl.ViewModels
             _dnsProxyService = new DnsProxyService(_trafficMonitorService);
             _tunService = new TunService();
             _tunService.ApplyStatusChanged += OnTunApplyStatusChanged;
+            _tunService.StatusChanged += OnTunProcessStatusChanged;
             _tunService.TrafficObserved += OnTunTrafficObserved;
 
             _settingsService = new SettingsService();
@@ -3293,6 +3297,21 @@ namespace ProxyControl.ViewModels
             {
                 IsTunApplying = isApplying;
                 TunStatusDescription = status;
+                OnPropertyChanged(nameof(TunModeStatus));
+            }
+
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.CheckAccess())
+                Update();
+            else
+                dispatcher.BeginInvoke((Action)Update);
+        }
+
+        private void OnTunProcessStatusChanged(bool isRunning)
+        {
+            void Update()
+            {
+                _isTunProcessRunning = isRunning;
                 OnPropertyChanged(nameof(TunModeStatus));
             }
 
