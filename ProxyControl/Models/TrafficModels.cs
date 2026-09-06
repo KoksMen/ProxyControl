@@ -15,6 +15,7 @@ namespace ProxyControl.Models
         private long _totalUpload;
 
         public string ProcessName { get; set; } = "Unknown";
+        public string ProcessPath { get; set; } = "";
 
         [JsonIgnore]
         public ImageSource? Icon { get; set; }
@@ -122,8 +123,14 @@ namespace ProxyControl.Models
 
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string TimeStr => Timestamp.ToString("HH:mm:ss"); // Для отображения в гриде
-        public string Host { get; set; } = "";
+        private string _host = "";
+        public string Host
+        {
+            get => _host;
+            set { _host = value; OnPropertyChanged(); }
+        }
         public string ProcessName { get; set; } = ""; // Для сохранения в лог
+        public string ProcessPath { get; set; } = ""; // Стабильный источник иконки
         public string Status { get; set; } = "";
         public string Details { get; set; } = "";
         public string? FlagUrl { get; set; }
@@ -152,6 +159,7 @@ namespace ProxyControl.Models
             TrafficType.DNS => "🟡",
             TrafficType.HTTPS => "🔒",
             TrafficType.WebSocket => "🔄",
+            TrafficType.WebRTC => "📡",
             _ => "⚪"
         };
 

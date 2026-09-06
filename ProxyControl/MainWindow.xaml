@@ -1,4 +1,4 @@
-﻿<Window
+<Window
     x:Class="ProxyControl.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -1617,6 +1617,8 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
@@ -1625,7 +1627,7 @@
                                             FontSize="11"
                                             FontWeight="SemiBold"
                                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="ROUTING MODE" />
+                                            Text="🧭 ROUTING MODE" />
                                         <Border
                                             Margin="0,6,0,0"
                                             Padding="2"
@@ -1683,23 +1685,140 @@
                                     </StackPanel>
                                     <StackPanel
                                         Grid.Column="1"
-                                        Margin="30,0,0,0"
+                                        Margin="20,0,0,0"
                                         VerticalAlignment="Center"
                                         Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
                                         <TextBlock
-                                            Margin="0,0,0,4"
-                                            FontSize="10"
+                                            Margin="0,0,0,5"
+                                            FontSize="11"
+                                            FontWeight="SemiBold"
                                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="DEFAULT PROXY" />
+                                            Text="🛡️ DEFAULT PROXY" />
                                         <ComboBox
-                                            Width="220"
+                                            Width="210"
                                             HorizontalAlignment="Left"
-                                            DisplayMemberPath="Name"
                                             ItemsSource="{Binding Proxies}"
-                                            SelectedItem="{Binding SelectedBlackListMainProxy}" />
+                                            SelectedItem="{Binding SelectedBlackListMainProxy}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="2,1">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock
+                                                            Grid.Column="0"
+                                                            Margin="0,0,6,0"
+                                                            VerticalAlignment="Center"
+                                                            FontSize="12"
+                                                            Text="{Binding TypeIcon}" />
+                                                        <TextBlock
+                                                            Grid.Column="1"
+                                                            VerticalAlignment="Center"
+                                                            FontWeight="SemiBold"
+                                                            TextTrimming="CharacterEllipsis"
+                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                            Text="{Binding Name}" />
+                                                        <Border
+                                                            Grid.Column="2"
+                                                            Margin="6,0,0,0"
+                                                            Padding="5,1"
+                                                            VerticalAlignment="Center"
+                                                            Background="#252A36"
+                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="4">
+                                                            <TextBlock
+                                                                FontSize="9"
+                                                                FontWeight="Bold"
+                                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                Text="{Binding Type}" />
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
                                     </StackPanel>
                                     <Border
                                         Grid.Column="2"
+                                        Margin="16,0,0,0"
+                                        Padding="12,7"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="7"
+                                        ToolTip="Master toggle for local proxy and routing service">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
+                                                <TextBlock
+                                                    FontSize="11"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="⚡ PROXY SERVICE" />
+                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0" VerticalAlignment="Center">
+                                                    <Ellipse
+                                                        Width="7"
+                                                        Height="7"
+                                                        Margin="0,0,5,0"
+                                                        Fill="{Binding ProxyStatusColor}" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="{Binding ProxyStatusText}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <CheckBox
+                                                VerticalAlignment="Center"
+                                                Style="{StaticResource ToggleSwitchStyle}"
+                                                IsChecked="{Binding IsProxyRunning}"
+                                                Command="{Binding ToggleProxyCommand}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border
+                                        Grid.Column="3"
+                                        Margin="12,0"
+                                        Padding="14,7"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Background="#1B1F29"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        ToolTip="Real-time aggregate network speed and active connections">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="#4CAF50"
+                                                Text="{Binding HeaderDownloadSpeedText}" />
+                                            <TextBlock
+                                                Margin="8,0"
+                                                FontSize="11"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="•" />
+                                            <TextBlock
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="#29B6F6"
+                                                Text="{Binding HeaderUploadSpeedText}" />
+                                            <TextBlock
+                                                Margin="8,0"
+                                                FontSize="11"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="•" />
+                                            <TextBlock
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="#FFB74D"
+                                                Text="{Binding HeaderActiveConnectionsText}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border
+                                        Grid.Column="4"
                                         Padding="10,7"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
@@ -1736,7 +1855,7 @@
                                                     </Setter>
                                                 </Style>
                                             </StackPanel.Resources>
-                                            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="Traffic routing" />
+                                            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="📡 Traffic routing" />
                                             <Grid Margin="0,7,0,0">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="118" />
@@ -1911,7 +2030,33 @@
                                                             Margin="0,0,0,6"
                                                             Padding="12,10"
                                                             CornerRadius="8"
-                                                            Cursor="Hand">
+                                                            Cursor="Hand"
+                                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                            <Border.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem
+                                                                        Header="➕ Add rule to group"
+                                                                        Command="{Binding PlacementTarget.Tag.AddRuleToGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <MenuItem
+                                                                        Header="⚡ Toggle all rules"
+                                                                        Command="{Binding PlacementTarget.Tag.ToggleGroupRulesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <Separator />
+                                                                    <MenuItem
+                                                                        Header="📋 Copy group name"
+                                                                        Command="{Binding PlacementTarget.Tag.CopyTextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding GroupName}" />
+                                                                    <MenuItem
+                                                                        Header="✏️ Rename group"
+                                                                        Command="{Binding PlacementTarget.Tag.EditGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding GroupName}" />
+                                                                    <MenuItem
+                                                                        Header="🗑️ Delete group"
+                                                                        Command="{Binding PlacementTarget.Tag.RemoveGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding GroupName}" />
+                                                                </ContextMenu>
+                                                            </Border.ContextMenu>
                                                             <Border.Style>
                                                                 <Style TargetType="Border">
                                                                     <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
@@ -1945,6 +2090,7 @@
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
 
@@ -1989,6 +2135,17 @@
                                                                         Foreground="#55AAFF"
                                                                         Text="{Binding RuleCount}" />
                                                                 </Border>
+
+                                                                <!--  Group Scope Switch  -->
+                                                                <CheckBox
+                                                                    Grid.Column="3"
+                                                                    Margin="4,0,0,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Style="{StaticResource ToggleSwitchStyle}"
+                                                                    IsChecked="{Binding IsScopeEnabled, Mode=OneWay}"
+                                                                    Command="{Binding DataContext.ToggleGroupRulesCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    ToolTip="Toggle all rules in this group" />
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>
@@ -2063,7 +2220,33 @@
                                                             Margin="0,0,0,6"
                                                             Padding="12,10"
                                                             CornerRadius="8"
-                                                            Cursor="Hand">
+                                                            Cursor="Hand"
+                                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                            <Border.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem
+                                                                        Header="➕ Add rule to app"
+                                                                        Command="{Binding PlacementTarget.Tag.AddRuleToAppCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <MenuItem
+                                                                        Header="⚡ Toggle rules for app"
+                                                                        Command="{Binding PlacementTarget.Tag.ToggleAppRulesCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <Separator />
+                                                                    <MenuItem
+                                                                        Header="📋 Copy app name"
+                                                                        Command="{Binding PlacementTarget.Tag.CopyTextCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding AppName}" />
+                                                                    <MenuItem
+                                                                        Header="✏️ Batch edit app"
+                                                                        Command="{Binding PlacementTarget.Tag.EditAppCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding AppName}" />
+                                                                    <MenuItem
+                                                                        Header="🗑️ Delete all app rules"
+                                                                        Command="{Binding PlacementTarget.Tag.RemoveAppCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding AppName}" />
+                                                                </ContextMenu>
+                                                            </Border.ContextMenu>
                                                             <Border.Style>
                                                                 <Style TargetType="Border">
                                                                     <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
@@ -2097,6 +2280,7 @@
                                                                 <Grid.ColumnDefinitions>
                                                                     <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
                                                                 <Border
@@ -2134,7 +2318,7 @@
                                                                 <!--  Rule Count Badge  -->
                                                                 <Border
                                                                     Grid.Column="2"
-                                                                    Margin="0,0,5,0"
+                                                                    Margin="0,0,4,0"
                                                                     Padding="8,3"
                                                                     VerticalAlignment="Center"
                                                                     Background="#333842"
@@ -2147,6 +2331,16 @@
                                                                         Text="{Binding RuleCount}" />
                                                                 </Border>
 
+                                                                <!--  App Scope Switch  -->
+                                                                <CheckBox
+                                                                    Grid.Column="3"
+                                                                    Margin="4,0,0,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Style="{StaticResource ToggleSwitchStyle}"
+                                                                    IsChecked="{Binding IsScopeEnabled, Mode=OneWay}"
+                                                                    Command="{Binding DataContext.ToggleAppRulesCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    ToolTip="Enable or disable all rules for this app in current group" />
                                                             </Grid>
                                                         </Border>
                                                     </DataTemplate>
@@ -2304,11 +2498,27 @@
                                                                         FontSize="10"
                                                                         Foreground="{DynamicResource ForegroundMutedBrush}"
                                                                         Text="{Binding TargetApps, Converter={StaticResource ListToStr}}" />
-                                                                    <TextBlock
-                                                                        FontSize="9"
-                                                                        FontWeight="Bold"
-                                                                        Foreground="#F59E0B"
-                                                                        Text="{Binding PersistenceLabel}" />
+                                                                    <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                                        <Border
+                                                                            Margin="0,0,6,0"
+                                                                            Padding="5,1"
+                                                                            Background="#1E293B"
+                                                                            BorderBrush="#334155"
+                                                                            BorderThickness="1"
+                                                                            CornerRadius="4">
+                                                                            <TextBlock
+                                                                                FontSize="9"
+                                                                                FontWeight="SemiBold"
+                                                                                Foreground="#60A5FA"
+                                                                                Text="{Binding TrafficType, StringFormat='Traffic: {0}'}" />
+                                                                        </Border>
+                                                                        <TextBlock
+                                                                            VerticalAlignment="Center"
+                                                                            FontSize="9"
+                                                                            FontWeight="Bold"
+                                                                            Foreground="#F59E0B"
+                                                                            Text="{Binding PersistenceLabel}" />
+                                                                    </StackPanel>
                                                                 </StackPanel>
                                                                 <ComboBox
                                                                     Grid.Column="3"

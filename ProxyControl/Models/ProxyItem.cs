@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -65,6 +65,14 @@ namespace ProxyControl.Models
         [System.Text.Json.Serialization.JsonIgnore]
         public string Endpoint => $"{IpAddress}:{Port}";
 
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string TypeIcon => Type switch
+        {
+            ProxyType.Socks5 => "🧦",
+            ProxyType.Socks4 => "🧦",
+            _ => "🌐"
+        };
+
         public string IpAddress
         {
             get => _ipAddress;
@@ -110,7 +118,7 @@ namespace ProxyControl.Models
         public ProxyType Type
         {
             get => _proxyType;
-            set { _proxyType = value; OnPropertyChanged(); }
+            set { _proxyType = value; OnPropertyChanged(); OnPropertyChanged(nameof(TypeIcon)); }
         }
 
         public long PingMs

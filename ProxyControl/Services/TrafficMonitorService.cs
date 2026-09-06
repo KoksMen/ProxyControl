@@ -1,4 +1,4 @@
-﻿using ProxyControl.Helpers;
+using ProxyControl.Helpers;
 using ProxyControl.Models;
 using System;
 using System.Collections.Concurrent;
@@ -19,6 +19,12 @@ namespace ProxyControl.Services
     public class TrafficMonitorService
     {
         public event Action<ConnectionHistoryItem>? ConnectionCreated;
+        public event Action? OverallStatsUpdated;
+
+        public long TotalCurrentDownloadSpeed { get; private set; }
+        public long TotalCurrentUploadSpeed { get; private set; }
+        private int _activeConnections;
+        public int TotalActiveConnections => Math.Max(0, _activeConnections);
 
         private readonly ConcurrentDictionary<string, ProcessTrafficData> _liveProcessStats
             = new ConcurrentDictionary<string, ProcessTrafficData>();
@@ -68,11 +74,16 @@ namespace ProxyControl.Services
             _uiBatchTimer.Start();
         }
 
-        public ProcessTrafficData GetOrAddLiveProcess(string processName, ImageSource? icon)
+        public ProcessTrafficData GetOrAddLiveProcess(string processName, string processPath, ImageSource? icon)
         {
-            return _liveProcessStats.GetOrAdd(processName, name =>
+            var process = _liveProcessStats.GetOrAdd(processName, name =>
             {
-                var newData = new ProcessTrafficData { ProcessName = name, Icon = icon };
+                var newData = new ProcessTrafficData
+                {
+                    ProcessName = name,
+                    ProcessPath = processPath,
+                    Icon = icon
+                };
 
                 if (IsLiveMode)
                 {
@@ -84,6 +95,12 @@ namespace ProxyControl.Services
                 }
                 return newData;
             });
+
+            if (string.IsNullOrWhiteSpace(process.ProcessPath) && !string.IsNullOrWhiteSpace(processPath))
+                process.ProcessPath = processPath;
+            if (process.Icon == null && icon != null)
+                process.Icon = icon;
+            return process;
         }
 
         public void AddLiveTraffic(string processName, long bytes, bool isDownload)
@@ -104,22 +121,34 @@ namespace ProxyControl.Services
                 });
         }
 
-        public ConnectionHistoryItem CreateConnectionItem(string processName, ImageSource? icon, string host, string status, string details, string? flagUrl, string color)
+        public ConnectionHistoryItem CreateConnectionItem(
+            string processName,
+            ImageSource? icon,
+            string host,
+            string status,
+            string details,
+            string? flagUrl,
+            string color,
+            TrafficType trafficType = TrafficType.TCP,
+            string processPath = "")
         {
             var item = new ConnectionHistoryItem
             {
                 Timestamp = DateTime.Now,
                 ProcessName = processName,
+                ProcessPath = processPath,
                 Host = host,
                 Status = status,
                 Details = details,
                 FlagUrl = flagUrl,
-                Color = color
+                Color = color,
+                Type = trafficType
             };
 
-            GetOrAddLiveProcess(processName, icon);
+            GetOrAddLiveProcess(processName, processPath, icon);
             _pendingConnections.Enqueue(item);
             int count = Interlocked.Increment(ref _pendingConnectionCount);
+            Interlocked.Increment(ref _activeConnections);
             while (count > MaxPendingConnections && _pendingConnections.TryDequeue(out _))
             {
                 count = Interlocked.Decrement(ref _pendingConnectionCount);
@@ -130,6 +159,8 @@ namespace ProxyControl.Services
 
         public void CompleteConnection(ConnectionHistoryItem item)
         {
+            if (Interlocked.Decrement(ref _activeConnections) < 0)
+                Interlocked.Exchange(ref _activeConnections, 0);
             _logChannel.Writer.TryWrite(item);
         }
 
@@ -168,6 +199,9 @@ namespace ProxyControl.Services
 
         private void UpdateSpeeds()
         {
+            long totalDown = 0;
+            long totalUp = 0;
+
             foreach (var kvp in _liveProcessStats)
             {
                 var stats = kvp.Value;
@@ -176,7 +210,26 @@ namespace ProxyControl.Services
 
                 if (stats.CurrentDownloadSpeed != down) stats.CurrentDownloadSpeed = down;
                 if (stats.CurrentUploadSpeed != up) stats.CurrentUploadSpeed = up;
+
+                totalDown += down;
+                totalUp += up;
             }
+
+            TotalCurrentDownloadSpeed = totalDown;
+            TotalCurrentUploadSpeed = totalUp;
+
+            OverallStatsUpdated?.Invoke();
+        }
+
+        public static string FormatSpeed(long bytesPerSec)
+        {
+            if (bytesPerSec < 1024)
+                return $"{bytesPerSec} B/s";
+            if (bytesPerSec < 1024 * 1024)
+                return $"{bytesPerSec / 1024.0:F1} KB/s";
+            if (bytesPerSec < 1024 * 1024 * 1024)
+                return $"{bytesPerSec / (1024.0 * 1024.0):F1} MB/s";
+            return $"{bytesPerSec / (1024.0 * 1024.0 * 1024.0):F2} GB/s";
         }
 
         // Fix 3.1: LogWriter uses a persistent FileStream to reduce IO overhead
@@ -269,11 +322,17 @@ namespace ProxyControl.Services
                                     {
                                         resultDict[item.ProcessName] = new ProcessTrafficData
                                         {
-                                            ProcessName = item.ProcessName
+                                            ProcessName = item.ProcessName,
+                                            ProcessPath = item.ProcessPath
                                         };
                                     }
 
                                     var pData = resultDict[item.ProcessName];
+                                    if (string.IsNullOrWhiteSpace(pData.ProcessPath) &&
+                                        !string.IsNullOrWhiteSpace(item.ProcessPath))
+                                    {
+                                        pData.ProcessPath = item.ProcessPath;
+                                    }
                                     pData.TotalDownload += item.BytesDown;
                                     pData.TotalUpload += item.BytesUp;
                                     pData.Connections.Add(item);
@@ -290,9 +349,11 @@ namespace ProxyControl.Services
 
             foreach (var p in resultDict.Values)
             {
-                p.Icon = _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
-                    ? liveP.Icon
-                    : IconHelper.GetIconByProcessName(p.ProcessName);
+                p.Icon = !string.IsNullOrWhiteSpace(p.ProcessPath)
+                    ? IconHelper.GetIconByPath(p.ProcessPath, p.ProcessPath)
+                    : _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
+                        ? liveP.Icon
+                        : IconHelper.GetIconByProcessName(p.ProcessName);
                 var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
                 p.Connections.Clear();
                 foreach (var s in sorted) p.Connections.Add(s);
