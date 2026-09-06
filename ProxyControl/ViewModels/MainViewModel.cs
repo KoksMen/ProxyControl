@@ -199,10 +199,6 @@ namespace ProxyControl.ViewModels
                 if (_currentView == value) return;
                 _currentView = value;
                 OnPropertyChanged();
-                if (value == "Logs")
-                {
-                    _ = LoadLogsAsync();
-                }
             }
         }
 
@@ -219,37 +215,93 @@ namespace ProxyControl.ViewModels
             }
         }
 
-        public async Task LoadLogsAsync()
+        private CancellationTokenSource? _monitorLoadCts;
+        private bool _isMonitorLoading;
+        public bool IsMonitorLoading
         {
-            _logsLoadCts?.Cancel();
-            var cts = new CancellationTokenSource();
-            _logsLoadCts = cts;
-
-            IsLogsLoading = true;
-            try
+            get => _isMonitorLoading;
+            private set
             {
-                await Task.Delay(100, cts.Token);
-                if (cts.Token.IsCancellationRequested) return;
-
-                await Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    if (cts.Token.IsCancellationRequested) return;
-                    LogsView?.Refresh();
-                }, DispatcherPriority.Loaded, cts.Token);
-
-                await Task.Delay(60, cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            finally
-            {
-                if (_logsLoadCts == cts)
-                {
-                    IsLogsLoading = false;
-                }
+                if (_isMonitorLoading == value) return;
+                _isMonitorLoading = value;
+                OnPropertyChanged();
             }
         }
+
+        public async Task NavigateToViewAsync(string view)
+        {
+            if (_currentView == view) return;
+
+            if (view == "Logs")
+            {
+                _logsLoadCts?.Cancel();
+                var cts = new CancellationTokenSource();
+                _logsLoadCts = cts;
+
+                IsLogsLoading = true;
+                await Dispatcher.Yield(DispatcherPriority.Render);
+                if (cts.Token.IsCancellationRequested) return;
+
+                CurrentView = view;
+
+                try
+                {
+                    await Task.Delay(100, cts.Token);
+                    if (cts.Token.IsCancellationRequested) return;
+
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        if (cts.Token.IsCancellationRequested) return;
+                        LogsView?.Refresh();
+                    }, DispatcherPriority.Background, cts.Token);
+
+                    await Task.Delay(50, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                finally
+                {
+                    if (_logsLoadCts == cts)
+                    {
+                        IsLogsLoading = false;
+                    }
+                }
+            }
+            else if (view == "Monitor")
+            {
+                _monitorLoadCts?.Cancel();
+                var cts = new CancellationTokenSource();
+                _monitorLoadCts = cts;
+
+                IsMonitorLoading = true;
+                await Dispatcher.Yield(DispatcherPriority.Render);
+                if (cts.Token.IsCancellationRequested) return;
+
+                CurrentView = view;
+
+                try
+                {
+                    await Task.Delay(120, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                finally
+                {
+                    if (_monitorLoadCts == cts)
+                    {
+                        IsMonitorLoading = false;
+                    }
+                }
+            }
+            else
+            {
+                CurrentView = view;
+            }
+        }
+
+        public async Task LoadLogsAsync() => await NavigateToViewAsync("Logs");
 
         private string _currentVersion = "3.2.0";
         public string CurrentVersion
@@ -887,6 +939,9 @@ namespace ProxyControl.ViewModels
                 MonitorConnectionsView = CollectionViewSource.GetDefaultView(_emptyMonitorConnections);
                 OnPropertyChanged(nameof(MonitorConnectionsView));
 
+                await Dispatcher.Yield(DispatcherPriority.Render);
+                if (cts.Token.IsCancellationRequested) return;
+
                 await Task.Delay(100, cts.Token);
                 if (cts.Token.IsCancellationRequested) return;
 
@@ -899,9 +954,9 @@ namespace ProxyControl.ViewModels
                     MonitorConnectionsView.Filter = FilterMonitorConnection;
                     MonitorConnectionsView.Refresh();
                     OnPropertyChanged(nameof(MonitorConnectionsView));
-                }, DispatcherPriority.Loaded, cts.Token);
+                }, DispatcherPriority.Background, cts.Token);
 
-                await Task.Delay(60, cts.Token);
+                await Task.Delay(50, cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -2026,7 +2081,7 @@ namespace ProxyControl.ViewModels
 
             NavigateCommand = new RelayCommand(view =>
             {
-                if (view is string v) CurrentView = v;
+                if (view is string v) _ = NavigateToViewAsync(v);
             });
 
 

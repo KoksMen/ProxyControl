@@ -257,7 +257,8 @@ namespace ProxyControl
         private void ConnectionLogsScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
             if (_isAdjustingLogScroll) return;
-            if (sender is not ScrollViewer scrollViewer) return;
+            var scrollViewer = sender as ScrollViewer ?? e.OriginalSource as ScrollViewer;
+            if (scrollViewer == null) return;
 
             bool isAtTop = scrollViewer.VerticalOffset <= LogAutoFollowThreshold;
 
@@ -287,7 +288,8 @@ namespace ProxyControl
         private void MonitorConnectionsScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs e)
         {
             if (_isAdjustingMonitorScroll) return;
-            if (sender is not ScrollViewer scrollViewer) return;
+            var scrollViewer = sender as ScrollViewer ?? e.OriginalSource as ScrollViewer;
+            if (scrollViewer == null) return;
 
             bool isAtTop = scrollViewer.VerticalOffset <= LogAutoFollowThreshold;
 

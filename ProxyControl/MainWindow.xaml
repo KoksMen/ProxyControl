@@ -4286,8 +4286,14 @@
                                         HorizontalContentAlignment="Stretch"
                                         ItemsSource="{Binding MonitoredProcesses}"
                                         SelectedItem="{Binding SelectedMonitorProcess}"
+                                        ScrollViewer.CanContentScroll="True"
                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                        ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                        VirtualizingPanel.IsVirtualizing="True"
+                                        VirtualizingPanel.VirtualizationMode="Recycling"
+                                        VirtualizingPanel.ScrollUnit="Pixel"
+                                        VirtualizingPanel.CacheLength="2,2"
+                                        VirtualizingPanel.CacheLengthUnit="Page">
                                         <ListBox.ItemContainerStyle>
                                             <Style TargetType="ListBoxItem">
                                                 <Setter Property="Padding" Value="0" />
@@ -4645,28 +4651,43 @@
                                     </Border>
 
                                     <!--  Connection Cards  -->
-                                    <ScrollViewer
-                                        x:Name="MonitorConnectionsScrollViewer"
+                                    <ListBox
+                                        x:Name="MonitorConnectionsListBox"
                                         Grid.Row="2"
-                                        ScrollChanged="MonitorConnectionsScrollViewer_OnScrollChanged"
-                                        VerticalScrollBarVisibility="Auto"
-                                        CanContentScroll="True"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        HorizontalContentAlignment="Stretch"
+                                        Focusable="False"
+                                        ItemsSource="{Binding MonitorConnectionsView}"
+                                        ScrollViewer.CanContentScroll="True"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                        ScrollViewer.ScrollChanged="MonitorConnectionsScrollViewer_OnScrollChanged"
                                         VirtualizingPanel.IsVirtualizing="True"
+                                        VirtualizingPanel.VirtualizationMode="Recycling"
                                         VirtualizingPanel.ScrollUnit="Pixel"
                                         VirtualizingPanel.CacheLength="2,2"
                                         VirtualizingPanel.CacheLengthUnit="Page"
-                                        VirtualizingPanel.VirtualizationMode="Recycling"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                        <ItemsControl ItemsSource="{Binding MonitorConnectionsView}"
-                                                      VirtualizingPanel.IsVirtualizing="True"
-                                                      VirtualizingPanel.ScrollUnit="Pixel">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <VirtualizingStackPanel />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Margin" Value="0" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
                                                     <Border
                                                         Style="{StaticResource DataCardStyle}">
                                                         <Grid>
@@ -4780,9 +4801,8 @@
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
+                                            </ListBox.ItemTemplate>
+                                    </ListBox>
 
                                     <!--  Monitor Connections Loading Overlay  -->
                                     <Border
@@ -4848,8 +4868,44 @@
                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
                                                 Text="Choose an application on the left to inspect its connections" />
                                         </StackPanel>
-                                    </Border>
+                                     </Border>
                                 </Grid>
+                            </Border>
+                            <!--  Monitor Tab Loading Overlay  -->
+                            <Border
+                                Grid.Column="0"
+                                Grid.ColumnSpan="3"
+                                Background="#E60F0F12"
+                                CornerRadius="8"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                Visibility="{Binding IsMonitorLoading, Converter={StaticResource BoolToVis}}">
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Grid Width="44" Height="44" HorizontalAlignment="Center">
+                                        <Ellipse Width="34" Height="34"
+                                                 Stroke="#27272A"
+                                                 StrokeThickness="3.5"
+                                                 HorizontalAlignment="Center"
+                                                 VerticalAlignment="Center" />
+                                        <Grid Style="{StaticResource SpinningLoaderStyle}"
+                                              Width="38" Height="38"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center">
+                                            <Path Stroke="{DynamicResource PrimaryAccentBrush}"
+                                                  StrokeThickness="3.5"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round"
+                                                  Data="M 19,2 A 17,17 0 0 1 31,31" />
+                                        </Grid>
+                                    </Grid>
+                                    <TextBlock
+                                        Margin="0,14,0,0"
+                                        HorizontalAlignment="Center"
+                                        FontSize="12"
+                                        FontWeight="SemiBold"
+                                        Foreground="{DynamicResource ForegroundSubtleBrush}"
+                                        Text="Loading monitor..." />
+                                </StackPanel>
                             </Border>
                         </Grid>
                     </TabItem>
@@ -5077,27 +5133,42 @@
                                     </Border>
 
                                     <!--  Log Cards  -->
-                                    <ScrollViewer
-                                        x:Name="ConnectionLogsScrollViewer"
+                                    <ListBox
+                                        x:Name="ConnectionLogsListBox"
                                         Grid.Row="2"
-                                        ScrollChanged="ConnectionLogsScrollViewer_OnScrollChanged"
-                                        VerticalScrollBarVisibility="Auto"
-                                        CanContentScroll="True"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        HorizontalContentAlignment="Stretch"
+                                        Focusable="False"
+                                        ItemsSource="{Binding LogsView}"
+                                        ScrollViewer.CanContentScroll="True"
+                                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                        ScrollViewer.ScrollChanged="ConnectionLogsScrollViewer_OnScrollChanged"
                                         VirtualizingPanel.IsVirtualizing="True"
+                                        VirtualizingPanel.VirtualizationMode="Recycling"
                                         VirtualizingPanel.ScrollUnit="Pixel"
                                         VirtualizingPanel.CacheLength="2,2"
-                                        VirtualizingPanel.CacheLengthUnit="Page"
-                                        VirtualizingPanel.VirtualizationMode="Recycling">
-                                        <ItemsControl ItemsSource="{Binding LogsView}"
-                                                      VirtualizingPanel.IsVirtualizing="True"
-                                                      VirtualizingPanel.ScrollUnit="Pixel">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <VirtualizingStackPanel />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
+                                        VirtualizingPanel.CacheLengthUnit="Page">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Margin" Value="0" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
                                                     <Border
                                                         Padding="14"
                                                         Style="{StaticResource DataCardStyle}">
@@ -5239,9 +5310,8 @@
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </ScrollViewer>
+                                            </ListBox.ItemTemplate>
+                                    </ListBox>
 
                                     <!--  Connection Logs Loading Overlay  -->
                                     <Border
