@@ -52,8 +52,13 @@ namespace ProxyControl.Services
 
         private AppLoggerService()
         {
-            var logsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var logsDir = Path.Combine(appData, "ProxyManagerApp", "Logs");
             if (!Directory.Exists(logsDir)) Directory.CreateDirectory(logsDir);
+
+            var oldLogsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
+            MigrateLegacyLogs(oldLogsDir, logsDir);
+
             _logFilePath = Path.Combine(logsDir, $"app_{DateTime.Now:yyyy-MM-dd}.log");
 
             _logChannel = Channel.CreateBounded<LogEntry>(new BoundedChannelOptions(5000)
@@ -137,6 +142,32 @@ namespace ProxyControl.Services
                     LogEntries.Clear();
                 }
             });
+        }
+
+        private static void MigrateLegacyLogs(string oldDir, string newDir)
+        {
+            try
+            {
+                if (Directory.Exists(oldDir) && !string.Equals(Path.GetFullPath(oldDir), Path.GetFullPath(newDir), StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var file in Directory.GetFiles(oldDir))
+                    {
+                        var destFile = Path.Combine(newDir, Path.GetFileName(file));
+                        if (!File.Exists(destFile))
+                        {
+                            try { File.Move(file, destFile); } catch { }
+                        }
+                    }
+                    if (Directory.GetFiles(oldDir).Length == 0 && Directory.GetDirectories(oldDir).Length == 0)
+                    {
+                        try { Directory.Delete(oldDir); } catch { }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore migration errors (e.g. read-only legacy directory)
+            }
         }
     }
 }

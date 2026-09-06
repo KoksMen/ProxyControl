@@ -56,8 +56,12 @@ namespace ProxyControl.Services
 
         public TrafficMonitorService()
         {
-            _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            _logsPath = Path.Combine(appData, "ProxyManagerApp", "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
+
+            var oldLogsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
+            MigrateLegacyLogs(oldLogsPath, _logsPath);
 
             _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(25000)
             {
@@ -391,6 +395,32 @@ namespace ProxyControl.Services
                     DisplayedProcessList.Add(p);
                 }
             });
+        }
+
+        private static void MigrateLegacyLogs(string oldDir, string newDir)
+        {
+            try
+            {
+                if (Directory.Exists(oldDir) && !string.Equals(Path.GetFullPath(oldDir), Path.GetFullPath(newDir), StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var file in Directory.GetFiles(oldDir))
+                    {
+                        var destFile = Path.Combine(newDir, Path.GetFileName(file));
+                        if (!File.Exists(destFile))
+                        {
+                            try { File.Move(file, destFile); } catch { }
+                        }
+                    }
+                    if (Directory.GetFiles(oldDir).Length == 0 && Directory.GetDirectories(oldDir).Length == 0)
+                    {
+                        try { Directory.Delete(oldDir); } catch { }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore migration errors (e.g. read-only legacy directory)
+            }
         }
     }
 }
