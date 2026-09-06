@@ -181,6 +181,18 @@ namespace ProxyControl
             // 1. Esc: Cancel modal / dismiss drill-down / clear search / blur text input
             if (e.Key == Key.Escape)
             {
+                if (vm.IsUpdateFoundModalVisible)
+                {
+                    vm.DismissUpdateFoundModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsWhatsNewModalVisible)
+                {
+                    vm.CloseWhatsNewModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
                 if (vm.IsConfirmModalVisible)
                 {
                     vm.CloseConfirmModalCommand?.Execute(null);
@@ -242,6 +254,18 @@ namespace ProxyControl
             // 2. Enter: Confirm or save modal
             if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
             {
+                if (vm.IsUpdateFoundModalVisible)
+                {
+                    vm.ConfirmUpdateCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsWhatsNewModalVisible)
+                {
+                    vm.CloseWhatsNewModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
                 if (vm.IsConfirmModalVisible)
                 {
                     vm.ConfirmActionCommand?.Execute(null);

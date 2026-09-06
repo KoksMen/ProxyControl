@@ -3161,23 +3161,21 @@
                     </TabItem>
 
                     <TabItem Header="SETTINGS" Tag="Settings">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="10">
-                                <TextBlock
-                                    Margin="0,0,0,15"
-                                    FontSize="18"
-                                    FontWeight="Light"
-                                    Text="ROUTER SETTINGS" />
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <Border Padding="16,14,16,28">
+                                <StackPanel
+                                    Width="Auto"
+                                    MaxWidth="920"
+                                    HorizontalAlignment="Center">
 
-                                <!--  Profiles  -->
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="10,8"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="8">
-                                    <StackPanel>
+                                    <!--  Header / Title Bar  -->
+                                    <Border
+                                        Margin="0,0,0,16"
+                                        Padding="16,14"
+                                        Background="{DynamicResource SurfaceMediumBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="10">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
@@ -3185,533 +3183,432 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock
-                                                Margin="0,0,12,0"
+                                                Margin="0,0,14,0"
                                                 VerticalAlignment="Center"
-                                                FontSize="18"
-                                                Text="👤" />
+                                                FontSize="24"
+                                                Text="⚙️" />
                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                 <TextBlock
-                                                    FontSize="14"
-                                                    FontWeight="SemiBold"
+                                                    FontSize="16"
+                                                    FontWeight="Bold"
                                                     Foreground="{DynamicResource ForegroundBrush}"
-                                                    Text="Profiles" />
+                                                    Text="SETTINGS" />
                                                 <TextBlock
-                                                    FontSize="11"
+                                                    Margin="0,2,0,0"
+                                                    FontSize="11.5"
                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="Separate proxies, rules and preset collections" />
+                                                    Text="Configure application profiles, system preferences, DNS protection, and updates" />
                                             </StackPanel>
-                                            <TextBlock
+                                            <StackPanel
                                                 Grid.Column="2"
                                                 VerticalAlignment="Center"
-                                                FontSize="11"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="{Binding ActiveProfileName, StringFormat=Active: {0}}" />
-                                        </Grid>
-
-                                        <WrapPanel Margin="30,8,0,0">
-                                            <ComboBox
-                                                Width="180"
-                                                MinHeight="28"
-                                                Margin="0,0,5,5"
-                                                Padding="5,3"
-                                                DisplayMemberPath="Name"
-                                                ItemsSource="{Binding Profiles}"
-                                                SelectedItem="{Binding SelectedProfile}" />
-                                            <Button
-                                                Margin="0,0,5,5"
-                                                Padding="9,3"
-                                                Command="{Binding LoadProfileCommand}"
-                                                Content="Activate"
-                                                IsEnabled="{Binding HasSelectedProfile}" />
-                                            <Button
-                                                Margin="0,0,5,5"
-                                                Padding="9,3"
-                                                Command="{Binding CreateEmptyProfileCommand}"
-                                                Content="＋ New Empty"
-                                                ToolTip="Create and activate a profile without proxies, rules or presets" />
-                                            <Button
-                                                Margin="0,0,12,5"
-                                                Padding="8,3"
-                                                Background="#7F1D1D"
-                                                Command="{Binding DeleteProfileCommand}"
-                                                Content="Delete"
-                                                IsEnabled="{Binding HasSelectedProfile}" />
-                                            <TextBox
-                                                Width="150"
-                                                MinHeight="28"
-                                                Margin="0,0,5,5"
-                                                VerticalContentAlignment="Center"
-                                                Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"
-                                                ToolTip="Name for a new profile or an existing profile to update" />
-                                            <Button
-                                                Margin="0,0,0,5"
-                                                Padding="9,3"
-                                                Command="{Binding SaveProfileCommand}"
-                                                Content="Save Current"
-                                                Style="{StaticResource AccentBtn}" />
-                                        </WrapPanel>
-                                    </StackPanel>
-                                </Border>
-
-                                <!--  Autostart  -->
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="10,8"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    CornerRadius="8">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Margin="0,0,12,0"
-                                            VerticalAlignment="Center"
-                                            FontSize="18"
-                                            Text="🚀" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock
-                                                FontSize="14"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                Text="Autostart" />
-                                            <TextBlock
-                                                FontSize="11"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="Start with Windows" />
-                                        </StackPanel>
-                                        <CheckBox
-                                            Grid.Column="2"
-                                            VerticalAlignment="Center"
-                                            IsChecked="{Binding IsAutoStart}"
-                                            Style="{StaticResource ToggleSwitchStyle}" />
-                                    </Grid>
-                                </Border>
-
-                                <!--  Check Updates  -->
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="10,8"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    CornerRadius="8">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Margin="0,0,12,0"
-                                            VerticalAlignment="Center"
-                                            FontSize="18"
-                                            Text="🔄" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock
-                                                FontSize="14"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                Text="Updates" />
-                                            <TextBlock
-                                                FontSize="11"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="Check on startup" />
-                                        </StackPanel>
-                                        <CheckBox
-                                            Grid.Column="2"
-                                            VerticalAlignment="Center"
-                                            IsChecked="{Binding CheckUpdateOnStartup}"
-                                            Style="{StaticResource ToggleSwitchStyle}" />
-                                    </Grid>
-                                </Border>
-
-                                <!--  DNS Protection  -->
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="10"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    CornerRadius="8">
-                                    <StackPanel>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock
-                                                Margin="0,0,12,0"
-                                                VerticalAlignment="Center"
-                                                FontSize="18"
-                                                Text="🛡️" />
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                <TextBlock
-                                                    FontSize="14"
-                                                    FontWeight="SemiBold"
-                                                    Foreground="{DynamicResource ForegroundBrush}"
-                                                    Text="DNS Protection" />
-                                                <TextBlock
-                                                    FontSize="11"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="Tunnel DNS requests (Admin)" />
-                                            </StackPanel>
-                                            <CheckBox
-                                                Grid.Column="2"
-                                                VerticalAlignment="Center"
-                                                IsChecked="{Binding IsDnsProtectionEnabled}"
-                                                Style="{StaticResource ToggleSwitchStyle}" />
-                                        </Grid>
-
-                                        <!--  DNS Settings (Visible if Enabled)  -->
-                                        <StackPanel Margin="0,10,0,0" Visibility="{Binding IsDnsProtectionEnabled, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock
-                                                Margin="0,0,0,5"
-                                                Foreground="#AAA"
-                                                Text="DNS Provider:" />
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="160" />
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <ComboBox
-                                                    DisplayMemberPath="."
-                                                    ItemsSource="{Binding DnsProviders}"
-                                                    SelectedItem="{Binding SelectedDnsProvider}" />
-                                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                                    <TextBlock
-                                                        Margin="0,0,0,4"
-                                                        FontSize="10"
-                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                        Text="Primary DNS" />
-                                                    <TextBox
-                                                        IsEnabled="{Binding IsDnsCustom}"
-                                                        Text="{Binding DnsHost, UpdateSourceTrigger=PropertyChanged}"
-                                                        ToolTip="DNS server IP or domain, e.g. 8.8.8.8 or dns.google" />
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="2" Margin="10,0,0,0">
-                                                    <TextBlock
-                                                        Margin="0,0,0,4"
-                                                        FontSize="10"
-                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                        Text="Alternative DNS" />
-                                                    <TextBox
-                                                        IsEnabled="{Binding IsDnsCustom}"
-                                                        Text="{Binding DnsFallbackHost, UpdateSourceTrigger=PropertyChanged}"
-                                                        ToolTip="Fallback DNS server IP or domain" />
-                                                </StackPanel>
-                                            </Grid>
-                                            <CheckBox
-                                                Margin="0,10,0,0"
-                                                VerticalAlignment="Center"
-                                                Content="Use alternative DNS only when primary fails"
-                                                IsChecked="{Binding PreferPrimaryDns}"
-                                                ToolTip="Enabled: query the primary DNS first and use the alternative only after a timeout or DNS error. Disabled: query both servers in parallel and use the fastest valid response." />
-                                            <Grid Margin="0,10,0,0">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
+                                                Orientation="Horizontal">
                                                 <Border
-                                                    Margin="0,0,5,0"
-                                                    Padding="9,7"
-                                                    Background="#242A36"
+                                                    Margin="0,0,8,0"
+                                                    Padding="8,3"
+                                                    Background="{DynamicResource SurfaceLightBrush}"
                                                     BorderBrush="{DynamicResource BorderBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="6">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel>
-                                                            <TextBlock
-                                                                FontSize="11"
-                                                                FontWeight="SemiBold"
-                                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                                Text="Primary DNS" />
-                                                            <TextBlock
-                                                                Margin="0,2,8,0"
-                                                                FontSize="10"
-                                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                Text="{Binding PrimaryDnsStatusDetails}"
-                                                                TextTrimming="CharacterEllipsis" />
-                                                        </StackPanel>
-                                                        <TextBlock
-                                                            Grid.Column="1"
-                                                            VerticalAlignment="Center"
-                                                            FontSize="10"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{Binding PrimaryDnsStatus, Converter={StaticResource StatusColor}}"
-                                                            Text="{Binding PrimaryDnsStatus}" />
-                                                    </Grid>
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource PrimaryAccentBrush}"
+                                                        Text="{Binding CurrentVersion, StringFormat='v{0}'}" />
                                                 </Border>
                                                 <Border
-                                                    Grid.Column="1"
-                                                    Margin="5,0,0,0"
-                                                    Padding="9,7"
-                                                    Background="#242A36"
+                                                    Padding="8,3"
+                                                    Background="{DynamicResource SurfaceLightBrush}"
                                                     BorderBrush="{DynamicResource BorderBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="6">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel>
-                                                            <TextBlock
-                                                                FontSize="11"
-                                                                FontWeight="SemiBold"
-                                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                                Text="Alternative DNS" />
-                                                            <TextBlock
-                                                                Margin="0,2,8,0"
-                                                                FontSize="10"
-                                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                Text="{Binding FallbackDnsStatusDetails}"
-                                                                TextTrimming="CharacterEllipsis" />
-                                                        </StackPanel>
-                                                        <TextBlock
-                                                            Grid.Column="1"
-                                                            VerticalAlignment="Center"
-                                                            FontSize="10"
-                                                            FontWeight="SemiBold"
-                                                            Foreground="{Binding FallbackDnsStatus, Converter={StaticResource StatusColor}}"
-                                                            Text="{Binding FallbackDnsStatus}" />
-                                                    </Grid>
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="{Binding ActiveProfileName, StringFormat='Profile: {0}'}" />
                                                 </Border>
-                                            </Grid>
-                                            <Grid Margin="0,10,0,0">
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <!--  Section 1: Profiles Management  -->
+                                    <Border
+                                        Margin="0,0,0,14"
+                                        Padding="16,14"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <StackPanel>
+                                            <Grid Margin="0,0,0,12">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock
                                                     Margin="0,0,10,0"
                                                     VerticalAlignment="Center"
+                                                    FontSize="18"
+                                                    Text="👤" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        FontSize="14"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="Profile Management" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Create isolated collections of proxies, rules, and routing modes" />
+                                                </StackPanel>
+                                                <TextBlock
+                                                    Grid.Column="2"
+                                                    VerticalAlignment="Center"
                                                     FontSize="11"
                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="{Binding DohSaveStatus}"
-                                                    TextTrimming="CharacterEllipsis" />
-                                                <Button
-                                                    Grid.Column="1"
-                                                    Height="32"
-                                                    Margin="0,0,8,0"
-                                                    Padding="14,0"
-                                                    Command="{Binding CheckDnsCommand}"
-                                                    Content="Check DNS"
-                                                    Cursor="Hand"
-                                                    IsEnabled="{Binding IsDnsCheckInProgress, Converter={StaticResource InvBool}}" />
-                                                <Button
-                                                    Grid.Column="2"
-                                                    Height="32"
-                                                    Padding="14,0"
-                                                    Background="#3A6FF8"
-                                                    BorderThickness="0"
-                                                    Command="{Binding SaveChangesCommand}"
-                                                    Content="Save DNS"
-                                                    Cursor="Hand"
-                                                    Foreground="White" />
+                                                    Text="{Binding ActiveProfileName, StringFormat='Active: {0}'}" />
                                             </Grid>
-                                            <!-- DoH functionality disabled by request.
-                                            <Grid Margin="0,12,0,0">
+
+                                            <!-- Row 1: Profile Selection & Activation -->
+                                            <Grid Margin="0,0,0,10">
                                                 <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="230" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <StackPanel VerticalAlignment="Center">
+                                                <ComboBox
+                                                    Height="32"
+                                                    DisplayMemberPath="Name"
+                                                    ItemsSource="{Binding Profiles}"
+                                                    SelectedItem="{Binding SelectedProfile}"
+                                                    ToolTip="Choose a profile from the list" />
+                                                <Button
+                                                    Grid.Column="1"
+                                                    Height="32"
+                                                    Margin="8,0,0,0"
+                                                    Padding="12,0"
+                                                    Command="{Binding LoadProfileCommand}"
+                                                    Content="Activate"
+                                                    Cursor="Hand"
+                                                    IsEnabled="{Binding HasSelectedProfile}" />
+                                                <Button
+                                                    Grid.Column="2"
+                                                    Height="32"
+                                                    Margin="8,0,0,0"
+                                                    Padding="12,0"
+                                                    Command="{Binding CreateEmptyProfileCommand}"
+                                                    Content="＋ New Profile"
+                                                    Cursor="Hand"
+                                                    ToolTip="Create and activate a fresh profile without rules or proxies" />
+                                                <Button
+                                                    Grid.Column="4"
+                                                    Height="32"
+                                                    Padding="14,0"
+                                                    Background="#5F1D1D"
+                                                    BorderThickness="0"
+                                                    Command="{Binding DeleteProfileCommand}"
+                                                    Content="Delete Profile"
+                                                    Cursor="Hand"
+                                                    Foreground="#FCA5A5"
+                                                    IsEnabled="{Binding HasSelectedProfile}" />
+                                            </Grid>
+
+                                            <!-- Row 2: Rename / Save Profile -->
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="230" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox
+                                                    Height="32"
+                                                    VerticalContentAlignment="Center"
+                                                    Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"
+                                                    ToolTip="Enter new profile name or edit existing profile name" />
+                                                <Button
+                                                    Grid.Column="1"
+                                                    Height="32"
+                                                    Margin="8,0,0,0"
+                                                    Padding="14,0"
+                                                    Command="{Binding SaveProfileCommand}"
+                                                    Content="Save Profile"
+                                                    Cursor="Hand"
+                                                    Style="{StaticResource AccentBtn}" />
+                                                <TextBlock
+                                                    Grid.Column="2"
+                                                    Margin="12,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Type a name and click Save to create a new profile or update the active one." />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!--  Section 2: General Preferences  -->
+                                    <Border
+                                        Margin="0,0,0,14"
+                                        Padding="16,14"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <StackPanel>
+                                            <TextBlock
+                                                Margin="0,0,0,12"
+                                                FontSize="12"
+                                                FontWeight="Bold"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="GENERAL &amp; SYSTEM" />
+
+                                            <!-- Autostart -->
+                                            <Grid Margin="0,0,0,12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Margin="0,0,12,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="18"
+                                                    Text="🚀" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                     <TextBlock
-                                                        FontSize="13"
+                                                        FontSize="13.5"
                                                         FontWeight="SemiBold"
                                                         Foreground="{DynamicResource ForegroundBrush}"
-                                                        Text="DNS over HTTPS (DoH)" />
+                                                        Text="Autostart with Windows" />
                                                     <TextBlock
-                                                        FontSize="10"
+                                                        FontSize="11"
                                                         Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                        Text="Encrypt DNS requests through HTTPS when DNS Protection is active" />
+                                                        Text="Launch Proxy Control automatically in background when Windows starts" />
                                                 </StackPanel>
                                                 <CheckBox
-                                                    Grid.Column="1"
+                                                    Grid.Column="2"
                                                     VerticalAlignment="Center"
-                                                    IsChecked="{Binding IsDohEnabled}"
+                                                    IsChecked="{Binding IsAutoStart}"
                                                     Style="{StaticResource ToggleSwitchStyle}" />
                                             </Grid>
-                                            <StackPanel Margin="0,10,0,0" Visibility="{Binding IsDohEnabled, Converter={StaticResource BoolToVis}}">
+
+                                            <Separator Height="1" Background="{DynamicResource BorderBrush}" Margin="0,0,0,12" />
+
+                                            <!-- Check Updates on Startup -->
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Margin="0,0,12,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="18"
+                                                    Text="🔄" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        FontSize="13.5"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="Check for Updates on Startup" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Automatically query GitHub releases when application starts" />
+                                                </StackPanel>
+                                                <CheckBox
+                                                    Grid.Column="2"
+                                                    VerticalAlignment="Center"
+                                                    IsChecked="{Binding CheckUpdateOnStartup}"
+                                                    Style="{StaticResource ToggleSwitchStyle}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!--  Section 3: DNS Protection  -->
+                                    <Border
+                                        Margin="0,0,0,14"
+                                        Padding="16,14"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <StackPanel>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Margin="0,0,12,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="18"
+                                                    Text="🛡️" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        FontSize="14"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="DNS Protection" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Intercept and forward DNS queries through chosen DNS servers (Requires Administrator)" />
+                                                </StackPanel>
+                                                <CheckBox
+                                                    Grid.Column="2"
+                                                    VerticalAlignment="Center"
+                                                    IsChecked="{Binding IsDnsProtectionEnabled}"
+                                                    Style="{StaticResource ToggleSwitchStyle}" />
+                                            </Grid>
+
+                                            <!-- DNS Config Details -->
+                                            <StackPanel Margin="0,14,0,0" Visibility="{Binding IsDnsProtectionEnabled, Converter={StaticResource BoolToVis}}">
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="180" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock
+                                                            Margin="0,0,0,5"
+                                                            FontSize="11"
+                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                            Text="DNS Provider" />
+                                                        <ComboBox
+                                                            Height="32"
+                                                            DisplayMemberPath="."
+                                                            ItemsSource="{Binding DnsProviders}"
+                                                            SelectedItem="{Binding SelectedDnsProvider}" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                                        <TextBlock
+                                                            Margin="0,0,0,5"
+                                                            FontSize="11"
+                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                            Text="Primary DNS Server" />
+                                                        <TextBox
+                                                            Height="32"
+                                                            VerticalContentAlignment="Center"
+                                                            IsEnabled="{Binding IsDnsCustom}"
+                                                            Text="{Binding DnsHost, UpdateSourceTrigger=PropertyChanged}"
+                                                            ToolTip="e.g. 8.8.8.8, 1.1.1.1, or dns.google" />
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                                                        <TextBlock
+                                                            Margin="0,0,0,5"
+                                                            FontSize="11"
+                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                            Text="Alternative DNS Server" />
+                                                        <TextBox
+                                                            Height="32"
+                                                            VerticalContentAlignment="Center"
+                                                            IsEnabled="{Binding IsDnsCustom}"
+                                                            Text="{Binding DnsFallbackHost, UpdateSourceTrigger=PropertyChanged}"
+                                                            ToolTip="e.g. 1.0.0.1 or 8.8.4.4" />
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <CheckBox
+                                                    Margin="0,4,0,10"
+                                                    VerticalAlignment="Center"
+                                                    Content="Use alternative DNS only when primary server fails or times out"
+                                                    IsChecked="{Binding PreferPrimaryDns}" />
+
+                                                <!-- Status Cards -->
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Border
+                                                        Margin="0,0,5,0"
+                                                        Padding="10,8"
+                                                        Background="#1E2430"
+                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel>
+                                                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="Primary DNS Server" />
+                                                                <TextBlock Margin="0,2,0,0" FontSize="10" Foreground="{DynamicResource ForegroundMutedBrush}" Text="{Binding PrimaryDnsStatusDetails}" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="{Binding PrimaryDnsStatus, Converter={StaticResource StatusColor}}" Text="{Binding PrimaryDnsStatus}" />
+                                                        </Grid>
+                                                    </Border>
+                                                    <Border
+                                                        Grid.Column="1"
+                                                        Margin="5,0,0,0"
+                                                        Padding="10,8"
+                                                        Background="#1E2430"
+                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="6">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel>
+                                                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="Alternative DNS Server" />
+                                                                <TextBlock Margin="0,2,0,0" FontSize="10" Foreground="{DynamicResource ForegroundMutedBrush}" Text="{Binding FallbackDnsStatusDetails}" TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                            <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Foreground="{Binding FallbackDnsStatus, Converter={StaticResource StatusColor}}" Text="{Binding FallbackDnsStatus}" />
+                                                        </Grid>
+                                                    </Border>
+                                                </Grid>
+
+                                                <!-- Buttons -->
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="110" />
-                                                        <ColumnDefinition Width="90" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock
-                                                        VerticalAlignment="Center"
-                                                        FontSize="10"
-                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                        Text="Primary DoH" />
-                                                    <CheckBox
-                                                        Grid.Column="1"
-                                                        VerticalAlignment="Center"
-                                                        Content="Auto"
-                                                        IsChecked="{Binding IsDohPrimaryAuto}" />
-                                                    <TextBox
-                                                        Grid.Column="2"
-                                                        Margin="10,0,0,0"
-                                                        IsEnabled="{Binding IsDohPrimaryAuto, Converter={StaticResource InvBool}}"
-                                                        Text="{Binding DohEndpointInput, UpdateSourceTrigger=PropertyChanged}"
-                                                        ToolTip="DoH endpoint, e.g. https://cloudflare-dns.com/dns-query" />
-                                                </Grid>
-                                                <Grid Margin="0,8,0,0">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="110" />
-                                                        <ColumnDefinition Width="70" />
-                                                        <ColumnDefinition Width="90" />
-                                                        <ColumnDefinition Width="*" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock
-                                                        VerticalAlignment="Center"
-                                                        FontSize="10"
-                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                        Text="Alternative DoH" />
-                                                    <CheckBox
-                                                        Grid.Column="1"
-                                                        VerticalAlignment="Center"
-                                                        Content="Use"
-                                                        IsChecked="{Binding IsDohFallbackEnabled}" />
-                                                    <CheckBox
-                                                        Grid.Column="2"
-                                                        VerticalAlignment="Center"
-                                                        Content="Auto"
-                                                        IsChecked="{Binding IsDohFallbackAuto}" />
-                                                    <TextBox
-                                                        Grid.Column="3"
-                                                        Margin="10,0,0,0"
-                                                        IsEnabled="{Binding IsDohFallbackAuto, Converter={StaticResource InvBool}}"
-                                                        Text="{Binding DohFallbackEndpointInput, UpdateSourceTrigger=PropertyChanged}"
-                                                        ToolTip="Fallback DoH endpoint" />
-                                                </Grid>
-                                                <TextBlock
-                                                    Margin="200,4,0,0"
-                                                    FontSize="10"
-                                                    Foreground="#FF7777"
-                                                    Text="{Binding DohEndpointValidationMessage}" />
-                                                <TextBlock
-                                                    Margin="200,2,0,0"
-                                                    FontSize="10"
-                                                    Foreground="#FF7777"
-                                                    Text="{Binding DohFallbackEndpointValidationMessage}" />
-                                                <TextBlock
-                                                    Margin="200,4,0,0"
-                                                    FontSize="10"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="{Binding DohTransportStatus}"
-                                                    TextWrapping="Wrap" />
-                                                <Grid Margin="0,10,0,0">
-                                                    <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock
-                                                        Grid.Column="1"
-                                                        Margin="0,0,10,0"
                                                         VerticalAlignment="Center"
                                                         FontSize="11"
                                                         Foreground="{DynamicResource ForegroundMutedBrush}"
                                                         Text="{Binding DohSaveStatus}" />
                                                     <Button
+                                                        Grid.Column="1"
+                                                        Height="32"
+                                                        Margin="0,0,8,0"
+                                                        Padding="16,0"
+                                                        Command="{Binding CheckDnsCommand}"
+                                                        Content="Check DNS"
+                                                        Cursor="Hand"
+                                                        IsEnabled="{Binding IsDnsCheckInProgress, Converter={StaticResource InvBool}}" />
+                                                    <Button
                                                         Grid.Column="2"
                                                         Height="32"
-                                                        Padding="14,0"
-                                                        Background="#3A6FF8"
-                                                        BorderThickness="0"
+                                                        Padding="18,0"
                                                         Command="{Binding SaveChangesCommand}"
-                                                        Content="Save DoH"
+                                                        Content="Save DNS"
                                                         Cursor="Hand"
-                                                        Foreground="White" />
+                                                        Style="{StaticResource AccentBtn}" />
                                                 </Grid>
                                             </StackPanel>
-                                            -->
                                         </StackPanel>
-                                    </StackPanel>
-                                </Border>
+                                    </Border>
 
-                                <!--  WebRTC Protection (Hidden)  -->
-                                <Border
-                                    Margin="0,0,0,8"
-                                    Padding="10,8"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    CornerRadius="8"
-                                    Visibility="Collapsed">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Margin="0,0,12,0"
-                                            VerticalAlignment="Center"
-                                            FontSize="18"
-                                            Text="🌐" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock
-                                                FontSize="14"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                Text="WebRTC Protection" />
-                                            <TextBlock
-                                                FontSize="11"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="Prevent IP leaks via WebRTC" />
-                                        </StackPanel>
-                                        <CheckBox
-                                            Grid.Column="2"
-                                            IsChecked="{Binding IsWebRtcBlockingEnabled}"
-                                            Style="{StaticResource ToggleSwitchStyle}" />
-                                    </Grid>
-                                </Border>
-
-                                <!--  TUN Mode (Hidden)  -->
-
-
-                                <!--  Import/Export & Update Actions  -->
-                                <StackPanel Margin="0,15,0,0">
-                                    <TextBlock
-                                        Margin="0,0,0,10"
-                                        FontSize="12"
-                                        FontWeight="Bold"
-                                        Foreground="{DynamicResource ForegroundMutedBrush}"
-                                        Text="DATA &amp; UPDATES" />
-
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="10" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Button
-                                            Height="36"
-                                            Background="#333"
-                                            BorderThickness="0"
-                                            Command="{Binding ImportConfigCommand}"
-                                            Content="Import Settings"
-                                            Cursor="Hand"
-                                            Foreground="White" />
-                                        <Button
-                                            Grid.Column="2"
-                                            Height="36"
-                                            Background="#333"
-                                            BorderThickness="0"
-                                            Command="{Binding ExportConfigCommand}"
-                                            Content="Export Settings"
-                                            Cursor="Hand"
-                                            Foreground="White" />
-                                    </Grid>
-
+                                    <!--  Section 4: Data & Backup  -->
                                     <Border
-                                        Padding="12"
+                                        Margin="0,0,0,14"
+                                        Padding="16,14"
                                         Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
                                         CornerRadius="8">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -3720,60 +3617,141 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock
+                                                    FontSize="14"
                                                     FontWeight="SemiBold"
                                                     Foreground="{DynamicResource ForegroundBrush}"
-                                                    Text="{Binding CurrentVersion, StringFormat='Version: {0}'}" />
+                                                    Text="Configuration Backup" />
                                                 <TextBlock
                                                     FontSize="11"
                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="Check for latest release" />
+                                                    Text="Import or export rules, proxies, and profile configurations to JSON file" />
                                             </StackPanel>
-                                            <Button
-                                                Grid.Column="1"
-                                                Padding="12,6"
-                                                Background="#2563EB"
-                                                BorderThickness="0"
-                                                Command="{Binding CheckUpdateCommand}"
-                                                Content="Check Updates"
-                                                Cursor="Hand"
-                                                Foreground="White"
-                                                Style="{StaticResource AccentBtn}" />
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                <Button
+                                                    Height="32"
+                                                    Margin="0,0,8,0"
+                                                    Padding="14,0"
+                                                    Command="{Binding ImportConfigCommand}"
+                                                    Content="📥 Import Settings"
+                                                    Cursor="Hand" />
+                                                <Button
+                                                    Height="32"
+                                                    Padding="14,0"
+                                                    Command="{Binding ExportConfigCommand}"
+                                                    Content="📤 Export Settings"
+                                                    Cursor="Hand" />
+                                            </StackPanel>
                                         </Grid>
                                     </Border>
+
+                                    <!--  Section 5: Updates & What's New  -->
+                                    <Border
+                                        Margin="0,0,0,18"
+                                        Padding="16,14"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Image
+                                                Width="28"
+                                                Height="28"
+                                                Margin="0,0,14,0"
+                                                VerticalAlignment="Center"
+                                                Source="pack://application:,,,/proxy.ico" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock
+                                                        FontSize="14"
+                                                        FontWeight="Bold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="Proxy Control" />
+                                                    <Border
+                                                        Margin="8,0,0,0"
+                                                        Padding="6,1"
+                                                        VerticalAlignment="Center"
+                                                        Background="{DynamicResource SurfaceMediumBrush}"
+                                                        BorderBrush="{DynamicResource BorderBrush}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="4">
+                                                        <TextBlock
+                                                            FontSize="10.5"
+                                                            FontWeight="SemiBold"
+                                                            Foreground="{DynamicResource PrimaryAccentBrush}"
+                                                            Text="{Binding CurrentVersion, StringFormat='v{0}'}" />
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock
+                                                    Margin="0,2,0,0"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="Smart application-level proxy and traffic router" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button
+                                                    Height="32"
+                                                    Margin="0,0,8,0"
+                                                    Padding="14,0"
+                                                    Command="{Binding OpenWhatsNewModalCommand}"
+                                                    Content="📋 What's New"
+                                                    Cursor="Hand"
+                                                    ToolTip="View release notes and newly added features" />
+                                                <Button
+                                                    Height="32"
+                                                    Padding="14,0"
+                                                    Command="{Binding CheckUpdateCommand}"
+                                                    Content="🔄 Check Updates"
+                                                    Cursor="Hand"
+                                                    Style="{StaticResource AccentBtn}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <!--  Section 6: Power & Service Actions  -->
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="12" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button
+                                            Height="38"
+                                            Command="{Binding ToggleProxyCommand}"
+                                            FontSize="13"
+                                            FontWeight="SemiBold">
+                                            <Button.Style>
+                                                <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsProxyRunning}" Value="True">
+                                                            <Setter Property="Content" Value="🛑 STOP SYSTEM PROXY" />
+                                                            <Setter Property="Background" Value="#2563EB" />
+                                                            <Setter Property="Foreground" Value="White" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsProxyRunning}" Value="False">
+                                                            <Setter Property="Content" Value="▶️ START SYSTEM PROXY" />
+                                                            <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                        <Button
+                                            Grid.Column="2"
+                                            Height="38"
+                                            Command="{Binding ExitAppCommand}"
+                                            Content="🚪 EXIT APPLICATION"
+                                            FontSize="13"
+                                            FontWeight="SemiBold"
+                                            Style="{StaticResource DangerBtn}" />
+                                    </Grid>
                                 </StackPanel>
-
-                                <Button
-                                    Height="40"
-                                    Margin="0,20,0,0"
-                                    Command="{Binding ToggleProxyCommand}"
-                                    FontSize="14"
-                                    FontWeight="Bold">
-                                    <Button.Style>
-                                        <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsProxyRunning}" Value="True">
-                                                    <Setter Property="Content" Value="SYSTEM PROXY: ON" />
-                                                    <Setter Property="Background" Value="#28A745" />
-                                                </DataTrigger>
-                                                <DataTrigger Binding="{Binding IsProxyRunning}" Value="False">
-                                                    <Setter Property="Content" Value="SYSTEM PROXY: OFF" />
-                                                    <Setter Property="Background" Value="#A03333" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-
-                                </Button>
-
-                                <Button
-                                    Height="40"
-                                    Margin="0,10,0,0"
-                                    Command="{Binding ExitAppCommand}"
-                                    Content="EXIT APPLICATION"
-                                    FontSize="14"
-                                    FontWeight="Bold"
-                                    Style="{StaticResource DangerBtn}" />
-                            </StackPanel>
+                            </Border>
                         </ScrollViewer>
                     </TabItem>
 
@@ -5561,6 +5539,421 @@
                         Foreground="#AAA"
                         Text="{Binding UpdateStatusText}" />
 
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!--  Update Found Modal (Changelog & Download)  -->
+        <Grid
+            x:Name="UpdateFoundModalOverlay"
+            Grid.RowSpan="2"
+            Panel.ZIndex="1900"
+            Background="#D9000000"
+            Visibility="{Binding IsUpdateFoundModalVisible, Converter={StaticResource BoolToVis}}">
+            <Border
+                Width="560"
+                MaxHeight="620"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{DynamicResource SurfaceMediumBrush}"
+                BorderBrush="{DynamicResource PrimaryAccentBrush}"
+                BorderThickness="1"
+                CornerRadius="12">
+                <Border.Effect>
+                    <DropShadowEffect
+                        BlurRadius="35"
+                        Opacity="0.6"
+                        ShadowDepth="8"
+                        Color="Black" />
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Header Row -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Width="44"
+                            Height="44"
+                            Background="#1E293B"
+                            BorderBrush="{DynamicResource PrimaryAccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontSize="22"
+                                Text="🚀" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                            <TextBlock
+                                FontSize="17"
+                                FontWeight="Bold"
+                                Foreground="{DynamicResource ForegroundBrush}"
+                                Text="Доступно обновление!" />
+                            <StackPanel Margin="0,3,0,0" Orientation="Horizontal">
+                                <Border
+                                    Padding="6,1.5"
+                                    Background="#10B981"
+                                    CornerRadius="4">
+                                    <TextBlock
+                                        FontSize="11"
+                                        FontWeight="Bold"
+                                        Foreground="White"
+                                        Text="{Binding PendingUpdateInfo.DisplayVersion}" />
+                                </Border>
+                                <TextBlock
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center"
+                                    FontSize="11"
+                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                    Text="{Binding PendingUpdateInfo.DisplaySize, StringFormat='Размер: {0}'}" />
+                                <TextBlock
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center"
+                                    FontSize="11"
+                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                    Text="{Binding PendingUpdateInfo.DisplayDate, StringFormat='• {0}'}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <Button
+                            Grid.Column="2"
+                            Width="28"
+                            Height="28"
+                            VerticalAlignment="Top"
+                            Command="{Binding DismissUpdateFoundModalCommand}"
+                            Content="✕"
+                            Cursor="Hand"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            ToolTip="Close" />
+                    </Grid>
+
+                    <!-- Release Title -->
+                    <Border
+                        Grid.Row="1"
+                        Margin="0,0,0,12"
+                        Padding="12,8"
+                        Background="{DynamicResource SurfaceLightBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <TextBlock
+                            FontSize="13"
+                            FontWeight="SemiBold"
+                            Foreground="{DynamicResource ForegroundBrush}"
+                            Text="{Binding PendingUpdateInfo.Title}"
+                            TextTrimming="CharacterEllipsis" />
+                    </Border>
+
+                    <!-- Scrollable Changelog -->
+                    <Border
+                        Grid.Row="2"
+                        MaxHeight="260"
+                        Margin="0,0,0,20"
+                        Padding="12"
+                        Background="#141820"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding UpdateChangelogEntries}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,0,0,8" Padding="0,0,0,6" BorderBrush="#252A36" BorderThickness="0,0,0,1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Margin="0,0,8,0"
+                                                    VerticalAlignment="Top"
+                                                    FontSize="14"
+                                                    Text="{Binding Icon}" />
+                                                <StackPanel Grid.Column="1">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock
+                                                            FontSize="12"
+                                                            FontWeight="SemiBold"
+                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                            Text="{Binding Title}" />
+                                                        <Border
+                                                            Margin="8,0,0,0"
+                                                            Padding="5,1"
+                                                            VerticalAlignment="Center"
+                                                            CornerRadius="3">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Background" Value="#2563EB" />
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Tag}" Value="Fixed">
+                                                                            <Setter Property="Background" Value="#D97706" />
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Tag}" Value="Improved">
+                                                                            <Setter Property="Background" Value="#0891B2" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <TextBlock
+                                                                FontSize="9.5"
+                                                                FontWeight="Bold"
+                                                                Foreground="White"
+                                                                Text="{Binding Tag}" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <TextBlock
+                                                        Margin="0,2,0,0"
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="{Binding Description}"
+                                                        TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+
+                    <!-- Action Buttons -->
+                    <Grid Grid.Row="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            Grid.Column="1"
+                            Height="36"
+                            Margin="0,0,10,0"
+                            Padding="16,0"
+                            Command="{Binding DismissUpdateFoundModalCommand}"
+                            Content="Напомнить позже"
+                            Cursor="Hand" />
+                        <Button
+                            Grid.Column="2"
+                            Height="36"
+                            Padding="20,0"
+                            Command="{Binding ConfirmUpdateCommand}"
+                            Content="🚀 Скачать и обновить"
+                            Cursor="Hand"
+                            Style="{StaticResource AccentBtn}" />
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!--  What's New Modal (First-run after update & Settings button)  -->
+        <Grid
+            x:Name="WhatsNewModalOverlay"
+            Grid.RowSpan="2"
+            Panel.ZIndex="1900"
+            Background="#D9000000"
+            Visibility="{Binding IsWhatsNewModalVisible, Converter={StaticResource BoolToVis}}">
+            <Border
+                Width="660"
+                MaxHeight="680"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{DynamicResource SurfaceMediumBrush}"
+                BorderBrush="{DynamicResource PrimaryAccentBrush}"
+                BorderThickness="1"
+                CornerRadius="12">
+                <Border.Effect>
+                    <DropShadowEffect
+                        BlurRadius="35"
+                        Opacity="0.6"
+                        ShadowDepth="8"
+                        Color="Black" />
+                </Border.Effect>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Border
+                            Width="44"
+                            Height="44"
+                            Background="#1E293B"
+                            BorderBrush="{DynamicResource PrimaryAccentBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                            <TextBlock
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontSize="22"
+                                Text="🎉" />
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock
+                                    FontSize="17"
+                                    FontWeight="Bold"
+                                    Foreground="{DynamicResource ForegroundBrush}"
+                                    Text="Что нового в Proxy Control" />
+                                <Border
+                                    Margin="8,0,0,0"
+                                    Padding="6,1.5"
+                                    Background="{DynamicResource PrimaryAccentBrush}"
+                                    CornerRadius="4">
+                                    <TextBlock
+                                        FontSize="11"
+                                        FontWeight="Bold"
+                                        Foreground="White"
+                                        Text="{Binding WhatsNewVersion, StringFormat='v{0}'}" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock
+                                Margin="0,3,0,0"
+                                FontSize="11.5"
+                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                Text="Ознакомьтесь со списком добавленных функций и улучшений в этой версии:" />
+                        </StackPanel>
+                        <Button
+                            Grid.Column="2"
+                            Width="28"
+                            Height="28"
+                            VerticalAlignment="Top"
+                            Command="{Binding CloseWhatsNewModalCommand}"
+                            Content="✕"
+                            Cursor="Hand"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            ToolTip="Close" />
+                    </Grid>
+
+                    <!-- Scrollable Category List -->
+                    <Border
+                        Grid.Row="1"
+                        MaxHeight="460"
+                        Margin="0,0,0,18"
+                        Padding="12"
+                        Background="#141820"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding WhatsNewCategories}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,0,0,14">
+                                            <!-- Category Header -->
+                                            <TextBlock
+                                                Margin="0,0,0,8"
+                                                FontSize="12.5"
+                                                FontWeight="Bold"
+                                                Foreground="{DynamicResource ForegroundBrush}"
+                                                Text="{Binding CategoryName}" />
+
+                                            <!-- Category Items -->
+                                            <ItemsControl ItemsSource="{Binding Items}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border
+                                                            Margin="0,0,0,6"
+                                                            Padding="10,8"
+                                                            Background="{DynamicResource SurfaceLightBrush}"
+                                                            BorderBrush="{DynamicResource BorderBrush}"
+                                                            BorderThickness="1"
+                                                            CornerRadius="6">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock
+                                                                    Margin="0,0,10,0"
+                                                                    VerticalAlignment="Center"
+                                                                    FontSize="16"
+                                                                    Text="{Binding Icon}" />
+                                                                <StackPanel Grid.Column="1">
+                                                                    <StackPanel Orientation="Horizontal">
+                                                                        <TextBlock
+                                                                            FontSize="12"
+                                                                            FontWeight="SemiBold"
+                                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                                            Text="{Binding Title}" />
+                                                                        <Border
+                                                                            Margin="8,0,0,0"
+                                                                            Padding="5,1"
+                                                                            VerticalAlignment="Center"
+                                                                            CornerRadius="3">
+                                                                            <Border.Style>
+                                                                                <Style TargetType="Border">
+                                                                                    <Setter Property="Background" Value="#2563EB" />
+                                                                                    <Style.Triggers>
+                                                                                        <DataTrigger Binding="{Binding Tag}" Value="New">
+                                                                                            <Setter Property="Background" Value="#059669" />
+                                                                                        </DataTrigger>
+                                                                                        <DataTrigger Binding="{Binding Tag}" Value="Fixed">
+                                                                                            <Setter Property="Background" Value="#D97706" />
+                                                                                        </DataTrigger>
+                                                                                        <DataTrigger Binding="{Binding Tag}" Value="Improved">
+                                                                                            <Setter Property="Background" Value="#0891B2" />
+                                                                                        </DataTrigger>
+                                                                                        <DataTrigger Binding="{Binding Tag}" Value="Design">
+                                                                                            <Setter Property="Background" Value="#DB2777" />
+                                                                                        </DataTrigger>
+                                                                                    </Style.Triggers>
+                                                                                </Style>
+                                                                            </Border.Style>
+                                                                            <TextBlock
+                                                                                FontSize="9.5"
+                                                                                FontWeight="Bold"
+                                                                                Foreground="White"
+                                                                                Text="{Binding Tag}" />
+                                                                        </Border>
+                                                                    </StackPanel>
+                                                                    <TextBlock
+                                                                        Margin="0,3,0,0"
+                                                                        FontSize="11"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="{Binding Description}"
+                                                                        TextWrapping="Wrap" />
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+
+                    <!-- Footer Action -->
+                    <Button
+                        Grid.Row="2"
+                        Height="36"
+                        MinWidth="150"
+                        HorizontalAlignment="Right"
+                        Command="{Binding CloseWhatsNewModalCommand}"
+                        Content="Понятно, отлично! 👍"
+                        Cursor="Hand"
+                        Style="{StaticResource AccentBtn}" />
                 </Grid>
             </Border>
         </Grid>

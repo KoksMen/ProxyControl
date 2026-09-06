@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace ProxyControl.Models
@@ -33,6 +33,7 @@ namespace ProxyControl.Models
         public bool IsAutoStart { get; set; }
         public bool IsProxyRunning { get; set; } // Persist proxy state
         public bool CheckUpdateOnStartup { get; set; } = true;
+        public string? LastSeenVersion { get; set; }
         public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
         public AppConfig Config { get; set; } = new AppConfig();
         public List<AppProfile> Profiles { get; set; } = new List<AppProfile>();

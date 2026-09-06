@@ -521,6 +521,46 @@ namespace ProxyControl.ViewModels
             IsConfirmModalVisible = true;
         }
 
+        // Update Found Modal Logic
+        private bool _isUpdateFoundModalVisible;
+        public bool IsUpdateFoundModalVisible
+        {
+            get => _isUpdateFoundModalVisible;
+            set { _isUpdateFoundModalVisible = value; OnPropertyChanged(); }
+        }
+
+        private UpdateReleaseInfo? _pendingUpdateInfo;
+        public UpdateReleaseInfo? PendingUpdateInfo
+        {
+            get => _pendingUpdateInfo;
+            set { _pendingUpdateInfo = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<ChangelogEntry> UpdateChangelogEntries { get; } = new();
+
+        public ICommand ConfirmUpdateCommand { get; }
+        public ICommand DismissUpdateFoundModalCommand { get; }
+
+        // What's New Modal Logic
+        private bool _isWhatsNewModalVisible;
+        public bool IsWhatsNewModalVisible
+        {
+            get => _isWhatsNewModalVisible;
+            set { _isWhatsNewModalVisible = value; OnPropertyChanged(); }
+        }
+
+        private string _whatsNewVersion = "3.2.0";
+        public string WhatsNewVersion
+        {
+            get => _whatsNewVersion;
+            set { _whatsNewVersion = value; OnPropertyChanged(); }
+        }
+
+        public ObservableCollection<ChangelogCategory> WhatsNewCategories { get; } = new();
+
+        public ICommand OpenWhatsNewModalCommand { get; }
+        public ICommand CloseWhatsNewModalCommand { get; }
+
         public string HeaderDownloadSpeedText => $"⬇️ {TrafficMonitorService.FormatSpeed(_trafficMonitorService.TotalCurrentDownloadSpeed)}";
         public string HeaderUploadSpeedText => $"⬆️ {TrafficMonitorService.FormatSpeed(_trafficMonitorService.TotalCurrentUploadSpeed)}";
         public string HeaderActiveConnectionsText => $"⚡ {_trafficMonitorService.TotalActiveConnections} conn";
@@ -1971,6 +2011,23 @@ namespace ProxyControl.ViewModels
                 _pendingConfirmAction?.Invoke();
             });
 
+            ConfirmUpdateCommand = new RelayCommand(async _ =>
+            {
+                IsUpdateFoundModalVisible = false;
+                if (PendingUpdateInfo != null && !string.IsNullOrEmpty(PendingUpdateInfo.DownloadUrl))
+                {
+                    await ExecuteUpdate(PendingUpdateInfo.DownloadUrl, PendingUpdateInfo.FileSize);
+                }
+                else if (!string.IsNullOrEmpty(PendingUpdateUrl))
+                {
+                    await ExecuteUpdate(PendingUpdateUrl, PendingUpdateSize);
+                }
+            });
+            DismissUpdateFoundModalCommand = new RelayCommand(_ => IsUpdateFoundModalVisible = false);
+
+            OpenWhatsNewModalCommand = new RelayCommand(v => OpenWhatsNewModal(v as string ?? CurrentVersion));
+            CloseWhatsNewModalCommand = new RelayCommand(_ => IsWhatsNewModalVisible = false);
+
             // --- SAFELY INITIALIZE ---
             try
             {
@@ -2136,47 +2193,84 @@ namespace ProxyControl.ViewModels
         {
             _updateService.OnMessage -= ShowMessage;
             _updateService.OnUpdateAvailable -= HandleUpdateAvailable;
+            _updateService.OnUpdateAvailableWithInfo -= HandleUpdateAvailableWithInfo;
 
             _updateService.OnMessage += ShowMessage;
             _updateService.OnUpdateAvailable += HandleUpdateAvailable;
+            _updateService.OnUpdateAvailableWithInfo += HandleUpdateAvailableWithInfo;
 
             await _updateService.CheckAndInstallUpdate(null, null, silent);
         }
 
         private void HandleUpdateAvailable(string tagName, string url, long size)
         {
-            // Play notification sound
+            HandleUpdateAvailableWithInfo(new UpdateReleaseInfo
+            {
+                TagName = tagName,
+                Title = $"Proxy Control {tagName}",
+                Changelog = "Рекомендуемое обновление для улучшения стабильности и работы функций.",
+                DownloadUrl = url,
+                FileSize = size
+            });
+        }
+
+        private void HandleUpdateAvailableWithInfo(UpdateReleaseInfo info)
+        {
+            PendingUpdateInfo = info;
+            PendingUpdateUrl = info.DownloadUrl;
+            PendingUpdateSize = info.FileSize;
+
+            UpdateChangelogEntries.Clear();
+            if (!string.IsNullOrWhiteSpace(info.Changelog))
+            {
+                var parsed = ChangelogService.ParseMarkdownChangelog(info.Changelog);
+                if (parsed.Count > 0)
+                {
+                    foreach (var entry in parsed) UpdateChangelogEntries.Add(entry);
+                }
+                else
+                {
+                    UpdateChangelogEntries.Add(new ChangelogEntry
+                    {
+                        Icon = "🚀",
+                        Title = info.Title,
+                        Description = info.Changelog,
+                        Tag = "New",
+                        TagColor = "#10B981"
+                    });
+                }
+            }
+            else
+            {
+                UpdateChangelogEntries.Add(new ChangelogEntry
+                {
+                    Icon = "✨",
+                    Title = info.Title,
+                    Description = "Рекомендуемое обновление для улучшения стабильности и работы функций.",
+                    Tag = "Update",
+                    TagColor = "#3B82F6"
+                });
+            }
+
             try { System.Media.SystemSounds.Exclamation.Play(); } catch { }
 
-            // Check window state
             bool isVisible = false;
             Application.Current.Dispatcher.Invoke(() =>
             {
                 var win = Application.Current.MainWindow;
                 if (win != null)
                 {
-                    // Considered "visible" if not minimized and actively visible
                     isVisible = win.Visibility == Visibility.Visible && win.WindowState != WindowState.Minimized;
                 }
             });
 
-            // Logic:
-            // 1. If AutoStarted AND currently Minimized/Hidden -> Toast (Screen)
-            // 2. Else (Manual start OR currently visible) -> Modal (Inside App)
-
             bool useToast = IsAutoStart && !isVisible;
-
             if (useToast)
             {
-                // Store pending update info
-                PendingUpdateUrl = url;
-                PendingUpdateSize = size;
-                // Show toast notification
-                RequestShowNotification?.Invoke(tagName, url, size);
+                RequestShowNotification?.Invoke(info.TagName, info.DownloadUrl, info.FileSize);
             }
             else
             {
-                // Ensure App is visible for the modal
                 Application.Current.Dispatcher.Invoke(() =>
                 {
                     var win = Application.Current.MainWindow;
@@ -2186,14 +2280,21 @@ namespace ProxyControl.ViewModels
                         if (win.WindowState == WindowState.Minimized) win.WindowState = WindowState.Normal;
                         win.Activate();
                     }
-                });
-
-                // Show modal
-                ShowConfirmation("Update Found", $"New version {tagName} is available!\nUpdate now?", async () =>
-                {
-                    await ExecuteUpdate(url, size);
+                    IsUpdateFoundModalVisible = true;
                 });
             }
+        }
+
+        public void OpenWhatsNewModal(string version)
+        {
+            WhatsNewVersion = string.IsNullOrWhiteSpace(version) ? CurrentVersion : version;
+            WhatsNewCategories.Clear();
+            var list = ChangelogService.GetReleaseNotes(WhatsNewVersion);
+            foreach (var cat in list)
+            {
+                WhatsNewCategories.Add(cat);
+            }
+            IsWhatsNewModalVisible = true;
         }
 
         // Public method to be called from Toast or Modal
@@ -3094,6 +3195,13 @@ namespace ProxyControl.ViewModels
             catch { return false; }
         }
 
+        private string? _lastSeenVersion;
+        public string? LastSeenVersion
+        {
+            get => _lastSeenVersion;
+            set { _lastSeenVersion = value; OnPropertyChanged(); }
+        }
+
         private AppSettings CreateSettingsSnapshot()
         {
             EnsureProxyNames(Proxies);
@@ -3102,6 +3210,7 @@ namespace ProxyControl.ViewModels
                 IsAutoStart = IsAutoStart,
                 IsProxyRunning = IsProxyRunning,
                 CheckUpdateOnStartup = CheckUpdateOnStartup,
+                LastSeenVersion = _lastSeenVersion,
                 Proxies = Proxies.ToList(),
                 Config = _config,
                 Profiles = Profiles.ToList(),
@@ -3675,9 +3784,12 @@ namespace ProxyControl.ViewModels
         private void LoadSettings()
         {
             _suppressSave = true;
+            bool isFirstRunForNewVersion = false;
             try
             {
                 var d = _settingsService.Load();
+                _lastSeenVersion = d.LastSeenVersion;
+                isFirstRunForNewVersion = string.IsNullOrEmpty(d.LastSeenVersion) || d.LastSeenVersion != CurrentVersion;
                 _temporaryBlackListRules.Clear();
                 _temporaryWhiteListRules.Clear();
                 _config = d.Config ?? new AppConfig();
@@ -3726,7 +3838,20 @@ namespace ProxyControl.ViewModels
 
                 IsProxyRunning = d.IsProxyRunning;
             }
-            finally { _suppressSave = false; }
+            finally
+            {
+                _suppressSave = false;
+            }
+
+            if (isFirstRunForNewVersion)
+            {
+                _lastSeenVersion = CurrentVersion;
+                try { _settingsService.Save(CreateSettingsSnapshot()); } catch { }
+                Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+                {
+                    OpenWhatsNewModal(CurrentVersion);
+                }), DispatcherPriority.Loaded);
+            }
         }
 
 
