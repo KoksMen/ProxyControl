@@ -59,6 +59,8 @@ namespace ProxyControl.Services
             var oldLogsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs");
             MigrateLegacyLogs(oldLogsDir, logsDir);
 
+            Task.Run(() => CleanupOldLogs(logsDir, 30));
+
             _logFilePath = Path.Combine(logsDir, $"app_{DateTime.Now:yyyy-MM-dd}.log");
 
             _logChannel = Channel.CreateBounded<LogEntry>(new BoundedChannelOptions(5000)
@@ -168,6 +170,35 @@ namespace ProxyControl.Services
             {
                 // Ignore migration errors (e.g. read-only legacy directory)
             }
+        }
+        private static void CleanupOldLogs(string logsDir, int retentionDays = 30)
+        {
+            try
+            {
+                if (!Directory.Exists(logsDir)) return;
+                var cutoff = DateTime.Now.Date.AddDays(-retentionDays);
+                var files = Directory.GetFiles(logsDir, "app_*.log");
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        var name = Path.GetFileNameWithoutExtension(file);
+                        if (name.StartsWith("app_") && DateTime.TryParse(name.Substring(4), out var fileDate))
+                        {
+                            if (fileDate < cutoff)
+                            {
+                                File.Delete(file);
+                            }
+                        }
+                        else if (File.GetLastWriteTime(file) < cutoff)
+                        {
+                            File.Delete(file);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
         }
     }
 }

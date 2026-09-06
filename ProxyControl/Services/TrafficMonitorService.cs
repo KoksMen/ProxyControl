@@ -63,6 +63,8 @@ namespace ProxyControl.Services
             var oldLogsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             MigrateLegacyLogs(oldLogsPath, _logsPath);
 
+            Task.Run(() => CleanupOldLogs(_logsPath, 30));
+
             _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(25000)
             {
                 SingleReader = true,
@@ -421,6 +423,36 @@ namespace ProxyControl.Services
             {
                 // Ignore migration errors (e.g. read-only legacy directory)
             }
+        }
+
+        private static void CleanupOldLogs(string logsDir, int retentionDays = 30)
+        {
+            try
+            {
+                if (!Directory.Exists(logsDir)) return;
+                var cutoff = DateTime.Now.Date.AddDays(-retentionDays);
+                var files = Directory.GetFiles(logsDir, "log_*.jsonl");
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        var name = Path.GetFileNameWithoutExtension(file);
+                        if (name.StartsWith("log_") && DateTime.TryParse(name.Substring(4), out var fileDate))
+                        {
+                            if (fileDate < cutoff)
+                            {
+                                File.Delete(file);
+                            }
+                        }
+                        else if (File.GetLastWriteTime(file) < cutoff)
+                        {
+                            File.Delete(file);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
         }
     }
 }
