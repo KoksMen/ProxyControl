@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -58,9 +58,19 @@ namespace ProxyControl
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             bool isNotNull = value != null;
-            if (!string.IsNullOrEmpty(parameter as string) && parameter.ToString() == "Visible")
+            if (value is string s && string.IsNullOrWhiteSpace(s))
             {
-                return isNotNull ? Visibility.Visible : Visibility.Collapsed;
+                isNotNull = false;
+            }
+
+            if (parameter is string p)
+            {
+                if (p == "Visible")
+                    return isNotNull ? Visibility.Visible : Visibility.Collapsed;
+                if (p == "InverseVisible" || p == "Collapsed")
+                    return isNotNull ? Visibility.Collapsed : Visibility.Visible;
+                if (p == "Inverse")
+                    return !isNotNull;
             }
             return isNotNull;
         }

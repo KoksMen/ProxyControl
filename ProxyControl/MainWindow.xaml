@@ -1215,9 +1215,11 @@
                             Visibility="{Binding IsProxyPanelExpanded, Converter={StaticResource BoolToVis}}" />
                         <Button
                             Grid.Column="1"
-                            Width="52"
+                            Width="36"
                             Height="28"
                             Padding="0"
+                            HorizontalAlignment="Right"
+                            FontWeight="Bold"
                             Command="{Binding ToggleProxyPanelCommand}"
                             Content="{Binding ProxyPanelToggleGlyph}"
                             FontSize="13"
@@ -1618,14 +1620,16 @@
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" MinWidth="12" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
 
                                     <!-- Card 1: Routing Mode -->
                                     <Border
                                         Grid.Column="0"
-                                        Padding="12,8"
+                                        Height="68"
+                                        Padding="12,7"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
@@ -1638,17 +1642,17 @@
                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
                                                 Text="🧭 ROUTING MODE" />
                                             <Border
-                                                Margin="0,6,0,0"
+                                                Margin="0,5,0,0"
                                                 Padding="2"
                                                 Background="#1B1F29"
                                                 BorderBrush="{DynamicResource BorderBrush}"
                                                 BorderThickness="1"
-                                                CornerRadius="8">
+                                                CornerRadius="7">
                                                 <Grid>
                                                     <Grid.Resources>
                                                         <Style TargetType="RadioButton">
-                                                            <Setter Property="Width" Value="94" />
-                                                            <Setter Property="Height" Value="28" />
+                                                            <Setter Property="Width" Value="78" />
+                                                            <Setter Property="Height" Value="26" />
                                                             <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
                                                             <Setter Property="Cursor" Value="Hand" />
                                                             <Setter Property="Template">
@@ -1657,7 +1661,7 @@
                                                                         <Border
                                                                             x:Name="ModeBackground"
                                                                             Background="Transparent"
-                                                                            CornerRadius="6">
+                                                                            CornerRadius="5">
                                                                             <ContentPresenter
                                                                                 HorizontalAlignment="Center"
                                                                                 VerticalAlignment="Center"
@@ -1697,14 +1701,15 @@
                                     <!-- Card 2: Default Proxy / Whitelist Status -->
                                     <Border
                                         Grid.Column="1"
-                                        Margin="10,0,0,0"
-                                        Padding="12,8"
+                                        Margin="8,0,0,0"
+                                        Height="68"
+                                        Padding="12,7"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8">
-                                        <Grid>
+                                        <Grid VerticalAlignment="Center">
                                             <!-- BlackList Mode: Default Proxy dropdown -->
                                             <StackPanel
                                                 VerticalAlignment="Center"
@@ -1716,7 +1721,8 @@
                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
                                                     Text="🛡️ DEFAULT PROXY" />
                                                 <ComboBox
-                                                    Width="210"
+                                                    Width="180"
+                                                    Height="28"
                                                     HorizontalAlignment="Left"
                                                     ItemsSource="{Binding Proxies}"
                                                     SelectedItem="{Binding SelectedBlackListMainProxy}">
@@ -1764,7 +1770,7 @@
 
                                             <!-- WhiteList Mode: Informational badge keeping the card stable -->
                                             <StackPanel
-                                                Width="210"
+                                                Width="180"
                                                 VerticalAlignment="Center"
                                                 Visibility="{Binding IsBlackListMode, Converter={StaticResource InvBoolToVis}}">
                                                 <TextBlock
@@ -1774,28 +1780,28 @@
                                                     Foreground="{DynamicResource ForegroundMutedBrush}"
                                                     Text="🛡️ ROUTING BEHAVIOR" />
                                                 <Border
-                                                    Height="32"
-                                                    Padding="8,4"
+                                                    Height="28"
+                                                    Padding="8,0"
                                                     Background="#1B1F29"
                                                     BorderBrush="{DynamicResource BorderBrush}"
                                                     BorderThickness="1"
                                                     CornerRadius="6">
                                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                         <TextBlock
-                                                            FontSize="13"
+                                                            FontSize="12"
                                                             Margin="0,0,6,0"
                                                             VerticalAlignment="Center"
                                                             Text="🔒" />
                                                         <StackPanel VerticalAlignment="Center">
                                                             <TextBlock
-                                                                FontSize="11"
+                                                                FontSize="10"
                                                                 FontWeight="SemiBold"
                                                                 Foreground="{DynamicResource PrimaryAccentBrush}"
                                                                 Text="Rules-Only Routing" />
                                                             <TextBlock
-                                                                FontSize="9"
+                                                                FontSize="8.5"
                                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                Text="Unmatched traffic is Direct" />
+                                                                Text="Unmatched is Direct" />
                                                         </StackPanel>
                                                     </StackPanel>
                                                 </Border>
@@ -1806,150 +1812,206 @@
                                     <!-- Card 3: Proxy Service Toggle -->
                                     <Border
                                         Grid.Column="2"
-                                        Margin="10,0,0,0"
-                                        Padding="12,8"
-                                        HorizontalAlignment="Left"
+                                        Margin="8,0,0,0"
+                                        Height="68"
+                                        Padding="12,7"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8"
                                         ToolTip="Master toggle for local proxy and routing service">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                            <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
-                                                <TextBlock
-                                                    FontSize="11"
-                                                    FontWeight="SemiBold"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="⚡ PROXY SERVICE" />
-                                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0" VerticalAlignment="Center">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontSize="11"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="⚡ PROXY SERVICE" />
+                                            <Grid Height="28" Margin="0,5,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0">
                                                     <Ellipse
                                                         Width="7"
                                                         Height="7"
-                                                        Margin="0,0,5,0"
+                                                        Margin="0,0,6,0"
+                                                        VerticalAlignment="Center"
                                                         Fill="{Binding ProxyStatusColor}" />
                                                     <TextBlock
                                                         FontSize="11"
                                                         FontWeight="SemiBold"
+                                                        VerticalAlignment="Center"
                                                         Foreground="{DynamicResource ForegroundBrush}"
                                                         Text="{Binding ProxyStatusText}" />
                                                 </StackPanel>
-                                            </StackPanel>
-                                            <CheckBox
-                                                VerticalAlignment="Center"
-                                                Style="{StaticResource ToggleSwitchStyle}"
-                                                IsChecked="{Binding IsProxyRunning}"
-                                                Command="{Binding ToggleProxyCommand}" />
+                                                <CheckBox
+                                                    Grid.Column="1"
+                                                    VerticalAlignment="Center"
+                                                    Style="{StaticResource ToggleSwitchStyle}"
+                                                    IsChecked="{Binding IsProxyRunning}"
+                                                    Command="{Binding ToggleProxyCommand}" />
+                                            </Grid>
                                         </StackPanel>
                                     </Border>
 
-                                    <!-- Card 4: Quick Stats Pill -->
+                                    <!-- Card 4: Live Network Stats Pill -->
                                     <Border
                                         Grid.Column="3"
-                                        Margin="10,0"
-                                        Padding="14,8"
-                                        HorizontalAlignment="Center"
+                                        Margin="8,0,0,0"
+                                        Height="68"
+                                        Padding="12,7"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8"
                                         ToolTip="Real-time aggregate network speed and active connections">
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <StackPanel VerticalAlignment="Center">
                                             <TextBlock
-                                                FontSize="12"
-                                                FontWeight="SemiBold"
-                                                Foreground="#4CAF50"
-                                                Text="{Binding HeaderDownloadSpeedText}" />
-                                            <TextBlock
-                                                Margin="8,0"
                                                 FontSize="11"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="•" />
-                                            <TextBlock
-                                                FontSize="12"
                                                 FontWeight="SemiBold"
-                                                Foreground="#29B6F6"
-                                                Text="{Binding HeaderUploadSpeedText}" />
-                                            <TextBlock
-                                                Margin="8,0"
-                                                FontSize="11"
                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="•" />
-                                            <TextBlock
-                                                FontSize="12"
-                                                FontWeight="SemiBold"
-                                                Foreground="#FFB74D"
-                                                Text="{Binding HeaderActiveConnectionsText}" />
+                                                Text="📊 LIVE NETWORK" />
+                                            <Border
+                                                Height="28"
+                                                Margin="0,5,0,0"
+                                                Padding="8,0"
+                                                Background="#1B1F29"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="6">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="#10B981"
+                                                        Text="{Binding HeaderDownloadSpeedText}" />
+                                                    <TextBlock
+                                                        Margin="6,0"
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="•" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="#60A5FA"
+                                                        Text="{Binding HeaderUploadSpeedText}" />
+                                                    <TextBlock
+                                                        Margin="6,0"
+                                                        FontSize="10"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="•" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="#F59E0B"
+                                                        Text="{Binding HeaderActiveConnectionsText}" />
+                                                </StackPanel>
+                                            </Border>
                                         </StackPanel>
                                     </Border>
 
                                     <!-- Card 5: Traffic Routing Choices -->
                                     <Border
-                                        Grid.Column="4"
-                                        Padding="12,8"
+                                        Grid.Column="5"
+                                        Margin="8,0,0,0"
+                                        Height="68"
+                                        Padding="12,7"
                                         VerticalAlignment="Center"
+                                        HorizontalAlignment="Right"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="8"
-                                        ToolTip="Choose how traffic reaches ProxyControl: system HTTP(S) proxy, TUN, or both together.">
-                                        <StackPanel>
-                                            <StackPanel.Resources>
-                                                <Style x:Key="RoutingChoice" TargetType="RadioButton">
-                                                    <Setter Property="Margin" Value="0" />
-                                                    <Setter Property="Padding" Value="10,6" />
-                                                    <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
-                                                    <Setter Property="Cursor" Value="Hand" />
-                                                    <Setter Property="Template">
-                                                        <Setter.Value>
-                                                            <ControlTemplate TargetType="RadioButton">
-                                                                <Border x:Name="Choice" Padding="{TemplateBinding Padding}" Background="{DynamicResource SurfaceMediumBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
-                                                                    <ContentPresenter />
-                                                                </Border>
-                                                                <ControlTemplate.Triggers>
-                                                                    <Trigger Property="IsChecked" Value="True">
-                                                                        <Setter TargetName="Choice" Property="Background" Value="#234A78" />
-                                                                        <Setter TargetName="Choice" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
-                                                                        <Setter Property="Foreground" Value="White" />
-                                                                    </Trigger>
-                                                                    <Trigger Property="IsMouseOver" Value="True">
-                                                                        <Setter TargetName="Choice" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
-                                                                        <Setter Property="Foreground" Value="White" />
-                                                                    </Trigger>
-                                                                </ControlTemplate.Triggers>
-                                                            </ControlTemplate>
-                                                        </Setter.Value>
-                                                    </Setter>
-                                                </Style>
-                                            </StackPanel.Resources>
-                                            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="📡 Traffic routing" />
-                                            <Grid Margin="0,5,0,0">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="118" />
-                                                    <ColumnDefinition Width="92" />
-                                                    <ColumnDefinition Width="106" />
-                                                </Grid.ColumnDefinitions>
-                                                <RadioButton Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsSystemProxyMode}" ToolTip="Use Windows HTTP(S) proxy settings.">
-                                                    <StackPanel>
-                                                        <TextBlock FontWeight="SemiBold" Text="System proxy" />
-                                                        <TextBlock Margin="0,1,0,0" FontSize="9" Opacity="0.7" Text="Browsers &amp; apps" />
-                                                    </StackPanel>
-                                                </RadioButton>
-                                                <RadioButton Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsTunOnlyMode}" ToolTip="Route all network traffic through the virtual adapter.">
-                                                    <StackPanel>
-                                                        <TextBlock FontWeight="SemiBold" Text="TUN" />
-                                                        <TextBlock Margin="0,1,0,0" FontSize="9" Opacity="0.7" Text="All traffic" />
-                                                    </StackPanel>
-                                                </RadioButton>
-                                                <RadioButton Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsMixedMode}" ToolTip="Keep Windows HTTP(S) proxy and TUN active together.">
-                                                    <StackPanel>
-                                                        <TextBlock FontWeight="SemiBold" Text="Mixed" />
-                                                        <TextBlock Margin="0,1,0,0" FontSize="9" Opacity="0.7" Text="Combined" />
-                                                    </StackPanel>
-                                                </RadioButton>
-                                            </Grid>
-                                            <TextBlock Margin="1,4,0,0" FontSize="9" Foreground="{DynamicResource ForegroundMutedBrush}" Text="{Binding TunModeStatus}" />
+                                        CornerRadius="8">
+                                        <Border.ToolTip>
+                                            <ToolTip Content="{Binding TunModeStatus}" />
+                                        </Border.ToolTip>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock
+                                                    FontSize="11"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="📡 TRAFFIC ROUTING" />
+                                                <TextBlock
+                                                    Margin="8,0,0,0"
+                                                    FontSize="9.5"
+                                                    Foreground="{DynamicResource PrimaryAccentBrush}"
+                                                    Text="{Binding TunModeStatus}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    MaxWidth="130" />
+                                            </StackPanel>
+                                            <Border
+                                                Margin="0,5,0,0"
+                                                Padding="2"
+                                                Background="#1B1F29"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="7">
+                                                <Grid>
+                                                    <Grid.Resources>
+                                                        <Style TargetType="RadioButton">
+                                                            <Setter Property="Height" Value="26" />
+                                                            <Setter Property="Padding" Value="8,0" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
+                                                            <Setter Property="Cursor" Value="Hand" />
+                                                            <Setter Property="Template">
+                                                                <Setter.Value>
+                                                                    <ControlTemplate TargetType="RadioButton">
+                                                                        <Border
+                                                                            x:Name="Choice"
+                                                                            Padding="{TemplateBinding Padding}"
+                                                                            Background="Transparent"
+                                                                            CornerRadius="5">
+                                                                            <ContentPresenter
+                                                                                HorizontalAlignment="Center"
+                                                                                VerticalAlignment="Center"
+                                                                                TextElement.FontSize="11"
+                                                                                TextElement.FontWeight="SemiBold" />
+                                                                        </Border>
+                                                                        <ControlTemplate.Triggers>
+                                                                            <Trigger Property="IsChecked" Value="True">
+                                                                                <Setter TargetName="Choice" Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
+                                                                                <Setter Property="Foreground" Value="White" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                                <Setter Property="Foreground" Value="White" />
+                                                                            </Trigger>
+                                                                        </ControlTemplate.Triggers>
+                                                                    </ControlTemplate>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                        </Style>
+                                                    </Grid.Resources>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton
+                                                        GroupName="RoutingMode"
+                                                        IsChecked="{Binding IsSystemProxyMode}"
+                                                        ToolTip="Use Windows HTTP(S) proxy settings (browsers and apps).">
+                                                        <TextBlock Text="System proxy" />
+                                                    </RadioButton>
+                                                    <RadioButton
+                                                        Grid.Column="1"
+                                                        GroupName="RoutingMode"
+                                                        IsChecked="{Binding IsTunOnlyMode}"
+                                                        ToolTip="Route all network traffic through the virtual TUN adapter.">
+                                                        <TextBlock Text="TUN" />
+                                                    </RadioButton>
+                                                    <RadioButton
+                                                        Grid.Column="2"
+                                                        GroupName="RoutingMode"
+                                                        IsChecked="{Binding IsMixedMode}"
+                                                        ToolTip="Keep Windows HTTP(S) proxy and TUN active together.">
+                                                        <TextBlock Text="Mixed" />
+                                                    </RadioButton>
+                                                </Grid>
+                                            </Border>
                                         </StackPanel>
                                     </Border>
                                 </Grid>
@@ -2378,7 +2440,8 @@
                                                                             VerticalAlignment="Center"
                                                                             FontSize="15"
                                                                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                            Text="{Binding Icon}" />
+                                                                            Text="{Binding Icon}"
+                                                                            Visibility="{Binding AppIcon, Converter={StaticResource NullToBool}, ConverterParameter=InverseVisible}" />
                                                                         <Image
                                                                             Width="22"
                                                                             Height="22"
@@ -2590,7 +2653,8 @@
                                                                             VerticalAlignment="Center"
                                                                             FontSize="14"
                                                                             Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                            Text="🌐" />
+                                                                            Text="🌐"
+                                                                            Visibility="{Binding SiteIcon, Converter={StaticResource NullToBool}, ConverterParameter=InverseVisible}" />
                                                                         <Image
                                                                             Width="20"
                                                                             Height="20"
@@ -3548,11 +3612,30 @@
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
-                                                            <Image
-                                                                Width="24"
-                                                                Height="24"
-                                                                Margin="0,0,12,0"
-                                                                Source="{Binding Icon}" />
+                                                            <Border
+                                                                Width="30"
+                                                                Height="30"
+                                                                Margin="0,0,10,0"
+                                                                VerticalAlignment="Center"
+                                                                Background="#1AFFFFFF"
+                                                                CornerRadius="7">
+                                                                <Grid>
+                                                                    <TextBlock
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center"
+                                                                        FontSize="14"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="💻"
+                                                                        Visibility="{Binding Icon, Converter={StaticResource NullToBool}, ConverterParameter=InverseVisible}" />
+                                                                    <Image
+                                                                        Width="22"
+                                                                        Height="22"
+                                                                        RenderOptions.BitmapScalingMode="HighQuality"
+                                                                        Source="{Binding Icon}"
+                                                                        Stretch="Uniform"
+                                                                        Visibility="{Binding Icon, Converter={StaticResource NullToBool}, ConverterParameter=Visible}" />
+                                                                </Grid>
+                                                            </Border>
                                                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                                                 <TextBlock
                                                                     FontSize="13"
@@ -3560,31 +3643,58 @@
                                                                     Foreground="{DynamicResource ForegroundBrush}"
                                                                     Text="{Binding ProcessName}"
                                                                     TextTrimming="CharacterEllipsis" />
-                                                                <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
+                                                                <StackPanel Margin="0,3,0,0" Orientation="Horizontal" VerticalAlignment="Center">
                                                                     <TextBlock
-                                                                        FontSize="10"
+                                                                        FontSize="10.5"
+                                                                        FontWeight="SemiBold"
                                                                         Foreground="#10B981"
                                                                         Text="{Binding DownloadSpeedFormatted, StringFormat='↓ {0}'}" />
                                                                     <TextBlock
-                                                                        Margin="12,0,0,0"
-                                                                        FontSize="10"
+                                                                        Margin="8,0,0,0"
+                                                                        FontSize="10.5"
+                                                                        FontWeight="SemiBold"
                                                                         Foreground="#60A5FA"
                                                                         Text="{Binding UploadSpeedFormatted, StringFormat='↑ {0}'}" />
+                                                                    <TextBlock
+                                                                        Margin="8,0,0,0"
+                                                                        FontSize="9.5"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="{Binding CurrentTotalSpeedFormatted, StringFormat='(⚡ {0})'}" />
                                                                 </StackPanel>
                                                             </StackPanel>
                                                             <StackPanel
                                                                 Grid.Column="2"
                                                                 HorizontalAlignment="Right"
                                                                 VerticalAlignment="Center">
-                                                                <TextBlock
-                                                                    FontSize="10"
-                                                                    Foreground="#A1A1AA"
-                                                                    Text="{Binding TotalDownloadFormatted, StringFormat='DL: {0}'}" />
-                                                                <TextBlock
-                                                                    Margin="0,2,0,0"
-                                                                    FontSize="10"
-                                                                    Foreground="#A1A1AA"
-                                                                    Text="{Binding TotalUploadFormatted, StringFormat='UL: {0}'}" />
+                                                                <Border
+                                                                    Padding="6,2"
+                                                                    HorizontalAlignment="Right"
+                                                                    Background="#1B2234"
+                                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="5">
+                                                                    <TextBlock
+                                                                        FontSize="10.5"
+                                                                        FontWeight="Bold"
+                                                                        Foreground="{DynamicResource PrimaryAccentBrush}"
+                                                                        Text="{Binding TotalTrafficFormatted, StringFormat='📦 {0}'}"
+                                                                        ToolTip="Total transferred traffic (Download + Upload)" />
+                                                                </Border>
+                                                                <StackPanel Margin="0,3,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                                    <TextBlock
+                                                                        FontSize="9"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="{Binding TotalDownloadFormatted, StringFormat='DL: {0}'}" />
+                                                                    <TextBlock
+                                                                        Margin="4,0"
+                                                                        FontSize="9"
+                                                                        Foreground="{DynamicResource ForegroundDisabledBrush}"
+                                                                        Text="•" />
+                                                                    <TextBlock
+                                                                        FontSize="9"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="{Binding TotalUploadFormatted, StringFormat='UL: {0}'}" />
+                                                                </StackPanel>
                                                             </StackPanel>
                                                         </Grid>
                                                     </Border>
@@ -3632,18 +3742,38 @@
                                         </StackPanel>
                                         <Border
                                             Grid.Column="1"
-                                            Padding="9,5"
+                                            Padding="10,5"
                                             VerticalAlignment="Center"
                                             Background="{DynamicResource SurfaceLightBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
                                             BorderThickness="1"
                                             CornerRadius="12">
-                                            <TextBlock
-                                                FontSize="10"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource ForegroundBrush}"
-                                                Text="{Binding SelectedMonitorProcess.ProcessName}"
-                                                TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock
+                                                    FontSize="11"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundBrush}"
+                                                    Text="{Binding SelectedMonitorProcess.ProcessName}"
+                                                    TextTrimming="CharacterEllipsis" />
+                                                <TextBlock
+                                                    Margin="8,0,0,0"
+                                                    FontSize="10"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="#10B981"
+                                                    Text="{Binding SelectedMonitorProcess.DownloadSpeedFormatted, StringFormat='↓ {0}'}" />
+                                                <TextBlock
+                                                    Margin="6,0,0,0"
+                                                    FontSize="10"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="#60A5FA"
+                                                    Text="{Binding SelectedMonitorProcess.UploadSpeedFormatted, StringFormat='↑ {0}'}" />
+                                                <TextBlock
+                                                    Margin="8,0,0,0"
+                                                    FontSize="10"
+                                                    FontWeight="Bold"
+                                                    Foreground="{DynamicResource PrimaryAccentBrush}"
+                                                    Text="{Binding SelectedMonitorProcess.TotalTrafficFormatted, StringFormat='📦 {0}'}" />
+                                            </StackPanel>
                                         </Border>
                                     </Grid>
 
@@ -3833,7 +3963,8 @@
                                                                         VerticalAlignment="Center"
                                                                         FontSize="16"
                                                                         Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                        Text="🌐" />
+                                                                        Text="🌐"
+                                                                        Visibility="{Binding SiteIcon, Converter={StaticResource NullToBool}, ConverterParameter=InverseVisible}" />
                                                                     <Image
                                                                         Width="22"
                                                                         Height="22"
@@ -4272,7 +4403,8 @@
                                                                                 VerticalAlignment="Center"
                                                                                 FontSize="12"
                                                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                                Text="🌐" />
+                                                                                Text="🌐"
+                                                                                Visibility="{Binding SiteIcon, Converter={StaticResource NullToBool}, ConverterParameter=InverseVisible}" />
                                                                             <Image
                                                                                 Width="16"
                                                                                 Height="16"

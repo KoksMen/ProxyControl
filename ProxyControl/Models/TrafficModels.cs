@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -31,6 +31,8 @@ namespace ProxyControl.Models
                     _currentDownloadSpeed = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(DownloadSpeedFormatted));
+                    OnPropertyChanged(nameof(CurrentTotalSpeed));
+                    OnPropertyChanged(nameof(CurrentTotalSpeedFormatted));
                 }
             }
         }
@@ -46,6 +48,8 @@ namespace ProxyControl.Models
                     _currentUploadSpeed = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(UploadSpeedFormatted));
+                    OnPropertyChanged(nameof(CurrentTotalSpeed));
+                    OnPropertyChanged(nameof(CurrentTotalSpeedFormatted));
                 }
             }
         }
@@ -60,6 +64,8 @@ namespace ProxyControl.Models
                     _totalDownload = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(TotalDownloadFormatted));
+                    OnPropertyChanged(nameof(TotalTraffic));
+                    OnPropertyChanged(nameof(TotalTrafficFormatted));
                 }
             }
         }
@@ -74,6 +80,8 @@ namespace ProxyControl.Models
                     _totalUpload = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(TotalUploadFormatted));
+                    OnPropertyChanged(nameof(TotalTraffic));
+                    OnPropertyChanged(nameof(TotalTrafficFormatted));
                 }
             }
         }
@@ -85,6 +93,16 @@ namespace ProxyControl.Models
         public long BytesDownLastSecond;
         [JsonIgnore]
         public long BytesUpLastSecond;
+
+        [JsonIgnore]
+        public long TotalTraffic => TotalDownload + TotalUpload;
+        [JsonIgnore]
+        public string TotalTrafficFormatted => FormatSize(TotalTraffic);
+
+        [JsonIgnore]
+        public long CurrentTotalSpeed => CurrentDownloadSpeed + CurrentUploadSpeed;
+        [JsonIgnore]
+        public string CurrentTotalSpeedFormatted => FormatSpeed(CurrentTotalSpeed);
 
         [JsonIgnore]
         public string DownloadSpeedFormatted => FormatSpeed(CurrentDownloadSpeed);

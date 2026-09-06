@@ -44,6 +44,7 @@ namespace ProxyControl.Services
 
         private readonly DispatcherTimer _uiBatchTimer;
         private const int UiRefreshRateMs = 250;
+        private DateTime _lastSpeedUpdateUtc = DateTime.UtcNow;
 
         private class TrafficDelta
         {
@@ -191,14 +192,19 @@ namespace ProxyControl.Services
                 }
             }
 
-            if ((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) % 1000 < UiRefreshRateMs * 1.5)
+            var now = DateTime.UtcNow;
+            var elapsed = (now - _lastSpeedUpdateUtc).TotalSeconds;
+            if (elapsed >= 0.5)
             {
-                UpdateSpeeds();
+                _lastSpeedUpdateUtc = now;
+                UpdateSpeeds(elapsed);
             }
         }
 
-        private void UpdateSpeeds()
+        private void UpdateSpeeds(double elapsedSeconds)
         {
+            if (elapsedSeconds <= 0.001) elapsedSeconds = 0.5;
+
             long totalDown = 0;
             long totalUp = 0;
 
@@ -208,11 +214,14 @@ namespace ProxyControl.Services
                 long down = Interlocked.Exchange(ref stats.BytesDownLastSecond, 0);
                 long up = Interlocked.Exchange(ref stats.BytesUpLastSecond, 0);
 
-                if (stats.CurrentDownloadSpeed != down) stats.CurrentDownloadSpeed = down;
-                if (stats.CurrentUploadSpeed != up) stats.CurrentUploadSpeed = up;
+                long downSpeed = (long)Math.Round(down / elapsedSeconds);
+                long upSpeed = (long)Math.Round(up / elapsedSeconds);
 
-                totalDown += down;
-                totalUp += up;
+                if (stats.CurrentDownloadSpeed != downSpeed) stats.CurrentDownloadSpeed = downSpeed;
+                if (stats.CurrentUploadSpeed != upSpeed) stats.CurrentUploadSpeed = upSpeed;
+
+                totalDown += downSpeed;
+                totalUp += upSpeed;
             }
 
             TotalCurrentDownloadSpeed = totalDown;

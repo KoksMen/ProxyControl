@@ -1544,7 +1544,7 @@ namespace ProxyControl.ViewModels
         }
 
         public double ProxyPanelWidth => IsProxyPanelExpanded ? 340 : 76;
-        public string ProxyPanelToggleGlyph => IsProxyPanelExpanded ? "📡‹" : "📡›";
+        public string ProxyPanelToggleGlyph => IsProxyPanelExpanded ? "◀" : "▶";
 
         private bool _isProxyCheckInProgress;
         public bool IsProxyCheckInProgress
