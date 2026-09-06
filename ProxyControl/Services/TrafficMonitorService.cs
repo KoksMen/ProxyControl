@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using ProxyControl.Helpers;
 using ProxyControl.Models;
 using System;
@@ -33,6 +34,8 @@ namespace ProxyControl.Services
             = new ObservableCollection<ProcessTrafficData>();
 
         private readonly string _logsPath;
+        private readonly string _dbPath;
+        private readonly string _connectionString;
 
         private readonly Channel<ConnectionHistoryItem> _logChannel;
         private readonly CancellationTokenSource _servicesCts;
@@ -63,7 +66,15 @@ namespace ProxyControl.Services
             var oldLogsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             MigrateLegacyLogs(oldLogsPath, _logsPath);
 
-            Task.Run(() => CleanupOldLogs(_logsPath, 30));
+            _dbPath = Path.Combine(_logsPath, "traffic.db");
+            _connectionString = $"Data Source={_dbPath}";
+            InitializeDatabase();
+
+            Task.Run(() =>
+            {
+                MigrateJsonlToSqlite();
+                CleanupOldLogs(30);
+            });
 
             _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(25000)
             {
@@ -247,54 +258,126 @@ namespace ProxyControl.Services
             return $"{bytesPerSec / (1024.0 * 1024.0 * 1024.0):F2} GB/s";
         }
 
-        // Fix 3.1: LogWriter uses a persistent FileStream to reduce IO overhead
+        private void InitializeDatabase()
+        {
+            try
+            {
+                using var conn = new SqliteConnection(_connectionString);
+                conn.Open();
+
+                using var cmdPragma = conn.CreateCommand();
+                cmdPragma.CommandText = @"
+                    PRAGMA journal_mode = WAL;
+                    PRAGMA synchronous = NORMAL;
+                ";
+                cmdPragma.ExecuteNonQuery();
+
+                using var cmdTable = conn.CreateCommand();
+                cmdTable.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS connections (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        process_name TEXT NOT NULL,
+                        process_path TEXT,
+                        host TEXT NOT NULL,
+                        status TEXT,
+                        details TEXT,
+                        flag_url TEXT,
+                        color TEXT,
+                        traffic_type INTEGER NOT NULL DEFAULT 0,
+                        bytes_down INTEGER NOT NULL DEFAULT 0,
+                        bytes_up INTEGER NOT NULL DEFAULT 0
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_connections_timestamp ON connections(timestamp);
+                    CREATE INDEX IF NOT EXISTS idx_connections_proc_time ON connections(process_name, timestamp);
+                ";
+                cmdTable.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                AppLoggerService.Instance.Error("TrafficMonitor", $"Failed to initialize SQLite database: {ex.Message}");
+            }
+        }
+
         private async Task LogWriterLoop(CancellationToken token)
         {
             try
             {
-                string currentFileName = "";
-                FileStream? currentStream = null;
-                StreamWriter? currentWriter = null;
-
                 while (await _logChannel.Reader.WaitToReadAsync(token))
                 {
+                    var batch = new List<ConnectionHistoryItem>();
                     while (_logChannel.Reader.TryRead(out var item))
                     {
-                        try
-                        {
-                            string fileName = $"log_{item.Timestamp:yyyy-MM-dd}.jsonl";
-                            string fullPath = Path.Combine(_logsPath, fileName);
-
-                            if (currentFileName != fileName)
-                            {
-                                if (currentWriter != null)
-                                {
-                                    await currentWriter.DisposeAsync();
-                                    currentStream?.Dispose();
-                                }
-
-                                currentFileName = fileName;
-                                currentStream = new FileStream(fullPath, FileMode.Append, FileAccess.Write, FileShare.Read);
-                                currentWriter = new StreamWriter(currentStream) { AutoFlush = false };
-                            }
-
-                            string json = JsonSerializer.Serialize(item);
-                            if (currentWriter != null)
-                            {
-                                await currentWriter.WriteLineAsync(json);
-                            }
-                        }
-                        catch { }
+                        batch.Add(item);
+                        if (batch.Count >= 500) break;
                     }
 
-                    // Flush batch
-                    if (currentWriter != null) await currentWriter.FlushAsync();
+                    if (batch.Count > 0)
+                    {
+                        await InsertBatchAsync(batch);
+                    }
                 }
-
-                if (currentWriter != null) await currentWriter.DisposeAsync();
-                currentStream?.Dispose();
             }
             catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                AppLoggerService.Instance.Error("TrafficMonitor", $"LogWriterLoop error: {ex.Message}");
+            }
+        }
+
+        private async Task InsertBatchAsync(List<ConnectionHistoryItem> batch)
+        {
+            try
+            {
+                await using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync();
+
+                await using var tx = conn.BeginTransaction();
+                await using var cmd = conn.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = @"
+                    INSERT INTO connections (
+                        timestamp, process_name, process_path, host, status, details, flag_url, color, traffic_type, bytes_down, bytes_up
+                    ) VALUES (
+                        @timestamp, @process_name, @process_path, @host, @status, @details, @flag_url, @color, @traffic_type, @bytes_down, @bytes_up
+                    );";
+
+                var pTimestamp = cmd.Parameters.Add("@timestamp", SqliteType.Text);
+                var pProcName = cmd.Parameters.Add("@process_name", SqliteType.Text);
+                var pProcPath = cmd.Parameters.Add("@process_path", SqliteType.Text);
+                var pHost = cmd.Parameters.Add("@host", SqliteType.Text);
+                var pStatus = cmd.Parameters.Add("@status", SqliteType.Text);
+                var pDetails = cmd.Parameters.Add("@details", SqliteType.Text);
+                var pFlagUrl = cmd.Parameters.Add("@flag_url", SqliteType.Text);
+                var pColor = cmd.Parameters.Add("@color", SqliteType.Text);
+                var pTrafficType = cmd.Parameters.Add("@traffic_type", SqliteType.Integer);
+                var pBytesDown = cmd.Parameters.Add("@bytes_down", SqliteType.Integer);
+                var pBytesUp = cmd.Parameters.Add("@bytes_up", SqliteType.Integer);
+
+                foreach (var item in batch)
+                {
+                    pTimestamp.Value = item.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                    pProcName.Value = item.ProcessName ?? "";
+                    pProcPath.Value = item.ProcessPath ?? "";
+                    pHost.Value = item.Host ?? "";
+                    pStatus.Value = item.Status ?? "";
+                    pDetails.Value = item.Details ?? "";
+                    pFlagUrl.Value = (object?)item.FlagUrl ?? DBNull.Value;
+                    pColor.Value = item.Color ?? "White";
+                    pTrafficType.Value = (int)item.Type;
+                    pBytesDown.Value = item.BytesDown;
+                    pBytesUp.Value = item.BytesUp;
+
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                await tx.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                AppLoggerService.Instance.Error("TrafficMonitor", $"InsertBatchAsync error: {ex.Message}");
+            }
         }
 
         public async Task LoadHistoryAsync(
@@ -309,54 +392,81 @@ namespace ProxyControl.Services
 
             var resultDict = new Dictionary<string, ProcessTrafficData>();
 
-            await Task.Run(() =>
+            await Task.Run(async () =>
             {
-                var current = start.Date;
-                var endDate = end.Date;
+                var startDateTime = start.Date + (startTime ?? TimeSpan.Zero);
+                var endDateTime = end.Date + (endTime ?? new TimeSpan(0, 23, 59, 59, 999));
+                var startStr = startDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                var endStr = endDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
 
-                while (current <= endDate)
+                await using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync(token);
+
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT timestamp, process_name, process_path, host, status, details, flag_url, color, traffic_type, bytes_down, bytes_up
+                    FROM connections
+                    WHERE timestamp >= @startStr AND timestamp <= @endStr
+                    ORDER BY timestamp DESC;";
+                cmd.Parameters.AddWithValue("@startStr", startStr);
+                cmd.Parameters.AddWithValue("@endStr", endStr);
+
+                await using var reader = await cmd.ExecuteReaderAsync(token);
+                while (await reader.ReadAsync(token))
                 {
                     token.ThrowIfCancellationRequested();
-                    string fileName = $"log_{current:yyyy-MM-dd}.jsonl";
-                    string fullPath = Path.Combine(_logsPath, fileName);
 
-                    if (File.Exists(fullPath))
+                    var tsStr = reader.GetString(0);
+                    var procName = reader.GetString(1);
+                    var procPath = reader.IsDBNull(2) ? "" : reader.GetString(2);
+                    var host = reader.GetString(3);
+                    var status = reader.IsDBNull(4) ? "" : reader.GetString(4);
+                    var details = reader.IsDBNull(5) ? "" : reader.GetString(5);
+                    var flagUrl = reader.IsDBNull(6) ? null : reader.GetString(6);
+                    var color = reader.IsDBNull(7) ? "White" : reader.GetString(7);
+                    var trafficType = (TrafficType)reader.GetInt32(8);
+                    var bytesDown = reader.GetInt64(9);
+                    var bytesUp = reader.GetInt64(10);
+
+                    DateTime.TryParse(tsStr, out var timestamp);
+
+                    var item = new ConnectionHistoryItem
                     {
-                        foreach (var line in File.ReadLines(fullPath))
+                        Timestamp = timestamp,
+                        ProcessName = procName,
+                        ProcessPath = procPath,
+                        Host = host,
+                        Status = status,
+                        Details = details,
+                        FlagUrl = flagUrl,
+                        Color = color,
+                        Type = trafficType,
+                        BytesDown = bytesDown,
+                        BytesUp = bytesUp
+                    };
+
+                    if (!resultDict.TryGetValue(procName, out var pData))
+                    {
+                        pData = new ProcessTrafficData
                         {
-                            token.ThrowIfCancellationRequested();
-                            try
-                            {
-                                var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
-                                if (item != null)
-                                {
-                                    if (startTime.HasValue && item.Timestamp.TimeOfDay < startTime.Value) continue;
-                                    if (endTime.HasValue && item.Timestamp.TimeOfDay > endTime.Value) continue;
-
-                                    if (!resultDict.ContainsKey(item.ProcessName))
-                                    {
-                                        resultDict[item.ProcessName] = new ProcessTrafficData
-                                        {
-                                            ProcessName = item.ProcessName,
-                                            ProcessPath = item.ProcessPath
-                                        };
-                                    }
-
-                                    var pData = resultDict[item.ProcessName];
-                                    if (string.IsNullOrWhiteSpace(pData.ProcessPath) &&
-                                        !string.IsNullOrWhiteSpace(item.ProcessPath))
-                                    {
-                                        pData.ProcessPath = item.ProcessPath;
-                                    }
-                                    pData.TotalDownload += item.BytesDown;
-                                    pData.TotalUpload += item.BytesUp;
-                                    pData.Connections.Add(item);
-                                }
-                            }
-                            catch { }
-                        }
+                            ProcessName = procName,
+                            ProcessPath = procPath
+                        };
+                        resultDict[procName] = pData;
                     }
-                    current = current.AddDays(1);
+
+                    if (string.IsNullOrWhiteSpace(pData.ProcessPath) && !string.IsNullOrWhiteSpace(procPath))
+                    {
+                        pData.ProcessPath = procPath;
+                    }
+
+                    pData.TotalDownload += bytesDown;
+                    pData.TotalUpload += bytesUp;
+
+                    if (pData.Connections.Count < 1000)
+                    {
+                        pData.Connections.Add(item);
+                    }
                 }
             }, token);
 
@@ -369,20 +479,17 @@ namespace ProxyControl.Services
                     : _liveProcessStats.TryGetValue(p.ProcessName, out var liveP)
                         ? liveP.Icon
                         : IconHelper.GetIconByProcessName(p.ProcessName);
-                var sorted = p.Connections.OrderByDescending(x => x.Timestamp).ToList();
-                p.Connections.Clear();
-                foreach (var s in sorted) p.Connections.Add(s);
             }
 
             await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 if (token.IsCancellationRequested) return;
                 DisplayedProcessList.Clear();
-                foreach (var p in resultDict.Values)
+                foreach (var p in resultDict.Values.OrderByDescending(x => x.TotalTraffic))
                 {
                     DisplayedProcessList.Add(p);
                 }
-            }, System.Windows.Threading.DispatcherPriority.Background);
+            }, DispatcherPriority.Background);
         }
 
         public void SwitchToLiveMode()
@@ -425,34 +532,134 @@ namespace ProxyControl.Services
             }
         }
 
-        private static void CleanupOldLogs(string logsDir, int retentionDays = 30)
+        private void CleanupOldLogs(int retentionDays = 30)
         {
             try
             {
-                if (!Directory.Exists(logsDir)) return;
                 var cutoff = DateTime.Now.Date.AddDays(-retentionDays);
-                var files = Directory.GetFiles(logsDir, "log_*.jsonl");
-                foreach (var file in files)
+                var cutoffStr = cutoff.ToString("yyyy-MM-dd HH:mm:ss.fff");
+
+                using var conn = new SqliteConnection(_connectionString);
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "DELETE FROM connections WHERE timestamp < @cutoffStr;";
+                cmd.Parameters.AddWithValue("@cutoffStr", cutoffStr);
+                cmd.ExecuteNonQuery();
+
+                if (Directory.Exists(_logsPath))
                 {
-                    try
+                    foreach (var file in Directory.GetFiles(_logsPath, "log_*.jsonl"))
                     {
-                        var name = Path.GetFileNameWithoutExtension(file);
-                        if (name.StartsWith("log_") && DateTime.TryParse(name.Substring(4), out var fileDate))
+                        try
                         {
-                            if (fileDate < cutoff)
+                            var name = Path.GetFileNameWithoutExtension(file);
+                            if (name.StartsWith("log_") && DateTime.TryParse(name.Substring(4), out var fileDate))
+                            {
+                                if (fileDate < cutoff) File.Delete(file);
+                            }
+                            else if (File.GetLastWriteTime(file) < cutoff)
                             {
                                 File.Delete(file);
                             }
                         }
-                        else if (File.GetLastWriteTime(file) < cutoff)
-                        {
-                            File.Delete(file);
-                        }
+                        catch { }
                     }
-                    catch { }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                AppLoggerService.Instance.Warning("TrafficMonitor", $"CleanupOldLogs error: {ex.Message}");
+            }
+        }
+
+        private void MigrateJsonlToSqlite()
+        {
+            try
+            {
+                if (!Directory.Exists(_logsPath)) return;
+
+                var files = Directory.GetFiles(_logsPath, "log_*.jsonl");
+                if (files.Length == 0) return;
+
+                AppLoggerService.Instance.Info("TrafficMonitor", $"Found {files.Length} legacy JSONL log files. Starting migration to SQLite...");
+
+                using var conn = new SqliteConnection(_connectionString);
+                conn.Open();
+
+                foreach (var file in files)
+                {
+                    try
+                    {
+                        var items = new List<ConnectionHistoryItem>();
+                        foreach (var line in File.ReadLines(file))
+                        {
+                            try
+                            {
+                                var item = JsonSerializer.Deserialize<ConnectionHistoryItem>(line);
+                                if (item != null) items.Add(item);
+                            }
+                            catch { }
+                        }
+
+                        if (items.Count > 0)
+                        {
+                            using var tx = conn.BeginTransaction();
+                            using var cmd = conn.CreateCommand();
+                            cmd.Transaction = tx;
+                            cmd.CommandText = @"
+                                INSERT INTO connections (
+                                    timestamp, process_name, process_path, host, status, details, flag_url, color, traffic_type, bytes_down, bytes_up
+                                ) VALUES (
+                                    @timestamp, @process_name, @process_path, @host, @status, @details, @flag_url, @color, @traffic_type, @bytes_down, @bytes_up
+                                );";
+
+                            var pTimestamp = cmd.Parameters.Add("@timestamp", SqliteType.Text);
+                            var pProcName = cmd.Parameters.Add("@process_name", SqliteType.Text);
+                            var pProcPath = cmd.Parameters.Add("@process_path", SqliteType.Text);
+                            var pHost = cmd.Parameters.Add("@host", SqliteType.Text);
+                            var pStatus = cmd.Parameters.Add("@status", SqliteType.Text);
+                            var pDetails = cmd.Parameters.Add("@details", SqliteType.Text);
+                            var pFlagUrl = cmd.Parameters.Add("@flag_url", SqliteType.Text);
+                            var pColor = cmd.Parameters.Add("@color", SqliteType.Text);
+                            var pTrafficType = cmd.Parameters.Add("@traffic_type", SqliteType.Integer);
+                            var pBytesDown = cmd.Parameters.Add("@bytes_down", SqliteType.Integer);
+                            var pBytesUp = cmd.Parameters.Add("@bytes_up", SqliteType.Integer);
+
+                            foreach (var item in items)
+                            {
+                                pTimestamp.Value = item.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                                pProcName.Value = item.ProcessName ?? "";
+                                pProcPath.Value = item.ProcessPath ?? "";
+                                pHost.Value = item.Host ?? "";
+                                pStatus.Value = item.Status ?? "";
+                                pDetails.Value = item.Details ?? "";
+                                pFlagUrl.Value = (object?)item.FlagUrl ?? DBNull.Value;
+                                pColor.Value = item.Color ?? "White";
+                                pTrafficType.Value = (int)item.Type;
+                                pBytesDown.Value = item.BytesDown;
+                                pBytesUp.Value = item.BytesUp;
+
+                                cmd.ExecuteNonQuery();
+                            }
+
+                            tx.Commit();
+                        }
+
+                        try { File.Delete(file); } catch { }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLoggerService.Instance.Warning("TrafficMonitor", $"Migration of {file} failed: {ex.Message}");
+                    }
+                }
+
+                AppLoggerService.Instance.Info("TrafficMonitor", "Legacy JSONL migration to SQLite completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                AppLoggerService.Instance.Warning("TrafficMonitor", $"MigrateJsonlToSqlite error: {ex.Message}");
+            }
         }
     }
 }
