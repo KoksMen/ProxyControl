@@ -408,6 +408,11 @@ namespace ProxyControl.ViewModels
             set
             {
                 _selectedProfile = value;
+                if (value != null && !string.IsNullOrWhiteSpace(value.Name))
+                {
+                    _profileName = value.Name;
+                    OnPropertyChanged(nameof(ProfileName));
+                }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasSelectedProfile));
             }
@@ -424,6 +429,7 @@ namespace ProxyControl.ViewModels
 
         private string? _activeProfileId;
         public string ActiveProfileName => Profiles.FirstOrDefault(p => p.Id == _activeProfileId)?.Name ?? "No active profile";
+        public bool HasActiveProfile => !string.IsNullOrEmpty(_activeProfileId) && Profiles.Any(p => p.Id == _activeProfileId);
 
         // Grid-based rules UI - Groups as cards
         public IEnumerable<RuleGroupInfo> RuleGroups
@@ -1757,6 +1763,7 @@ namespace ProxyControl.ViewModels
         public ICommand SaveChangesCommand { get; }
         public ICommand CheckDnsCommand { get; }
         public ICommand CheckProxyCommand { get; }
+        public ICommand CheckAllProxiesCommand { get; }
         public ICommand ToggleProxyPanelCommand { get; }
         public ICommand AddRuleCommand { get; }
         public ICommand RemoveRuleCommand { get; }
@@ -1857,6 +1864,7 @@ namespace ProxyControl.ViewModels
             SaveChangesCommand = new RelayCommand(async _ => await SaveDohSettingsNowAsync());
             CheckDnsCommand = new RelayCommand(async _ => await CheckDnsServersAsync());
             CheckProxyCommand = new RelayCommand(_ => CheckSelectedProxy());
+            CheckAllProxiesCommand = new RelayCommand(async _ => await CheckAllProxies());
             ToggleProxyPanelCommand = new RelayCommand(_ => IsProxyPanelExpanded = !IsProxyPanelExpanded);
             SaveProfileCommand = new RelayCommand(_ => SaveProfile());
             LoadProfileCommand = new RelayCommand(_ => LoadProfile());
@@ -2800,15 +2808,38 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        private bool _isCheckingAllProxies;
+        public bool IsCheckingAllProxies
+        {
+            get => _isCheckingAllProxies;
+            set { _isCheckingAllProxies = value; OnPropertyChanged(); OnPropertyChanged(nameof(PingAllButtonText)); }
+        }
+
+        public string PingAllButtonText => _isCheckingAllProxies ? "Checking..." : "Ping All";
+
         private async Task CheckAllProxies(IReadOnlyList<ProxyItem>? proxies = null)
         {
+            if (_isCheckingAllProxies) return;
             var proxyList = proxies?.ToList() ?? Proxies.ToList();
-            if (proxyList.Count == 0) return;
+            if (proxyList.Count == 0)
+            {
+                ShowMessage("Ping All", "No proxies found in the list. Please add proxies first.");
+                return;
+            }
 
-            var online = new bool[proxyList.Count];
-
+            IsCheckingAllProxies = true;
             try
             {
+                Application.Current?.Dispatcher.Invoke(() =>
+                {
+                    foreach (var proxy in proxyList)
+                    {
+                        proxy.Status = "Checking...";
+                    }
+                });
+
+                var online = new bool[proxyList.Count];
+
                 // Phase 1: availability and TCP ping are lightweight, so check
                 // several proxies concurrently and populate their status quickly.
                 using (var semaphore = new SemaphoreSlim(6))
@@ -2871,7 +2902,8 @@ namespace ProxyControl.ViewModels
             }
             finally
             {
-                Application.Current.Dispatcher.Invoke(() =>
+                IsCheckingAllProxies = false;
+                Application.Current?.Dispatcher.Invoke(() =>
                 {
                     foreach (var proxy in proxyList)
                         proxy.IsSpeedChecking = false;
