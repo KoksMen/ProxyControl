@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using ProxyControl.Models;
 
 namespace ProxyControl.Services
 {
@@ -17,6 +18,7 @@ namespace ProxyControl.Services
 
         public event Action<string, string>? OnMessage;
         public event Action<string, string, long>? OnUpdateAvailable; // Tag, Url, Size
+        public event Action<UpdateReleaseInfo>? OnUpdateAvailableWithInfo;
 
         // Обновленная сигнатура: Title, Details, Percent
         public async Task CheckAndInstallUpdate(Action<string, string, int>? onProgress = null, Action? onCompleted = null, bool silent = false)
@@ -25,7 +27,7 @@ namespace ProxyControl.Services
             {
                 using (var client = new HttpClient())
                 {
-                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "2.7.0"));
+                    client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ProxyControl", "3.2.0"));
 
                     string url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
                     var response = await client.GetStringAsync(url);
@@ -48,6 +50,34 @@ namespace ProxyControl.Services
                                 if (assets[0].TryGetProperty("size", out var sizeProp))
                                 {
                                     fileSize = sizeProp.GetInt64();
+                                }
+
+                                string title = root.TryGetProperty("name", out var nameProp) && !string.IsNullOrWhiteSpace(nameProp.GetString())
+                                    ? nameProp.GetString()!
+                                    : tagName;
+                                string changelog = root.TryGetProperty("body", out var bodyProp)
+                                    ? bodyProp.GetString() ?? ""
+                                    : "";
+                                DateTime? publishedAt = null;
+                                if (root.TryGetProperty("published_at", out var pubProp) && pubProp.TryGetDateTime(out var pubDate))
+                                {
+                                    publishedAt = pubDate;
+                                }
+
+                                var releaseInfo = new UpdateReleaseInfo
+                                {
+                                    TagName = tagName,
+                                    Title = title,
+                                    Changelog = changelog,
+                                    DownloadUrl = downloadUrl,
+                                    FileSize = fileSize,
+                                    PublishedAt = publishedAt
+                                };
+
+                                if (OnUpdateAvailableWithInfo != null)
+                                {
+                                    OnUpdateAvailableWithInfo.Invoke(releaseInfo);
+                                    return;
                                 }
 
                                 if (OnUpdateAvailable != null)

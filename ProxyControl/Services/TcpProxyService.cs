@@ -50,6 +50,7 @@ namespace ProxyControl.Services
         private RuleMode _currentMode;
         private bool _isWebRtcBlockingEnabled = true;
         private bool _isTunMode = false;
+        private bool _isSystemProxyEnabled = true;
         private readonly ProcessMonitorService _processMonitor;
         private readonly TrafficMonitorService _trafficMonitor;
         private const int LocalPort = 8000;
@@ -58,6 +59,9 @@ namespace ProxyControl.Services
         private const int SpeedProbeMinBytes = 256 * 1024;
         private const int SpeedProbeMaxBytes = 10 * 1024 * 1024;
         private static readonly TimeSpan SpeedProbeDuration = TimeSpan.FromSeconds(8);
+
+        public string ProxyCheckUrl { get; set; } = "https://www.google.com/generate_204";
+        public string ProxySpeedTestUrl { get; set; } = "https://speed.cloudflare.com/__down?bytes=10000000";
 
         private static readonly (string Host, int Port, string Path)[] Socks5VerificationTargets =
         {
@@ -116,6 +120,7 @@ namespace ProxyControl.Services
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
         {
             bool hadActiveConnections = !_activeClients.IsEmpty;
+            bool wasSystemProxyEnabled = _isSystemProxyEnabled;
 
             var newProxies = proxies.Select(p => new ProxyItem
             {
@@ -194,10 +199,19 @@ namespace ProxyControl.Services
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
             _isTunMode = config.IsTunMode;
+            _isSystemProxyEnabled = config.IsSystemProxyEnabled;
             _routingFingerprint = nextRoutingFingerprint;
 
             try
             {
+                if (_isRunning)
+                {
+                    if (_isSystemProxyEnabled)
+                        SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
+                    else if (wasSystemProxyEnabled)
+                        SystemProxyHelper.RestoreSystemProxy();
+                }
+
                 if (shouldHardDisconnect)
                 {
                     _logger.Debug("Schedule", "Hard-disconnecting active sessions due to routing/rule change.");
@@ -252,8 +266,7 @@ namespace ProxyControl.Services
                 _listener.Start();
                 _logger.Info("Proxy", $"Proxy started on port {LocalPort}");
 
-                // Only set System Proxy if NOT in TUN mode
-                if (!_isTunMode)
+                if (_isSystemProxyEnabled)
                 {
                     SystemProxyHelper.SetSystemProxy(true, "127.0.0.1", LocalPort);
                 }
@@ -285,7 +298,7 @@ namespace ProxyControl.Services
 
                         if (!_isRunning || token.IsCancellationRequested) break;
 
-                        if (!_isTunMode)
+                        if (_isSystemProxyEnabled)
                         {
                             SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
                         }
@@ -417,8 +430,7 @@ namespace ProxyControl.Services
         {
             if (!_isRunning) return;
 
-            // Limit enforcement to non-TUN mode
-            if (!_isTunMode)
+            if (_isSystemProxyEnabled)
             {
                 SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
             }
@@ -1275,10 +1287,15 @@ namespace ProxyControl.Services
                     {
                         Timeout = TimeSpan.FromSeconds(10)
                     };
-                    using var response = await client.GetAsync(
-                        "https://www.google.com/generate_204",
-                        HttpCompletionOption.ResponseHeadersRead);
+                    var checkUrl = string.IsNullOrWhiteSpace(ProxyCheckUrl) ? "https://www.google.com/generate_204" : ProxyCheckUrl.Trim();
+                    var sw = Stopwatch.StartNew();
+                    using var response = await client.GetAsync(checkUrl);
+                    sw.Stop();
                     connectionSuccess = response.IsSuccessStatusCode;
+                    if (connectionSuccess && sw.ElapsedMilliseconds > 0)
+                    {
+                        ping = sw.ElapsedMilliseconds;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1498,11 +1515,18 @@ namespace ProxyControl.Services
             return 0;
         }
 
-        private static async Task<double> MeasureHttpProxySpeedMBpsAsync(
+        private async Task<double> MeasureHttpProxySpeedMBpsAsync(
             HttpClient client,
             CancellationToken token)
         {
-            foreach (string target in HttpSpeedTargets)
+            var targets = new List<string>();
+            if (!string.IsNullOrWhiteSpace(ProxySpeedTestUrl))
+            {
+                targets.Add(ProxySpeedTestUrl.Trim());
+            }
+            targets.AddRange(HttpSpeedTargets);
+
+            foreach (string target in targets)
             {
                 token.ThrowIfCancellationRequested();
 
@@ -1937,6 +1961,17 @@ namespace ProxyControl.Services
                 processName, appIcon, targetHost,
                 decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(),
                 details, flagUrl, logColor, trafficType, processPath);
+
+            OnConnectionLog?.Invoke(new ConnectionLog
+            {
+                Time = DateTime.Now.ToString("HH:mm:ss"),
+                ProcessName = processName,
+                Host = targetHost,
+                Result = decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(),
+                Color = logColor,
+                CountryFlagUrl = flagUrl,
+                Type = TrafficType.TCP
+            });
 
             if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both)
             {

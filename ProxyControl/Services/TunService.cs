@@ -11,8 +11,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using ProxyControl.Models;
 using ProxyControl.ViewModels;
@@ -35,22 +34,13 @@ namespace ProxyControl.Services
         private readonly SemaphoreSlim _stateGate = new(1, 1);
         private readonly string _dataDir;
         private readonly AppLoggerService _logger;
-        private readonly ConcurrentDictionary<string, TunTraceContext> _trafficTraces = new();
-        private long _requestedConfigVersion;
-        private long _processedLogLineCount;
-        private long _processGeneration;
-        private int _consecutiveUnexpectedExitCount;
-        private TunRulesConfig? _activeConfig;
-        private string _lastError = string.Empty;
+        private readonly SemaphoreSlim _lifecycleLock = new SemaphoreSlim(1, 1);
+        private const string TunInterfaceName = "ProxyControlTUN";
+        private static readonly TimeSpan ProcessStopTimeout = TimeSpan.FromSeconds(8);
+        private string? _lastError;
 
-        private static readonly TimeSpan UnexpectedRestartDelay = TimeSpan.FromSeconds(2);
-        private static readonly TimeSpan StableRunResetDelay = TimeSpan.FromSeconds(30);
-        private const int MaxConsecutiveUnexpectedRestarts = 3;
-
-        private static readonly Regex AnsiEscapeRegex = new(
-            @"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
-        private static readonly Regex TraceIdRegex = new(
-            @"\[(?<id>\d+)\s+[^\]]+\]", RegexOptions.Compiled);
+        private static readonly Regex AnsiEscapeRegex = new(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.Compiled);
+        private static readonly Regex TraceIdRegex = new(@"\[(?<id>\d+)\s+[^\]]+\]", RegexOptions.Compiled);
         private static readonly Regex InboundConnectionRegex = new(
             @"inbound/tun\[[^\]]+\]: inbound (?<packet>packet )?connection to (?<host>.+):(?<port>\d+)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -61,10 +51,46 @@ namespace ProxyControl.Services
             @"outbound/(?<type>[^\[]+)\[(?<tag>[^\]]+)\]: outbound (?<packet>packet )?connection to (?<host>.+):(?<port>\d+)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+        private readonly ConcurrentDictionary<string, TunTraceContext> _trafficTraces = new();
+        private long _processedLogLineCount;
+
+        private class TunTraceContext
+        {
+            public string? Host { get; set; }
+            public int Port { get; set; }
+            public string? Network { get; set; }
+            public string? ProcessName { get; set; }
+            public string? ProcessPath { get; set; }
+            public string? OutboundTag { get; set; }
+            public string? OutboundType { get; set; }
+            public DateTime LastSeenUtc { get; set; }
+        }
+
+        public class TunTrafficEvent
+        {
+            public string ProcessName { get; }
+            public string ProcessPath { get; }
+            public string Host { get; }
+            public int Port { get; }
+            public string Network { get; }
+            public string OutboundTag { get; }
+            public string OutboundType { get; }
+
+            public TunTrafficEvent(string processName, string processPath, string host, int port, string network, string outboundTag, string outboundType)
+            {
+                ProcessName = processName;
+                ProcessPath = processPath;
+                Host = host;
+                Port = port;
+                Network = network;
+                OutboundTag = outboundTag;
+                OutboundType = outboundType;
+            }
+        }
+
         public bool IsRunning => _isRunning;
-        public string LastError => _lastError;
+        public string? LastError => _lastError;
         public event Action<bool>? StatusChanged;
-        public event Action<bool, string>? ApplyStatusChanged;
         public event Action<TunTrafficEvent>? TrafficObserved;
 
         public TunService()
@@ -116,36 +142,16 @@ namespace ProxyControl.Services
         /// <summary>
         /// Start TUN mode - routes all traffic through local proxy
         /// </summary>
-        public async Task<bool> StartAsync(TunRulesConfig rulesConfig)
+        public async Task<bool> StartAsync(TunRulesConfig rulesConfig, CancellationToken cancellationToken = default)
         {
-            // Callers update rules from several UI paths. Capture the complete
-            // request now, rather than retaining references to mutable UI lists.
-            var configSnapshot = CreateSnapshot(rulesConfig);
-            long requestVersion = Interlocked.Increment(ref _requestedConfigVersion);
-            _lastError = string.Empty;
-            ReportApplyStatus(requestVersion, true, "Applying TUN rules…");
-
-            await _stateGate.WaitAsync();
+            bool lockAcquired = false;
             try
             {
-                if (!IsLatestRequest(requestVersion)) return true;
-
-                // sing-box 1.8 cannot resolve a hostname in a legacy DNS URL
-                // without a separate resolver server. Resolve it before the
-                // TUN adapter changes Windows' routing, then give sing-box a
-                // concrete IP address instead.
-                await ResolveDnsServerAddressAsync(configSnapshot);
-                if (!IsLatestRequest(requestVersion)) return true;
-
-                // A previous application instance may have been terminated
-                // before it could stop its child process.
-                if (_singBoxProcess == null || _singBoxProcess.HasExited)
-                {
-                    int orphanCount = StopOrphanedManagedProcesses();
-                    if (orphanCount > 0)
-                        _logger.Warning("TUN", $"Stopped {orphanCount} orphaned sing-box process(es).");
-                }
-
+                await _lifecycleLock.WaitAsync(cancellationToken);
+                lockAcquired = true;
+                _lastError = null;
+                cancellationToken.ThrowIfCancellationRequested();
+                StopOrphanedManagedProcesses();
                 // Ensure sing-box exists
                 var singBoxPath = Path.Combine(_dataDir, SingBoxExe);
                 if (!File.Exists(singBoxPath))
@@ -165,22 +171,24 @@ namespace ProxyControl.Services
                 var newJson = GenerateConfigJson(configSnapshot);
                 var currentJson = File.Exists(configPath) ? File.ReadAllText(configPath) : null;
 
-                // A newer UI action superseded this request while it was queued.
-                if (!IsLatestRequest(requestVersion)) return true;
+                var isProcessAlive = _isRunning && _singBoxProcess != null && !_singBoxProcess.HasExited;
 
                 // Optimization: If config is same and process running, do nothing
-                if (_isRunning && _singBoxProcess != null && !_singBoxProcess.HasExited &&
-                    string.Equals(newJson, currentJson, StringComparison.Ordinal))
+                if (isProcessAlive && string.Equals(newJson, currentJson, StringComparison.Ordinal))
                 {
                     _logger.Info("TUN", "Config unchanged, skipping restart.");
                     ReportApplyStatus(requestVersion, false, "TUN rules are up to date");
                     return true;
                 }
 
-                // Restart needed: Stop first if running
-                if (_isRunning) StopCore();
+                // The Wintun adapter is released asynchronously by Windows.  Do not
+                // start a replacement until both the process and old adapter are gone.
+                if (_isRunning || _singBoxProcess != null)
+                    await StopProcessCoreAsync(raiseStatusChanged: false);
 
-                if (!IsLatestRequest(requestVersion)) return true;
+                await RemoveStaleTunAdapterAsync();
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 File.WriteAllText(configPath, newJson);
                 _logger.Info("TUN", $"Config generated/updated.");
@@ -205,17 +213,18 @@ namespace ProxyControl.Services
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
+                        ParseLogLine(e.Data);
                         _logger.Debug("TUN", e.Data);
-                        ProcessSingBoxLogLine(e.Data);
                     }
                 };
                 singBoxProcess.ErrorDataReceived += (s, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
-                        startupError = e.Data;
+                        if (e.Data.Contains("FATAL", StringComparison.OrdinalIgnoreCase) ||
+                            e.Data.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
+                            _lastError = e.Data;
                         _logger.Warning("TUN", e.Data);
-                        ProcessSingBoxLogLine(e.Data);
                     }
                 };
 
@@ -227,15 +236,18 @@ namespace ProxyControl.Services
                 singBoxProcess.BeginErrorReadLine();
 
                 // Wait a bit to check if it started successfully
-                await Task.Delay(1500);
+                await Task.Delay(1500, cancellationToken);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    await StopProcessCoreAsync(raiseStatusChanged: false);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
 
                 if (singBoxProcess.HasExited)
                 {
-                    _lastError = string.IsNullOrWhiteSpace(startupError)
-                        ? $"sing-box exited with code {singBoxProcess.ExitCode}."
-                        : startupError;
+                    _lastError ??= $"sing-box exited with code {_singBoxProcess.ExitCode}";
                     _logger.Error("TUN", _lastError);
-                    ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
                     return false;
                 }
 
@@ -257,6 +269,7 @@ namespace ProxyControl.Services
             }
             catch (Exception ex)
             {
+                if (ex is OperationCanceledException) return false;
                 _lastError = ex.Message;
                 _logger.Error("TUN", $"Start failed: {ex.Message}");
                 ReportApplyStatus(requestVersion, false, "Failed to apply TUN rules");
@@ -264,125 +277,51 @@ namespace ProxyControl.Services
             }
             finally
             {
-                _stateGate.Release();
+                if (lockAcquired) _lifecycleLock.Release();
             }
         }
 
         /// <summary>
         /// Stop TUN mode
         /// </summary>
-        public void Stop()
+        public async Task StopAsync()
         {
-            // Invalidate queued StartAsync calls before waiting for the lock.
-            // Otherwise an old queued request can start TUN after the user turns it off.
-            Interlocked.Increment(ref _requestedConfigVersion);
-            ApplyStatusChanged?.Invoke(false, "TUN is off");
-            _stateGate.Wait();
+            if (!_isRunning && (_singBoxProcess == null || _singBoxProcess.HasExited)) return;
+
+            await _lifecycleLock.WaitAsync();
             try
             {
-                StopCore();
+                await StopProcessCoreAsync(raiseStatusChanged: true);
+                await RemoveStaleTunAdapterAsync();
             }
             finally
             {
-                _stateGate.Release();
+                _lifecycleLock.Release();
             }
         }
 
-        private bool IsLatestRequest(long requestVersion) =>
-            requestVersion == Volatile.Read(ref _requestedConfigVersion);
-
-        private async Task ResolveDnsServerAddressAsync(TunRulesConfig config)
+        public void Stop()
         {
-            if (!config.UseDnsProtection) return;
-
-            string configured = NormalizeDnsServer(config.DnsServer);
-            if (string.IsNullOrWhiteSpace(configured)) return;
-
-            if (Uri.TryCreate(configured, UriKind.Absolute, out var uri) &&
-                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            _ = Task.Run(async () =>
             {
-                if (IPAddress.TryParse(uri.Host, out _)) return;
-
-                var address = await ResolveHostAddressAsync(uri.Host);
-                config.DnsServer = new UriBuilder(uri) { Host = address.ToString() }.Uri.AbsoluteUri;
-                _logger.Info("TUN", $"Resolved DNS endpoint host {uri.Host} to {address} before starting TUN.");
-                return;
-            }
-
-            if (!IPAddress.TryParse(configured, out _))
-            {
-                var address = await ResolveHostAddressAsync(configured);
-                config.DnsServer = address.ToString();
-                _logger.Info("TUN", $"Resolved DNS server {configured} to {address} before starting TUN.");
-            }
+                try { await StopAsync(); }
+                catch { }
+            });
         }
 
-        private static async Task<IPAddress> ResolveHostAddressAsync(string host)
+        private async Task StopProcessCoreAsync(bool raiseStatusChanged)
         {
-            var lookupTask = Dns.GetHostAddressesAsync(host);
-            if (await Task.WhenAny(lookupTask, Task.Delay(TimeSpan.FromSeconds(8))) != lookupTask)
-                throw new InvalidOperationException($"Timed out while resolving DNS server host '{host}'.");
-
-            var address = (await lookupTask)
-                .FirstOrDefault(candidate => candidate.AddressFamily == AddressFamily.InterNetwork)
-                ?? (await lookupTask).FirstOrDefault();
-            return address ?? throw new InvalidOperationException($"DNS server host '{host}' did not return an IP address.");
-        }
-
-        private void ReportApplyStatus(long requestVersion, bool isApplying, string message)
-        {
-            if (IsLatestRequest(requestVersion))
-                ApplyStatusChanged?.Invoke(isApplying, message);
-        }
-
-        internal static TunRulesConfig CreateSnapshot(TunRulesConfig? source)
-        {
-            source ??= new TunRulesConfig();
-            return new TunRulesConfig
-            {
-                Mode = source.Mode,
-                ProxyType = source.ProxyType,
-                DnsServer = source.DnsServer,
-                UseDnsProtection = source.UseDnsProtection,
-                SystemDnsServers = source.SystemDnsServers?.ToList() ?? new List<string>(),
-                UpstreamProxyHosts = source.UpstreamProxyHosts?.ToList() ?? new List<string>(),
-                Rules = source.Rules?.Select(rule => new TrafficRule
-                {
-                    IsEnabled = rule.IsEnabled,
-                    Action = rule.Action,
-                    BlockDirection = rule.BlockDirection,
-                    ProxyId = rule.ProxyId,
-                    TrafficType = rule.TrafficType,
-                    TargetApps = new List<string>(rule.TargetApps ?? new List<string>()),
-                    TargetHosts = new List<string>(rule.TargetHosts ?? new List<string>())
-                }).ToList() ?? new List<TrafficRule>(),
-                Proxies = source.Proxies?.Select(proxy => new ProxyItem
-                {
-                    Id = proxy.Id,
-                    Name = proxy.Name,
-                    IpAddress = proxy.IpAddress,
-                    Port = proxy.Port,
-                    Username = proxy.Username,
-                    Password = proxy.Password,
-                    IsEnabled = proxy.IsEnabled,
-                    Type = proxy.Type,
-                    UseTls = proxy.UseTls,
-                    UseSsl = proxy.UseSsl
-                }).ToList() ?? new List<ProxyItem>()
-            };
-        }
-
-        private void StopCore()
-        {
-            if (!_isRunning && _singBoxProcess == null) return;
-            // Ignore the Exited callback for a child that we stop deliberately.
-            Interlocked.Increment(ref _processGeneration);
             try
             {
                 if (_singBoxProcess != null && !_singBoxProcess.HasExited)
                 {
-                    _singBoxProcess.Kill();
-                    _singBoxProcess.WaitForExit(3000);
+                    _singBoxProcess.Kill(entireProcessTree: true);
+                    using var timeout = new CancellationTokenSource(ProcessStopTimeout);
+                    try { await _singBoxProcess.WaitForExitAsync(timeout.Token); }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.Warning("TUN", "sing-box did not exit before timeout; continuing cleanup.");
+                    }
                 }
             }
             catch { }
@@ -396,8 +335,110 @@ namespace ProxyControl.Services
                 if (orphanCount > 0)
                     _logger.Warning("TUN", $"Stopped {orphanCount} orphaned sing-box process(es).");
                 _isRunning = false;
+                StopOrphanedManagedProcesses();
                 _logger.Info("TUN", "TUN mode stopped");
-                StatusChanged?.Invoke(false);
+                if (raiseStatusChanged) StatusChanged?.Invoke(false);
+            }
+        }
+
+        private void ParseLogLine(string rawLine)
+        {
+            try
+            {
+                string line = AnsiEscapeRegex.Replace(rawLine, string.Empty).Trim();
+                var traceIdMatch = TraceIdRegex.Match(line);
+                if (!traceIdMatch.Success) return;
+
+                string traceId = traceIdMatch.Groups["id"].Value;
+                var inboundMatch = InboundConnectionRegex.Match(line);
+                if (inboundMatch.Success)
+                {
+                    _trafficTraces[traceId] = new TunTraceContext
+                    {
+                        Host = inboundMatch.Groups["host"].Value,
+                        Port = int.TryParse(inboundMatch.Groups["port"].Value, out int p) ? p : 0,
+                        Network = inboundMatch.Groups["packet"].Success ? "udp" : "tcp",
+                        LastSeenUtc = DateTime.UtcNow
+                    };
+                    CleanupOldTrafficTraces();
+                    return;
+                }
+
+                if (!_trafficTraces.TryGetValue(traceId, out var trace)) return;
+                trace.LastSeenUtc = DateTime.UtcNow;
+
+                var processMatch = ProcessPathRegex.Match(line);
+                if (processMatch.Success)
+                {
+                    trace.ProcessPath = processMatch.Groups["path"].Value.Trim();
+                    trace.ProcessName = Path.GetFileName(trace.ProcessPath);
+                    return;
+                }
+
+                var outboundMatch = OutboundConnectionRegex.Match(line);
+                if (!outboundMatch.Success) return;
+
+                trace.OutboundType = outboundMatch.Groups["type"].Value;
+                trace.OutboundTag = outboundMatch.Groups["tag"].Value;
+                if (string.IsNullOrWhiteSpace(trace.Host))
+                    trace.Host = outboundMatch.Groups["host"].Value;
+                if (trace.Port <= 0 && int.TryParse(outboundMatch.Groups["port"].Value, out int obPort))
+                    trace.Port = obPort;
+                if (string.IsNullOrWhiteSpace(trace.Network))
+                    trace.Network = outboundMatch.Groups["packet"].Success ? "udp" : "tcp";
+
+                _trafficTraces.TryRemove(traceId, out _);
+
+                TrafficObserved?.Invoke(new TunTrafficEvent(
+                    string.IsNullOrWhiteSpace(trace.ProcessName) ? "System/TUN" : trace.ProcessName,
+                    trace.ProcessPath ?? string.Empty,
+                    trace.Host ?? string.Empty,
+                    trace.Port,
+                    trace.Network ?? "tcp",
+                    trace.OutboundTag ?? string.Empty,
+                    trace.OutboundType ?? string.Empty));
+            }
+            catch { }
+        }
+
+        private void CleanupOldTrafficTraces()
+        {
+            if (Interlocked.Increment(ref _processedLogLineCount) % 256 != 0) return;
+            DateTime cutoff = DateTime.UtcNow.AddMinutes(-1);
+            foreach (var pair in _trafficTraces)
+            {
+                if (pair.Value.LastSeenUtc < cutoff)
+                    _trafficTraces.TryRemove(pair.Key, out _);
+            }
+        }
+
+        private async Task RemoveStaleTunAdapterAsync()
+        {
+            try
+            {
+                // sing-box 1.8 creates a new Wintun adapter instead of reopening a
+                // stopped one. Deleting only our named adapter prevents the next
+                // start from failing with ERROR_FILE_EXISTS.
+                var cleanup = new ProcessStartInfo
+                {
+                    FileName = "netsh.exe",
+                    Arguments = $"interface delete interface name=\"{TunInterfaceName}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                };
+                using var process = Process.Start(cleanup);
+                if (process == null) return;
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try { await process.WaitForExitAsync(timeout.Token); }
+                catch (OperationCanceledException) { _logger.Warning("TUN", "Timed out removing the old TUN adapter."); }
+                // Give Windows a brief chance to release the Wintun device name.
+                await Task.Delay(250);
+            }
+            catch (Exception ex)
+            {
+                _logger.Debug("TUN", $"TUN adapter cleanup skipped: {ex.Message}");
             }
         }
 
@@ -886,6 +927,13 @@ namespace ProxyControl.Services
             bool useSingBoxRouting = (rulesConfig.ProxyType == ProxyType.Http || rulesConfig.Mode == RuleMode.WhiteList);
 
             string finalOutbound;
+            // Windows sends DNS to the TUN peer (172.19.0.2). That traffic must
+            // be consumed by sing-box before user rules, never sent "direct".
+            var dnsRoutes = new List<object>
+            {
+                new { protocol = "dns", outbound = "dns-out" },
+                new { port = 53, outbound = "dns-out" }
+            };
             List<object> routes;
 
             if (useSingBoxRouting)
@@ -898,17 +946,18 @@ namespace ProxyControl.Services
                 {
                     finalOutbound = "proxy-out";
                     routes = GenerateRouteRules(rulesConfig);
-                    InsertSystemRoutes(routes);
+                    // System rules for local/loopback must be added to prevent loops
+                    routes.InsertRange(0, dnsRoutes);
+                    routes.Insert(2, new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
+                    routes.Insert(3, new { port = new[] { 8000, 8080 }, outbound = "direct" });
+                    routes.Insert(4, new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
                 }
                 else
                 {
                     // Whitelist Mode
                     finalOutbound = "direct";
                     routes = GenerateRouteRules(rulesConfig);
-                    // Windows points DNS at the TUN peer (172.19.0.2). Without
-                    // interception, a direct port-53 route loops back into the
-                    // virtual adapter and every hostname lookup times out.
-                    InsertSystemRoutes(routes);
+                    routes.InsertRange(0, dnsRoutes);
                 }
             }
             else
@@ -917,56 +966,19 @@ namespace ProxyControl.Services
                 finalOutbound = "proxy-out";
                 routes = new List<object>();
                 // We don't need app-specific routes here because everything goes to proxy-out
-                InsertSystemRoutes(routes, append: true);
-            }
-
-            // Must precede every user rule and the final outbound in both modes.
-            InsertUpstreamProxyBypassRules(routes, rulesConfig);
-
-            var configuredDnsAddress = NormalizeDnsServer(rulesConfig.DnsServer);
-            if (rulesConfig.UseDnsProtection && string.IsNullOrWhiteSpace(configuredDnsAddress))
-                throw new InvalidOperationException("DNS Protection in TUN mode requires an explicitly configured DNS server.");
-
-            var dnsServers = new List<object>();
-            string dnsServerTag;
-            if (rulesConfig.UseDnsProtection)
-            {
-                bool isDnsUrl = Uri.TryCreate(configuredDnsAddress, UriKind.Absolute, out var dnsUri) &&
-                    (dnsUri.Scheme == Uri.UriSchemeHttps || dnsUri.Scheme == Uri.UriSchemeHttp);
-                bool hasAddress = isDnsUrl
-                    ? IPAddress.TryParse(dnsUri!.Host, out _)
-                    : IPAddress.TryParse(configuredDnsAddress, out _);
-                if (!hasAddress)
-                    throw new InvalidOperationException("DNS server hostname must be resolved before generating the TUN configuration.");
-                object configuredDnsServer = new { tag = "configured", address = configuredDnsAddress, detour = "direct" };
-                dnsServers.Insert(0, configuredDnsServer);
-                dnsServerTag = "configured";
-            }
-            else
-            {
-                var systemDns = rulesConfig.SystemDnsServers
-                    .Where(address => IPAddress.TryParse(address, out var parsed) &&
-                                      !IPAddress.IsLoopback(parsed) &&
-                                      !parsed.Equals(IPAddress.Any))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-                if (systemDns.Length == 0)
-                    throw new InvalidOperationException("TUN requires a reachable system DNS server when DNS Protection is disabled.");
-
-                for (var index = 0; index < systemDns.Length; index++)
-                {
-                    var tag = $"system-{index}";
-                    dnsServers.Add(new { tag, address = systemDns[index], detour = "direct" });
-                }
-                dnsServerTag = "system-0";
+                // Exception: DNS still needs to be handled
+                routes.AddRange(dnsRoutes);
+                // We MUST exclude localhost/private from proxy-out to avoid loops, 
+                // OR rely on TcpProxyService to handle it? 
+                // Better to exclude essential system traffic here to be safe.
+                routes.Add(new { ip_cidr = new[] { "127.0.0.1/32", "0.0.0.0/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" }, outbound = "direct" });
+                routes.Add(new { port = new[] { 8000, 8080 }, outbound = "direct" });
+                routes.Add(new { process_name = new[] { Process.GetCurrentProcess().ProcessName + ".exe", "ProxyControl.exe", "sing-box.exe" }, outbound = "direct" });
             }
 
             var config = new
             {
-                // Keep sing-box's normal connection traces enabled. The output
-                // is observed for Monitor/Connection Logs but does not change
-                // TUN routing behaviour.
-                log = new { level = "info", timestamp = true },
+                log = new { level = "trace", timestamp = true },
                 dns = new
                 {
                     servers = dnsServers.ToArray(),
@@ -982,12 +994,12 @@ namespace ProxyControl.Services
                     {
                         type = "tun",
                         tag = "tun-in",
-                        interface_name = "ProxyControlTUN",
+                        interface_name = TunInterfaceName,
                         inet4_address = "172.19.0.1/30",
                         mtu = 1400,
                         auto_route = true,
                         strict_route = true,
-                        stack = "gvisor",
+                        stack = "mixed",
                         sniff = true,
                         sniff_override_destination = true,
                         sniff_timeout = "500ms"
@@ -1147,7 +1159,7 @@ namespace ProxyControl.Services
         public void Dispose()
         {
             Stop();
-            _stateGate.Dispose();
+            _lifecycleLock.Dispose();
         }
     }
 }

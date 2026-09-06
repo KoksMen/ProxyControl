@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace ProxyControl.Models
@@ -20,12 +20,20 @@ namespace ProxyControl.Models
         Custom
     }
 
+    public enum ProxyRoutingMode
+    {
+        SystemProxy,
+        Tun,
+        Mixed
+    }
+
     // Корневой класс настроек, сохраняемый в JSON
     public class AppSettings
     {
         public bool IsAutoStart { get; set; }
         public bool IsProxyRunning { get; set; } // Persist proxy state
         public bool CheckUpdateOnStartup { get; set; } = true;
+        public string? LastSeenVersion { get; set; }
         public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
         public AppConfig Config { get; set; } = new AppConfig();
         public List<AppProfile> Profiles { get; set; } = new List<AppProfile>();
@@ -43,6 +51,9 @@ namespace ProxyControl.Models
         public bool EnableDnsProtection { get; set; } = false;
         public bool IsWebRtcBlockingEnabled { get; set; } = true;
         public bool IsTunMode { get; set; } = false;
+        public bool IsSystemProxyEnabled { get; set; } = true;
+        // Null indicates a settings file created before explicit routing modes.
+        public ProxyRoutingMode? RoutingMode { get; set; }
         public bool UseAdvancedLogFilters { get; set; } = false;
 
         // Выбранный тип провайдера
@@ -59,6 +70,10 @@ namespace ProxyControl.Models
         public bool EnableDohFallback { get; set; } = false;
         public bool AutoDetectDohFallbackEndpoint { get; set; } = true;
         public string DohFallbackEndpoint { get; set; } = "https://cloudflare-dns.com/dns-query";
+
+        // Proxy connectivity check & speed test target endpoints
+        public string ProxyCheckUrl { get; set; } = "https://www.google.com/generate_204";
+        public string ProxySpeedTestUrl { get; set; } = "https://speed.cloudflare.com/__down?bytes=10000000";
 
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
@@ -80,6 +95,7 @@ namespace ProxyControl.Models
         public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
         public Guid? BlackListSelectedProxyId { get; set; }
         public string? TunProxyId { get; set; }
+        public ProxyRoutingMode? RoutingMode { get; set; }
         public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();

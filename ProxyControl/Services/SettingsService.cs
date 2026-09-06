@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using ProxyControl.Models;
 using System;
 using System.Collections.Generic;
@@ -190,6 +190,12 @@ namespace ProxyControl.Services
 
         private static string GetExecutablePath()
         {
+            var processPath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(processPath) && File.Exists(processPath))
+            {
+                return processPath;
+            }
+
             var entryLocation = Assembly.GetEntryAssembly()?.Location;
             if (!string.IsNullOrWhiteSpace(entryLocation))
             {

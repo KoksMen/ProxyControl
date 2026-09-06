@@ -1,4 +1,4 @@
-﻿using ProxyControl.Helpers;
+using ProxyControl.Helpers;
 using ProxyControl.Models;
 using System;
 using System.Collections.Concurrent;
@@ -19,6 +19,12 @@ namespace ProxyControl.Services
     public class TrafficMonitorService
     {
         public event Action<ConnectionHistoryItem>? ConnectionCreated;
+        public event Action? OverallStatsUpdated;
+
+        public long TotalCurrentDownloadSpeed { get; private set; }
+        public long TotalCurrentUploadSpeed { get; private set; }
+        private int _activeConnections;
+        public int TotalActiveConnections => Math.Max(0, _activeConnections);
 
         private readonly ConcurrentDictionary<string, ProcessTrafficData> _liveProcessStats
             = new ConcurrentDictionary<string, ProcessTrafficData>();
@@ -38,6 +44,7 @@ namespace ProxyControl.Services
 
         private readonly DispatcherTimer _uiBatchTimer;
         private const int UiRefreshRateMs = 250;
+        private DateTime _lastSpeedUpdateUtc = DateTime.UtcNow;
 
         private class TrafficDelta
         {
@@ -52,7 +59,7 @@ namespace ProxyControl.Services
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
 
-            _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(10000)
+            _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(25000)
             {
                 SingleReader = true,
                 SingleWriter = false,
@@ -142,6 +149,7 @@ namespace ProxyControl.Services
             GetOrAddLiveProcess(processName, processPath, icon);
             _pendingConnections.Enqueue(item);
             int count = Interlocked.Increment(ref _pendingConnectionCount);
+            Interlocked.Increment(ref _activeConnections);
             while (count > MaxPendingConnections && _pendingConnections.TryDequeue(out _))
             {
                 count = Interlocked.Decrement(ref _pendingConnectionCount);
@@ -152,6 +160,8 @@ namespace ProxyControl.Services
 
         public void CompleteConnection(ConnectionHistoryItem item)
         {
+            if (Interlocked.Decrement(ref _activeConnections) < 0)
+                Interlocked.Exchange(ref _activeConnections, 0);
             _logChannel.Writer.TryWrite(item);
         }
 
@@ -166,7 +176,7 @@ namespace ProxyControl.Services
                 if (_liveProcessStats.TryGetValue(item.ProcessName, out var stats))
                 {
                     stats.Connections.Insert(0, item);
-                    if (stats.Connections.Count > 200) stats.Connections.RemoveAt(stats.Connections.Count - 1);
+                    if (stats.Connections.Count > 1000) stats.Connections.RemoveAt(stats.Connections.Count - 1);
                 }
             }
 
@@ -182,23 +192,53 @@ namespace ProxyControl.Services
                 }
             }
 
-            if ((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) % 1000 < UiRefreshRateMs * 1.5)
+            var now = DateTime.UtcNow;
+            var elapsed = (now - _lastSpeedUpdateUtc).TotalSeconds;
+            if (elapsed >= 0.5)
             {
-                UpdateSpeeds();
+                _lastSpeedUpdateUtc = now;
+                UpdateSpeeds(elapsed);
             }
         }
 
-        private void UpdateSpeeds()
+        private void UpdateSpeeds(double elapsedSeconds)
         {
+            if (elapsedSeconds <= 0.001) elapsedSeconds = 0.5;
+
+            long totalDown = 0;
+            long totalUp = 0;
+
             foreach (var kvp in _liveProcessStats)
             {
                 var stats = kvp.Value;
                 long down = Interlocked.Exchange(ref stats.BytesDownLastSecond, 0);
                 long up = Interlocked.Exchange(ref stats.BytesUpLastSecond, 0);
 
-                if (stats.CurrentDownloadSpeed != down) stats.CurrentDownloadSpeed = down;
-                if (stats.CurrentUploadSpeed != up) stats.CurrentUploadSpeed = up;
+                long downSpeed = (long)Math.Round(down / elapsedSeconds);
+                long upSpeed = (long)Math.Round(up / elapsedSeconds);
+
+                if (stats.CurrentDownloadSpeed != downSpeed) stats.CurrentDownloadSpeed = downSpeed;
+                if (stats.CurrentUploadSpeed != upSpeed) stats.CurrentUploadSpeed = upSpeed;
+
+                totalDown += downSpeed;
+                totalUp += upSpeed;
             }
+
+            TotalCurrentDownloadSpeed = totalDown;
+            TotalCurrentUploadSpeed = totalUp;
+
+            OverallStatsUpdated?.Invoke();
+        }
+
+        public static string FormatSpeed(long bytesPerSec)
+        {
+            if (bytesPerSec < 1024)
+                return $"{bytesPerSec} B/s";
+            if (bytesPerSec < 1024 * 1024)
+                return $"{bytesPerSec / 1024.0:F1} KB/s";
+            if (bytesPerSec < 1024 * 1024 * 1024)
+                return $"{bytesPerSec / (1024.0 * 1024.0):F1} MB/s";
+            return $"{bytesPerSec / (1024.0 * 1024.0 * 1024.0):F2} GB/s";
         }
 
         // Fix 3.1: LogWriter uses a persistent FileStream to reduce IO overhead

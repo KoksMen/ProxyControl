@@ -52,7 +52,7 @@ namespace ProxyControl.Services
             {
                 Timeout = RequestTimeout
             };
-            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("ProxyControl/2.7");
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("ProxyControl/2.8");
             _httpClient.DefaultRequestHeaders.Accept.ParseAdd("image/*");
         }
 

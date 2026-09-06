@@ -1,4 +1,4 @@
-﻿using ProxyControl.Services;
+using ProxyControl.Services;
 using System.IO;
 using System;
 using System.Configuration;
@@ -50,6 +50,7 @@ namespace ProxyControl
             // Only the owning instance may recover settings left by a crashed run.
             // A second launch must never reset the active instance's proxy.
             SystemProxyHelper.RestoreSystemProxy();
+            TunService.StopOrphanedManagedProcesses();
             base.OnStartup(e);
 
             // Reset DNS only if a previous ProxyControl-managed loopback DNS is still active.
@@ -121,6 +122,7 @@ namespace ProxyControl
             SystemProxyHelper.DisableSafetyNet();
             SystemProxyHelper.RestoreSystemProxy();
             SystemProxyHelper.RestoreSystemDnsIfManagedByProxyControl();
+            TunService.StopOrphanedManagedProcesses();
 
             base.OnExit(e);
         }
