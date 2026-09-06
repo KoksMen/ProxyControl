@@ -431,6 +431,30 @@ namespace ProxyControl.ViewModels
         public string ActiveProfileName => Profiles.FirstOrDefault(p => p.Id == _activeProfileId)?.Name ?? "No active profile";
         public bool HasActiveProfile => !string.IsNullOrEmpty(_activeProfileId) && Profiles.Any(p => p.Id == _activeProfileId);
 
+        public string ProxyCheckUrl
+        {
+            get => string.IsNullOrWhiteSpace(_config.ProxyCheckUrl) ? "https://www.google.com/generate_204" : _config.ProxyCheckUrl;
+            set
+            {
+                _config.ProxyCheckUrl = string.IsNullOrWhiteSpace(value) ? "https://www.google.com/generate_204" : value.Trim();
+                if (_proxyService != null) _proxyService.ProxyCheckUrl = _config.ProxyCheckUrl;
+                OnPropertyChanged();
+                RequestSaveSettings();
+            }
+        }
+
+        public string ProxySpeedTestUrl
+        {
+            get => string.IsNullOrWhiteSpace(_config.ProxySpeedTestUrl) ? "https://speed.cloudflare.com/__down?bytes=10000000" : _config.ProxySpeedTestUrl;
+            set
+            {
+                _config.ProxySpeedTestUrl = string.IsNullOrWhiteSpace(value) ? "https://speed.cloudflare.com/__down?bytes=10000000" : value.Trim();
+                if (_proxyService != null) _proxyService.ProxySpeedTestUrl = _config.ProxySpeedTestUrl;
+                OnPropertyChanged();
+                RequestSaveSettings();
+            }
+        }
+
         // Grid-based rules UI - Groups as cards
         public IEnumerable<RuleGroupInfo> RuleGroups
         {
@@ -1764,6 +1788,26 @@ namespace ProxyControl.ViewModels
         public ICommand CheckDnsCommand { get; }
         public ICommand CheckProxyCommand { get; }
         public ICommand CheckAllProxiesCommand { get; }
+        public ICommand SetProxyCheckPresetCommand { get; }
+        public ICommand SetProxySpeedPresetCommand { get; }
+
+        // Rules ContextMenu Commands
+        public ICommand DuplicateRuleCommand { get; }
+        public ICommand ToggleRuleEnabledCommand { get; }
+        public ICommand SetRuleActionCommand { get; }
+        public ICommand CopyRuleHostsCommand { get; }
+        public ICommand CopyRuleAppsCommand { get; }
+
+        // Proxies ContextMenu Commands
+        public ICommand SelectProxyCommand { get; }
+        public ICommand CheckSpecificProxyCommand { get; }
+        public ICommand SetAsMainProxyCommand { get; }
+        public ICommand SetAsTunProxyCommand { get; }
+        public ICommand CopyProxyEndpointCommand { get; }
+        public ICommand CopyProxyIpCommand { get; }
+        public ICommand CopyProxyFullCommand { get; }
+        public ICommand ToggleProxyEnabledCommand { get; }
+        public ICommand RemoveSpecificProxyCommand { get; }
         public ICommand ToggleProxyPanelCommand { get; }
         public ICommand AddRuleCommand { get; }
         public ICommand RemoveRuleCommand { get; }
@@ -1865,6 +1909,26 @@ namespace ProxyControl.ViewModels
             CheckDnsCommand = new RelayCommand(async _ => await CheckDnsServersAsync());
             CheckProxyCommand = new RelayCommand(_ => CheckSelectedProxy());
             CheckAllProxiesCommand = new RelayCommand(async _ => await CheckAllProxies());
+            SetProxyCheckPresetCommand = new RelayCommand(url => { if (url != null) ProxyCheckUrl = url.ToString()!; });
+            SetProxySpeedPresetCommand = new RelayCommand(url => { if (url != null) ProxySpeedTestUrl = url.ToString()!; });
+
+            // Rules ContextMenu Commands
+            DuplicateRuleCommand = new RelayCommand(r => DuplicateRule(r as TrafficRule ?? SelectedRule));
+            ToggleRuleEnabledCommand = new RelayCommand(r => ToggleRuleEnabled(r as TrafficRule ?? SelectedRule));
+            SetRuleActionCommand = new RelayCommand(p => SetRuleAction(p));
+            CopyRuleHostsCommand = new RelayCommand(r => CopyRuleHosts(r as TrafficRule ?? SelectedRule));
+            CopyRuleAppsCommand = new RelayCommand(r => CopyRuleApps(r as TrafficRule ?? SelectedRule));
+
+            // Proxies ContextMenu Commands
+            SelectProxyCommand = new RelayCommand(p => { if (p is ProxyItem proxy) SelectedProxy = proxy; });
+            CheckSpecificProxyCommand = new RelayCommand(p => _ = CheckSpecificProxy(p as ProxyItem ?? SelectedProxy));
+            SetAsMainProxyCommand = new RelayCommand(p => SetAsMainProxy(p as ProxyItem ?? SelectedProxy));
+            SetAsTunProxyCommand = new RelayCommand(p => SetAsTunProxy(p as ProxyItem ?? SelectedProxy));
+            CopyProxyEndpointCommand = new RelayCommand(p => CopyProxyEndpoint(p as ProxyItem ?? SelectedProxy));
+            CopyProxyIpCommand = new RelayCommand(p => CopyProxyIp(p as ProxyItem ?? SelectedProxy));
+            CopyProxyFullCommand = new RelayCommand(p => CopyProxyFull(p as ProxyItem ?? SelectedProxy));
+            ToggleProxyEnabledCommand = new RelayCommand(p => ToggleProxyEnabled(p as ProxyItem ?? SelectedProxy));
+            RemoveSpecificProxyCommand = new RelayCommand(p => RemoveSpecificProxy(p as ProxyItem ?? SelectedProxy));
             ToggleProxyPanelCommand = new RelayCommand(_ => IsProxyPanelExpanded = !IsProxyPanelExpanded);
             SaveProfileCommand = new RelayCommand(_ => SaveProfile());
             LoadProfileCommand = new RelayCommand(_ => LoadProfile());
@@ -3516,6 +3580,154 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        private void DuplicateRule(TrafficRule? rule)
+        {
+            if (rule == null) return;
+            var clone = new TrafficRule
+            {
+                GroupName = rule.GroupName,
+                Action = rule.Action,
+                BlockDirection = rule.BlockDirection,
+                ProxyId = rule.ProxyId,
+                IsEnabled = rule.IsEnabled,
+                TrafficType = rule.TrafficType,
+                AppIcon = rule.AppIcon,
+                SiteIcon = rule.SiteIcon,
+                IconBase64 = rule.IconBase64,
+                IsTemporary = rule.IsTemporary,
+                TargetHosts = new List<string>(rule.TargetHosts ?? new List<string>()),
+                TargetApps = new List<string>(rule.TargetApps ?? new List<string>())
+            };
+
+            if (IsBlackListMode)
+            {
+                _config.BlackListRules.Add(clone);
+            }
+            else
+            {
+                _config.WhiteListRules.Add(clone);
+            }
+
+            ReloadRulesForCurrentMode();
+            SelectedRule = clone;
+            RequestSaveSettings();
+            string ruleDesc = clone.TargetHosts.Count > 0 ? string.Join(", ", clone.TargetHosts) : (clone.TargetApps.Count > 0 ? string.Join(", ", clone.TargetApps) : "Rule");
+            ShowMessage("Rule Duplicated", $"Rule for '{ruleDesc}' has been duplicated.");
+        }
+
+        private void ToggleRuleEnabled(TrafficRule? rule)
+        {
+            if (rule == null) return;
+            rule.IsEnabled = !rule.IsEnabled;
+            ApplyConfig();
+            RequestSaveSettings();
+        }
+
+        private void SetRuleAction(object? parameter)
+        {
+            string? actionStr = parameter as string;
+            var targetRule = SelectedRule;
+            if (targetRule == null || string.IsNullOrWhiteSpace(actionStr)) return;
+
+            if (Enum.TryParse<RuleAction>(actionStr, true, out var parsedAction))
+            {
+                targetRule.Action = parsedAction;
+                ApplyConfig();
+                RequestSaveSettings();
+            }
+        }
+
+        private void CopyRuleHosts(TrafficRule? rule)
+        {
+            if (rule == null || rule.TargetHosts == null || rule.TargetHosts.Count == 0) return;
+            try
+            {
+                Clipboard.SetText(string.Join(", ", rule.TargetHosts));
+            }
+            catch { }
+        }
+
+        private void CopyRuleApps(TrafficRule? rule)
+        {
+            if (rule == null || rule.TargetApps == null || rule.TargetApps.Count == 0) return;
+            try
+            {
+                Clipboard.SetText(string.Join(", ", rule.TargetApps));
+            }
+            catch { }
+        }
+
+        private async Task CheckSpecificProxy(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            await CheckSingleProxy(proxy);
+        }
+
+        private void SetAsMainProxy(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            SelectedBlackListMainProxy = proxy;
+            RequestSaveSettings();
+            ShowMessage("Main Proxy", $"'{proxy.Name}' ({proxy.Endpoint}) is now the default BlackList proxy.");
+        }
+
+        private void SetAsTunProxy(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            TunProxy = proxy;
+            RequestSaveSettings();
+            ShowMessage("TUN Proxy", $"'{proxy.Name}' ({proxy.Endpoint}) is now the TUN mode proxy.");
+        }
+
+        private void CopyProxyEndpoint(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            try
+            {
+                Clipboard.SetText(proxy.Endpoint);
+            }
+            catch { }
+        }
+
+        private void CopyProxyIp(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            try
+            {
+                Clipboard.SetText(proxy.IpAddress);
+            }
+            catch { }
+        }
+
+        private void CopyProxyFull(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            try
+            {
+                string scheme = proxy.Type == ProxyType.Socks5 ? "socks5" : (proxy.UseTls || proxy.UseSsl ? "https" : "http");
+                string formatted = !string.IsNullOrEmpty(proxy.Username)
+                    ? $"{scheme}://{proxy.Username}:{proxy.Password}@{proxy.IpAddress}:{proxy.Port}"
+                    : $"{scheme}://{proxy.IpAddress}:{proxy.Port}";
+                Clipboard.SetText(formatted);
+            }
+            catch { }
+        }
+
+        private void ToggleProxyEnabled(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            proxy.IsEnabled = !proxy.IsEnabled;
+            ApplyConfig();
+            RequestSaveSettings();
+        }
+
+        private void RemoveSpecificProxy(ProxyItem? proxy)
+        {
+            if (proxy == null) return;
+            SelectedProxy = proxy;
+            RemoveProxy();
+        }
+
         private async Task CheckSingleProxy(ProxyItem p)
         {
             Application.Current.Dispatcher.Invoke(() =>
@@ -3867,6 +4079,14 @@ namespace ProxyControl.ViewModels
 
                 Presets.Clear();
                 if (_config.Presets != null) _config.Presets.ForEach(p => Presets.Add(p));
+
+                if (_proxyService != null)
+                {
+                    _proxyService.ProxyCheckUrl = ProxyCheckUrl;
+                    _proxyService.ProxySpeedTestUrl = ProxySpeedTestUrl;
+                }
+                OnPropertyChanged(nameof(ProxyCheckUrl));
+                OnPropertyChanged(nameof(ProxySpeedTestUrl));
 
                 IsProxyRunning = d.IsProxyRunning;
             }

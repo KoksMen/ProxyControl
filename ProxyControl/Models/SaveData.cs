@@ -71,6 +71,10 @@ namespace ProxyControl.Models
         public bool AutoDetectDohFallbackEndpoint { get; set; } = true;
         public string DohFallbackEndpoint { get; set; } = "https://cloudflare-dns.com/dns-query";
 
+        // Proxy connectivity check & speed test target endpoints
+        public string ProxyCheckUrl { get; set; } = "https://www.google.com/generate_204";
+        public string ProxySpeedTestUrl { get; set; } = "https://speed.cloudflare.com/__down?bytes=10000000";
+
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
 

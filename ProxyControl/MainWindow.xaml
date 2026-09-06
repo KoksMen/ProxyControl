@@ -437,10 +437,13 @@
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource ForegroundBrush}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource PrimaryAccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
-            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Padding" Value="10,6" />
             <Setter Property="FontSize" Value="13" />
+            <Setter Property="SnapsToDevicePixels" Value="True" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
@@ -449,9 +452,13 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="6">
+                            CornerRadius="6"
+                            TextElement.Foreground="{TemplateBinding Foreground}">
                             <ScrollViewer
                                 x:Name="PART_ContentHost"
+                                Focusable="False"
+                                HorizontalScrollBarVisibility="Hidden"
+                                VerticalScrollBarVisibility="Hidden"
                                 Margin="{TemplateBinding Padding}"
                                 VerticalAlignment="Center" />
                         </Border>
@@ -1584,7 +1591,57 @@
                         </ListBox.ItemContainerStyle>
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border Margin="0,4" Padding="10" CornerRadius="8">
+                                <Border Margin="0,4" Padding="10" CornerRadius="8"
+                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                    <Border.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem
+                                                Header="⚡ Check / Ping Proxy"
+                                                Command="{Binding PlacementTarget.Tag.CheckSpecificProxyCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <MenuItem
+                                                Header="✏️ Edit Proxy"
+                                                Command="{Binding PlacementTarget.Tag.OpenEditProxyModalCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem
+                                                Header="🛡️ Set as BlackList Default Proxy"
+                                                Command="{Binding PlacementTarget.Tag.SetAsMainProxyCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <MenuItem
+                                                Header="🚀 Set as TUN Mode Proxy"
+                                                Command="{Binding PlacementTarget.Tag.SetAsTunProxyCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem
+                                                Header="📋 Copy IP:Port"
+                                                Command="{Binding PlacementTarget.Tag.CopyProxyEndpointCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <MenuItem
+                                                Header="📋 Copy IP Address"
+                                                Command="{Binding PlacementTarget.Tag.CopyProxyIpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <MenuItem
+                                                Header="📋 Copy Full URL / Credentials"
+                                                Command="{Binding PlacementTarget.Tag.CopyProxyFullCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <Separator />
+                                            <MenuItem
+                                                Header="🔄 Enable / Disable"
+                                                Command="{Binding PlacementTarget.Tag.ToggleProxyEnabledCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                            <MenuItem
+                                                Header="🗑️ Delete Proxy"
+                                                Command="{Binding PlacementTarget.Tag.RemoveSpecificProxyCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                CommandParameter="{Binding}" />
+                                        </ContextMenu>
+                                    </Border.ContextMenu>
+                                    <Border.InputBindings>
+                                        <MouseBinding
+                                            Command="{Binding DataContext.SelectProxyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            MouseAction="RightClick" />
+                                    </Border.InputBindings>
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
@@ -2934,7 +2991,51 @@
                                                             Margin="0,0,0,6"
                                                             Padding="12,10"
                                                             CornerRadius="8"
-                                                            Cursor="Hand">
+                                                            Cursor="Hand"
+                                                            Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                            <Border.ContextMenu>
+                                                                <ContextMenu>
+                                                                    <MenuItem
+                                                                        Header="✏️ Edit Rule"
+                                                                        Command="{Binding PlacementTarget.Tag.EditRuleCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <MenuItem
+                                                                        Header="📋 Duplicate Rule"
+                                                                        Command="{Binding PlacementTarget.Tag.DuplicateRuleCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <MenuItem
+                                                                        Header="🔄 Enable / Disable"
+                                                                        Command="{Binding PlacementTarget.Tag.ToggleRuleEnabledCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <Separator />
+                                                                    <MenuItem
+                                                                        Header="🛡️ Set Action: Proxy"
+                                                                        Command="{Binding PlacementTarget.Tag.SetRuleActionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="Proxy" />
+                                                                    <MenuItem
+                                                                        Header="⚡ Set Action: Direct"
+                                                                        Command="{Binding PlacementTarget.Tag.SetRuleActionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="Direct" />
+                                                                    <MenuItem
+                                                                        Header="🚫 Set Action: Block"
+                                                                        Command="{Binding PlacementTarget.Tag.SetRuleActionCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="Block" />
+                                                                    <Separator />
+                                                                    <MenuItem
+                                                                        Header="📋 Copy Target Hosts"
+                                                                        Command="{Binding PlacementTarget.Tag.CopyRuleHostsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <MenuItem
+                                                                        Header="📋 Copy Target Apps"
+                                                                        Command="{Binding PlacementTarget.Tag.CopyRuleAppsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                    <Separator />
+                                                                    <MenuItem
+                                                                        Header="🗑️ Delete Rule"
+                                                                        Command="{Binding PlacementTarget.Tag.RemoveRuleCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                                                        CommandParameter="{Binding}" />
+                                                                </ContextMenu>
+                                                            </Border.ContextMenu>
                                                             <Border.Style>
                                                                 <Style TargetType="Border">
                                                                     <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
@@ -2963,6 +3064,10 @@
                                                                     Command="{Binding DataContext.SelectRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                     CommandParameter="{Binding}"
                                                                     MouseAction="LeftClick" />
+                                                                <MouseBinding
+                                                                    Command="{Binding DataContext.SelectRuleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    MouseAction="RightClick" />
                                                             </Border.InputBindings>
                                                             <Grid>
                                                                 <Grid.ColumnDefinitions>
@@ -3400,9 +3505,13 @@
                                                             Text="SAVE CURRENT SETUP AS PROFILE" />
 
                                                         <TextBox
-                                                            Height="32"
+                                                            Height="34"
+                                                            Padding="10,6"
                                                             VerticalContentAlignment="Center"
-                                                            Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"
+                                                            Foreground="{DynamicResource ForegroundBrush}"
+                                                            CaretBrush="{DynamicResource ForegroundBrush}"
+                                                            Background="{DynamicResource SurfaceLightBrush}"
+                                                            Text="{Binding ProfileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                             ToolTip="Enter name to save current setup as a profile" />
 
                                                         <Grid Margin="0,10,0,0">
@@ -3509,6 +3618,167 @@
                                                     VerticalAlignment="Center"
                                                     IsChecked="{Binding CheckUpdateOnStartup}"
                                                     Style="{StaticResource ToggleSwitchStyle}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!--  Section: Proxy Connectivity & Speed Benchmark  -->
+                                    <Border
+                                        Margin="0,0,0,14"
+                                        Padding="16,14"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <StackPanel>
+                                            <TextBlock
+                                                Margin="0,0,0,12"
+                                                FontSize="12"
+                                                FontWeight="Bold"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="PROXY CONNECTIVITY &amp; SPEED BENCHMARK" />
+
+                                            <Grid Margin="0,0,0,12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock
+                                                    Margin="0,0,12,0"
+                                                    VerticalAlignment="Center"
+                                                    FontSize="18"
+                                                    Text="⚡" />
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        FontSize="13.5"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="Benchmark &amp; Health-Check Targets" />
+                                                    <TextBlock
+                                                        FontSize="11"
+                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                        Text="Configure target endpoints used for proxy health check, latency (ping), and speed test" />
+                                                </StackPanel>
+                                            </Grid>
+
+                                            <!-- Proxy Check & Ping URL -->
+                                            <Grid Margin="0,0,0,12">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="12"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="Availability &amp; Ping Check URL" />
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="11"
+                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                            Text="Presets:"
+                                                            Margin="0,0,6,0" />
+                                                        <Button
+                                                            Content="Google 204"
+                                                            Height="24"
+                                                            Padding="8,2"
+                                                            FontSize="11"
+                                                            Margin="0,0,4,0"
+                                                            Cursor="Hand"
+                                                            Command="{Binding SetProxyCheckPresetCommand}"
+                                                            CommandParameter="https://www.google.com/generate_204" />
+                                                        <Button
+                                                            Content="Cloudflare"
+                                                            Height="24"
+                                                            Padding="8,2"
+                                                            FontSize="11"
+                                                            Margin="0,0,4,0"
+                                                            Cursor="Hand"
+                                                            Command="{Binding SetProxyCheckPresetCommand}"
+                                                            CommandParameter="https://1.1.1.1/cdn-cgi/trace" />
+                                                        <Button
+                                                            Content="Yandex"
+                                                            Height="24"
+                                                            Padding="8,2"
+                                                            FontSize="11"
+                                                            Cursor="Hand"
+                                                            Command="{Binding SetProxyCheckPresetCommand}"
+                                                            CommandParameter="https://ya.ru" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <TextBox
+                                                    Grid.Row="1"
+                                                    Height="34"
+                                                    VerticalContentAlignment="Center"
+                                                    Text="{Binding ProxyCheckUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    ToolTip="URL queried through proxy to measure ping and check status" />
+                                            </Grid>
+
+                                            <!-- Proxy Speed Test URL -->
+                                            <Grid>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <Grid Margin="0,0,0,6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="12"
+                                                        FontWeight="SemiBold"
+                                                        Foreground="{DynamicResource ForegroundBrush}"
+                                                        Text="Speed Benchmark URL" />
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="11"
+                                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                            Text="Presets:"
+                                                            Margin="0,0,6,0" />
+                                                        <Button
+                                                            Content="Cloudflare 10MB"
+                                                            Height="24"
+                                                            Padding="8,2"
+                                                            FontSize="11"
+                                                            Margin="0,0,4,0"
+                                                            Cursor="Hand"
+                                                            Command="{Binding SetProxySpeedPresetCommand}"
+                                                            CommandParameter="https://speed.cloudflare.com/__down?bytes=10000000" />
+                                                        <Button
+                                                            Content="Cloudflare 25MB"
+                                                            Height="24"
+                                                            Padding="8,2"
+                                                            FontSize="11"
+                                                            Margin="0,0,4,0"
+                                                            Cursor="Hand"
+                                                            Command="{Binding SetProxySpeedPresetCommand}"
+                                                            CommandParameter="https://speed.cloudflare.com/__down?bytes=25000000" />
+                                                        <Button
+                                                            Content="Tele2 10MB"
+                                                            Height="24"
+                                                            Padding="8,2"
+                                                            FontSize="11"
+                                                            Cursor="Hand"
+                                                            Command="{Binding SetProxySpeedPresetCommand}"
+                                                            CommandParameter="http://speedtest.tele2.net/10MB.zip" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <TextBox
+                                                    Grid.Row="1"
+                                                    Height="34"
+                                                    VerticalContentAlignment="Center"
+                                                    Text="{Binding ProxySpeedTestUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    ToolTip="Direct file URL downloaded through proxy to measure speed in MB/s" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>

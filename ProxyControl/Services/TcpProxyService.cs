@@ -59,6 +59,9 @@ namespace ProxyControl.Services
         private const int SpeedProbeMaxBytes = 10 * 1024 * 1024;
         private static readonly TimeSpan SpeedProbeDuration = TimeSpan.FromSeconds(8);
 
+        public string ProxyCheckUrl { get; set; } = "https://www.google.com/generate_204";
+        public string ProxySpeedTestUrl { get; set; } = "https://speed.cloudflare.com/__down?bytes=10000000";
+
         private static readonly (string Host, int Port, string Path)[] Socks5VerificationTargets =
         {
             ("example.com", 80, "/"),
@@ -1211,8 +1214,15 @@ namespace ProxyControl.Services
                     {
                         Timeout = TimeSpan.FromSeconds(10)
                     };
-                    using var response = await client.GetAsync("https://www.google.com/generate_204");
+                    var checkUrl = string.IsNullOrWhiteSpace(ProxyCheckUrl) ? "https://www.google.com/generate_204" : ProxyCheckUrl.Trim();
+                    var sw = Stopwatch.StartNew();
+                    using var response = await client.GetAsync(checkUrl);
+                    sw.Stop();
                     connectionSuccess = response.IsSuccessStatusCode;
+                    if (connectionSuccess && sw.ElapsedMilliseconds > 0)
+                    {
+                        ping = sw.ElapsedMilliseconds;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1425,11 +1435,18 @@ namespace ProxyControl.Services
             return 0;
         }
 
-        private static async Task<double> MeasureHttpProxySpeedMBpsAsync(
+        private async Task<double> MeasureHttpProxySpeedMBpsAsync(
             HttpClient client,
             CancellationToken token)
         {
-            foreach (string target in HttpSpeedTargets)
+            var targets = new List<string>();
+            if (!string.IsNullOrWhiteSpace(ProxySpeedTestUrl))
+            {
+                targets.Add(ProxySpeedTestUrl.Trim());
+            }
+            targets.AddRange(HttpSpeedTargets);
+
+            foreach (string target in targets)
             {
                 token.ThrowIfCancellationRequested();
 
