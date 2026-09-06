@@ -453,14 +453,14 @@
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="6"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True"
                             TextElement.Foreground="{TemplateBinding Foreground}">
                             <ScrollViewer
                                 x:Name="PART_ContentHost"
                                 Focusable="False"
                                 HorizontalScrollBarVisibility="Hidden"
-                                VerticalScrollBarVisibility="Hidden"
-                                Margin="{TemplateBinding Padding}"
-                                VerticalAlignment="Center" />
+                                VerticalScrollBarVisibility="Disabled" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsFocused" Value="True">
@@ -481,6 +481,9 @@
             <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
             <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -491,14 +494,52 @@
                             BorderThickness="1"
                             CornerRadius="6">
                             <ContentPresenter
-                                Margin="14,8"
+                                Margin="{TemplateBinding Padding}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource BorderBrush}" />
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource ForegroundDisabledBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ForegroundDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PresetPillBtn" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource SurfaceMediumBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="4">
+                            <ContentPresenter
+                                Margin="{TemplateBinding Padding}"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource BorderBrush}" />
-                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource ForegroundDisabledBrush}" />
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ForegroundDisabledBrush}" />
@@ -2442,7 +2483,6 @@
                                         <TextBox
                                             Grid.Column="1"
                                             Padding="8,5"
-                                            VerticalContentAlignment="Center"
                                             Background="{DynamicResource SurfaceLightBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
                                             BorderThickness="1"
@@ -2506,7 +2546,6 @@
                                             Width="120"
                                             Margin="0,0,5,0"
                                             Padding="6,4"
-                                            VerticalContentAlignment="Center"
                                             Background="{DynamicResource SurfaceLightBrush}"
                                             BorderBrush="{DynamicResource BorderBrush}"
                                             BorderThickness="1"
@@ -3507,7 +3546,6 @@
                                                         <TextBox
                                                             Height="34"
                                                             Padding="10,6"
-                                                            VerticalContentAlignment="Center"
                                                             Foreground="{DynamicResource ForegroundBrush}"
                                                             CaretBrush="{DynamicResource ForegroundBrush}"
                                                             Background="{DynamicResource SurfaceLightBrush}"
@@ -3687,28 +3725,19 @@
                                                             Margin="0,0,6,0" />
                                                         <Button
                                                             Content="Google 204"
-                                                            Height="24"
-                                                            Padding="8,2"
-                                                            FontSize="11"
+                                                            Style="{StaticResource PresetPillBtn}"
                                                             Margin="0,0,4,0"
-                                                            Cursor="Hand"
                                                             Command="{Binding SetProxyCheckPresetCommand}"
                                                             CommandParameter="https://www.google.com/generate_204" />
                                                         <Button
                                                             Content="Cloudflare"
-                                                            Height="24"
-                                                            Padding="8,2"
-                                                            FontSize="11"
+                                                            Style="{StaticResource PresetPillBtn}"
                                                             Margin="0,0,4,0"
-                                                            Cursor="Hand"
                                                             Command="{Binding SetProxyCheckPresetCommand}"
                                                             CommandParameter="https://1.1.1.1/cdn-cgi/trace" />
                                                         <Button
                                                             Content="Yandex"
-                                                            Height="24"
-                                                            Padding="8,2"
-                                                            FontSize="11"
-                                                            Cursor="Hand"
+                                                            Style="{StaticResource PresetPillBtn}"
                                                             Command="{Binding SetProxyCheckPresetCommand}"
                                                             CommandParameter="https://ya.ru" />
                                                     </StackPanel>
@@ -3716,7 +3745,7 @@
                                                 <TextBox
                                                     Grid.Row="1"
                                                     Height="34"
-                                                    VerticalContentAlignment="Center"
+                                                    Padding="10,6"
                                                     Text="{Binding ProxyCheckUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                     ToolTip="URL queried through proxy to measure ping and check status" />
                                             </Grid>
@@ -3747,28 +3776,19 @@
                                                             Margin="0,0,6,0" />
                                                         <Button
                                                             Content="Cloudflare 10MB"
-                                                            Height="24"
-                                                            Padding="8,2"
-                                                            FontSize="11"
+                                                            Style="{StaticResource PresetPillBtn}"
                                                             Margin="0,0,4,0"
-                                                            Cursor="Hand"
                                                             Command="{Binding SetProxySpeedPresetCommand}"
                                                             CommandParameter="https://speed.cloudflare.com/__down?bytes=10000000" />
                                                         <Button
                                                             Content="Cloudflare 25MB"
-                                                            Height="24"
-                                                            Padding="8,2"
-                                                            FontSize="11"
+                                                            Style="{StaticResource PresetPillBtn}"
                                                             Margin="0,0,4,0"
-                                                            Cursor="Hand"
                                                             Command="{Binding SetProxySpeedPresetCommand}"
                                                             CommandParameter="https://speed.cloudflare.com/__down?bytes=25000000" />
                                                         <Button
                                                             Content="Tele2 10MB"
-                                                            Height="24"
-                                                            Padding="8,2"
-                                                            FontSize="11"
-                                                            Cursor="Hand"
+                                                            Style="{StaticResource PresetPillBtn}"
                                                             Command="{Binding SetProxySpeedPresetCommand}"
                                                             CommandParameter="http://speedtest.tele2.net/10MB.zip" />
                                                     </StackPanel>
@@ -3776,7 +3796,7 @@
                                                 <TextBox
                                                     Grid.Row="1"
                                                     Height="34"
-                                                    VerticalContentAlignment="Center"
+                                                    Padding="10,6"
                                                     Text="{Binding ProxySpeedTestUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                     ToolTip="Direct file URL downloaded through proxy to measure speed in MB/s" />
                                             </Grid>
@@ -3849,7 +3869,7 @@
                                                             Text="Primary DNS Server" />
                                                         <TextBox
                                                             Height="32"
-                                                            VerticalContentAlignment="Center"
+                                                            Padding="8,5"
                                                             IsEnabled="{Binding IsDnsCustom}"
                                                             Text="{Binding DnsHost, UpdateSourceTrigger=PropertyChanged}"
                                                             ToolTip="e.g. 8.8.8.8, 1.1.1.1, or dns.google" />
@@ -3862,7 +3882,7 @@
                                                             Text="Alternative DNS Server" />
                                                         <TextBox
                                                             Height="32"
-                                                            VerticalContentAlignment="Center"
+                                                            Padding="8,5"
                                                             IsEnabled="{Binding IsDnsCustom}"
                                                             Text="{Binding DnsFallbackHost, UpdateSourceTrigger=PropertyChanged}"
                                                             ToolTip="e.g. 1.0.0.1 or 8.8.4.4" />
@@ -4077,19 +4097,43 @@
                                             Height="38"
                                             Command="{Binding ToggleProxyCommand}"
                                             FontSize="13"
-                                            FontWeight="SemiBold">
+                                            FontWeight="Bold"
+                                            Cursor="Hand">
                                             <Button.Style>
-                                                <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Foreground" Value="White" />
+                                                    <Setter Property="BorderThickness" Value="0" />
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border
+                                                                    x:Name="btnBorder"
+                                                                    Background="{TemplateBinding Background}"
+                                                                    BorderThickness="0"
+                                                                    CornerRadius="6">
+                                                                    <ContentPresenter
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center" />
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="btnBorder" Property="Opacity" Value="0.88" />
+                                                                    </Trigger>
+                                                                    <Trigger Property="IsPressed" Value="True">
+                                                                        <Setter TargetName="btnBorder" Property="Opacity" Value="0.75" />
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding IsProxyRunning}" Value="True">
-                                                            <Setter Property="Content" Value="🛑 STOP SYSTEM PROXY" />
-                                                            <Setter Property="Background" Value="#2563EB" />
-                                                            <Setter Property="Foreground" Value="White" />
+                                                            <Setter Property="Content" Value="SYSTEM PROXY: ON" />
+                                                            <Setter Property="Background" Value="#28A745" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsProxyRunning}" Value="False">
-                                                            <Setter Property="Content" Value="▶️ START SYSTEM PROXY" />
-                                                            <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
-                                                            <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+                                                            <Setter Property="Content" Value="SYSTEM PROXY: OFF" />
+                                                            <Setter Property="Background" Value="#A03333" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
