@@ -49,6 +49,7 @@ namespace ProxyControl.Services
         private RuleMode _currentMode;
         private bool _isWebRtcBlockingEnabled = true;
         private bool _isTunMode = false;
+        private bool _isSystemProxyEnabled = true;
         private readonly ProcessMonitorService _processMonitor;
         private readonly TrafficMonitorService _trafficMonitor;
         private const int LocalPort = 8000;
@@ -115,6 +116,7 @@ namespace ProxyControl.Services
         public void UpdateConfig(AppConfig config, List<ProxyItem> proxies)
         {
             bool hadActiveConnections = !_activeClients.IsEmpty;
+            bool wasSystemProxyEnabled = _isSystemProxyEnabled;
 
             var newProxies = proxies.Select(p => new ProxyItem
             {
@@ -192,10 +194,19 @@ namespace ProxyControl.Services
             _currentMode = config.CurrentMode;
             _isWebRtcBlockingEnabled = config.IsWebRtcBlockingEnabled;
             _isTunMode = config.IsTunMode;
+            _isSystemProxyEnabled = config.IsSystemProxyEnabled;
             _routingFingerprint = nextRoutingFingerprint;
 
             try
             {
+                if (_isRunning)
+                {
+                    if (_isSystemProxyEnabled)
+                        SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
+                    else if (wasSystemProxyEnabled)
+                        SystemProxyHelper.RestoreSystemProxy();
+                }
+
                 if (shouldHardDisconnect)
                 {
                     _logger.Debug("Schedule", "Hard-disconnecting active sessions due to routing/rule change.");
@@ -250,8 +261,7 @@ namespace ProxyControl.Services
                 _listener.Start();
                 _logger.Info("Proxy", $"Proxy started on port {LocalPort}");
 
-                // Only set System Proxy if NOT in TUN mode
-                if (!_isTunMode)
+                if (_isSystemProxyEnabled)
                 {
                     SystemProxyHelper.SetSystemProxy(true, "127.0.0.1", LocalPort);
                 }
@@ -283,7 +293,7 @@ namespace ProxyControl.Services
 
                         if (!_isRunning || token.IsCancellationRequested) break;
 
-                        if (!_isTunMode)
+                        if (_isSystemProxyEnabled)
                         {
                             SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
                         }
@@ -414,8 +424,7 @@ namespace ProxyControl.Services
         {
             if (!_isRunning) return;
 
-            // Limit enforcement to non-TUN mode
-            if (!_isTunMode)
+            if (_isSystemProxyEnabled)
             {
                 SystemProxyHelper.EnforceSystemProxy("127.0.0.1", LocalPort);
             }

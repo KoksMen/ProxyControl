@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using ProxyControl.Models;
 using ProxyControl.Services;
 using ProxyControl.Helpers;
@@ -82,8 +82,58 @@ namespace ProxyControl.ViewModels
         }
 
         // TUN Mode (WebRTC/UDP bypass)
-        // TUN Mode (WebRTC/UDP bypass) - Only available for SOCKS5 + Blacklist
         private bool _isTunMode;
+        private CancellationTokenSource? _tunRefreshCts;
+
+        public IEnumerable<ProxyRoutingMode> RoutingModes => Enum.GetValues(typeof(ProxyRoutingMode)).Cast<ProxyRoutingMode>();
+
+        public ProxyRoutingMode RoutingMode
+        {
+            get => _config.RoutingMode ?? GetLegacyRoutingMode();
+            set
+            {
+                if (RoutingMode == value) return;
+                if (UsesTun(value) && !CanEnableTunMode)
+                {
+                    ShowMessage("TUN requires a proxy", "Add and enable at least one proxy before selecting TUN or Mixed mode.");
+                    return;
+                }
+
+                _tunRefreshCts?.Cancel();
+                _config.RoutingMode = value;
+                SynchronizeLegacyRoutingFlags(value);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsTunMode));
+                OnPropertyChanged(nameof(IsSystemProxyEnabled));
+                OnPropertyChanged(nameof(IsSystemProxyMode));
+                OnPropertyChanged(nameof(IsTunOnlyMode));
+                OnPropertyChanged(nameof(IsMixedMode));
+                OnPropertyChanged(nameof(TunModeStatus));
+                ApplyConfig();
+                RequestSaveSettings();
+                _ = ToggleTunModeAsync();
+            }
+        }
+
+        public bool IsSystemProxyEnabled => UsesSystemProxy(RoutingMode);
+        public bool IsSystemProxyMode
+        {
+            get => RoutingMode == ProxyRoutingMode.SystemProxy;
+            set { if (value) RoutingMode = ProxyRoutingMode.SystemProxy; }
+        }
+
+        public bool IsTunOnlyMode
+        {
+            get => RoutingMode == ProxyRoutingMode.Tun;
+            set { if (value) RoutingMode = ProxyRoutingMode.Tun; }
+        }
+
+        public bool IsMixedMode
+        {
+            get => RoutingMode == ProxyRoutingMode.Mixed;
+            set { if (value) RoutingMode = ProxyRoutingMode.Mixed; }
+        }
+
         public bool IsTunMode
         {
             get => _isTunMode;
@@ -91,36 +141,51 @@ namespace ProxyControl.ViewModels
             {
                 if (_isTunMode != value)
                 {
-                    // Validation: Only allow enabling if SOCKS5 and Blacklist
-                    if (value && !CanEnableTunMode)
-                    {
-                        // Reset if user tries to force it (should be disabled in UI too)
-                        _isTunMode = false;
-                        OnPropertyChanged();
-                        return;
-                    }
-
-                    _isTunMode = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(TunModeStatus));
-                    if (_config != null) _config.IsTunMode = value; // Update config
-                    RequestSaveSettings(); // Save immediately
-                    _ = ToggleTunModeAsync();
+                    RoutingMode = value
+                        ? (IsSystemProxyEnabled ? ProxyRoutingMode.Mixed : ProxyRoutingMode.Tun)
+                        : ProxyRoutingMode.SystemProxy;
                 }
             }
+        }
+
+        private ProxyRoutingMode GetLegacyRoutingMode()
+        {
+            return _config.IsTunMode
+                ? (_config.IsSystemProxyEnabled ? ProxyRoutingMode.Mixed : ProxyRoutingMode.Tun)
+                : ProxyRoutingMode.SystemProxy;
+        }
+
+        private static bool UsesTun(ProxyRoutingMode mode) => mode is ProxyRoutingMode.Tun or ProxyRoutingMode.Mixed;
+        private static bool UsesSystemProxy(ProxyRoutingMode mode) => mode is ProxyRoutingMode.SystemProxy or ProxyRoutingMode.Mixed;
+
+        private void SynchronizeLegacyRoutingFlags(ProxyRoutingMode mode)
+        {
+            _isTunMode = UsesTun(mode);
+            _config.IsTunMode = _isTunMode;
+            _config.IsSystemProxyEnabled = UsesSystemProxy(mode);
+        }
+
+        private void NormalizeRoutingMode()
+        {
+            var mode = _config.RoutingMode ?? GetLegacyRoutingMode();
+            _config.RoutingMode = mode;
+            SynchronizeLegacyRoutingFlags(mode);
         }
 
         public bool CanEnableTunMode
         {
             get
             {
-                // Only allow TUN if SOCKS5 is selected AND we are in Blacklist mode
-                if (!IsBlackListMode) return false;
-                var proxy = SelectedBlackListMainProxy;
-                return proxy != null && proxy.Type == ProxyType.Socks5;
+                return Proxies.Any(p => p.IsEnabled);
             }
         }
-        public string TunModeStatus => _isTunMode ? "🟢 TUN Active (Full UDP)" : "⚪ TUN Off";
+        public string TunModeStatus => RoutingMode switch
+        {
+            ProxyRoutingMode.SystemProxy => "System proxy",
+            ProxyRoutingMode.Tun => _isTunMode ? "TUN active" : "TUN off",
+            ProxyRoutingMode.Mixed => _isTunMode ? "Mixed active" : "Mixed starting",
+            _ => "Off"
+        };
 
         public IEnumerable<RuleAction> ActionTypes => Enum.GetValues(typeof(RuleAction)).Cast<RuleAction>();
         public IEnumerable<BlockDirection> BlockDirectionTypes => Enum.GetValues(typeof(BlockDirection)).Cast<BlockDirection>();
@@ -132,7 +197,7 @@ namespace ProxyControl.ViewModels
             set { _currentView = value; OnPropertyChanged(); }
         }
 
-        private string _currentVersion = "1.0.0";
+        private string _currentVersion = "2.8.0";
         public string CurrentVersion
         {
             get => _currentVersion;
@@ -170,8 +235,7 @@ namespace ProxyControl.ViewModels
                         RequestSaveSettings();
                     }
 
-                    // If TunProxy changes and mode becomes invalid, disable TUN
-                    if (IsTunMode && !CanEnableTunMode) IsTunMode = false;
+                    RefreshTunIfRunning();
                 }
             }
         }
@@ -1480,8 +1544,7 @@ namespace ProxyControl.ViewModels
                 ApplyConfig();
                 RequestSaveSettings();
 
-                // If switched to WhiteList, disable TUN mode
-                if (!value && IsTunMode) IsTunMode = false;
+                RefreshTunIfRunning();
             }
         }
 
@@ -1844,24 +1907,14 @@ namespace ProxyControl.ViewModels
             {
                 LoadSettings();
 
-                // Validate TUN Mode on startup (must be after LoadSettings)
                 if (_config.IsTunMode)
                 {
-                    // Check if conditions are met: Blacklist Mode + SOCKS5 Proxy
-                    bool isSocks5 = false;
-                    var tunProxyId = _config.TunProxyId;
-                    // If TunProxyId is null/empty, it might default to first proxy, but let's check explicit or main proxy
-                    // Actually, TunProxy property uses _tunProxy ?? Proxies.FirstOrDefault()
-                    // Let's resolve the actual proxy being used for TUN
-
-                    var proxy = Proxies.FirstOrDefault(p => p.Id == tunProxyId) ?? Proxies.FirstOrDefault();
-
-                    if (proxy != null && proxy.Type == ProxyType.Socks5) isSocks5 = true;
-
-                    if (!IsBlackListMode || !isSocks5)
+                    if (!CanEnableTunMode)
                     {
                         _config.IsTunMode = false;
                         _isTunMode = false; // Sync backing field
+                        _config.RoutingMode = ProxyRoutingMode.SystemProxy;
+                        _config.IsSystemProxyEnabled = true;
                         OnPropertyChanged(nameof(IsTunMode));
                         OnPropertyChanged(nameof(TunModeStatus));
                     }
@@ -2813,6 +2866,7 @@ namespace ProxyControl.ViewModels
             if (!string.IsNullOrEmpty(e.PropertyName) && triggers.Contains(e.PropertyName))
             {
                 RequestSaveSettings();
+                RefreshTunIfRunning();
 
                 // If Proxy Type changed, re-evaluate TUN eligibility
                 if (e.PropertyName == nameof(ProxyItem.Type))
@@ -2834,6 +2888,7 @@ namespace ProxyControl.ViewModels
             if (IsTunMode && !CanEnableTunMode) IsTunMode = false;
 
             RequestSaveSettings();
+            RefreshTunIfRunning();
         }
 
         private void SubscribeToItem(INotifyPropertyChanged item)
@@ -3070,6 +3125,8 @@ namespace ProxyControl.ViewModels
                 EnableDnsProtection = _config.EnableDnsProtection,
                 IsWebRtcBlockingEnabled = _config.IsWebRtcBlockingEnabled,
                 IsTunMode = _config.IsTunMode,
+                IsSystemProxyEnabled = _config.IsSystemProxyEnabled,
+                RoutingMode = _config.RoutingMode,
                 UseAdvancedLogFilters = _config.UseAdvancedLogFilters,
                 DnsProvider = _config.DnsProvider,
                 DnsHost = _config.DnsHost,
@@ -3094,6 +3151,39 @@ namespace ProxyControl.ViewModels
             var proxies = Proxies.ToList();
             _proxyService.UpdateConfig(runtimeConfig, proxies);
             _dnsProxyService.UpdateConfig(runtimeConfig, proxies);
+        }
+
+        private void RefreshTunIfRunning()
+        {
+            if (!IsTunMode || !_tunService.IsRunning) return;
+
+            var tunConfig = CreateTunRulesConfig();
+            _tunRefreshCts?.Cancel();
+            _tunRefreshCts?.Dispose();
+            _tunRefreshCts = new CancellationTokenSource();
+            var token = _tunRefreshCts.Token;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // A queued refresh must never resurrect TUN after it was turned off.
+                    if (!IsTunMode || token.IsCancellationRequested) return;
+                    await _tunService.StartAsync(tunConfig, token);
+                }
+                catch (OperationCanceledException) { }
+            }, token);
+        }
+
+        private TunService.TunRulesConfig CreateTunRulesConfig()
+        {
+            return new TunService.TunRulesConfig
+            {
+                Mode = _config.CurrentMode,
+                Rules = GetRulesForMode(_config.CurrentMode),
+                ProxyType = (_config.CurrentMode == RuleMode.BlackList)
+                    ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http)
+                    : ProxyType.Http
+            };
         }
 
         private static void EnsureProxyNames(IEnumerable<ProxyItem> proxies)
@@ -3325,12 +3415,7 @@ namespace ProxyControl.ViewModels
                     UpdateDnsServiceState();
                     if (IsTunMode)
                     {
-                        var tunConfig = new TunService.TunRulesConfig
-                        {
-                            Mode = _config.CurrentMode,
-                            Rules = GetRulesForMode(_config.CurrentMode),
-                            ProxyType = IsBlackListMode ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http) : ProxyType.Http,
-                        };
+                        var tunConfig = CreateTunRulesConfig();
                         _ = _tunService.StartAsync(tunConfig); // Ensure TUN restarts if it was active
                     }
                 }
@@ -3344,7 +3429,7 @@ namespace ProxyControl.ViewModels
             {
                 _proxyService.Stop();
                 _dnsProxyService.Stop();
-                if (IsTunMode) _tunService.Stop(); // Stop TUN if main proxy stops
+                if (IsTunMode) _ = _tunService.StopAsync(); // Stop TUN if main proxy stops
             }
         }
 
@@ -3368,6 +3453,7 @@ namespace ProxyControl.ViewModels
                 _temporaryBlackListRules.Clear();
                 _temporaryWhiteListRules.Clear();
                 _config = d.Config ?? new AppConfig();
+                NormalizeRoutingMode();
                 IsAutoStart = d.IsAutoStart;
                 CheckUpdateOnStartup = d.CheckUpdateOnStartup;
                 Proxies.Clear();
@@ -3400,6 +3486,7 @@ namespace ProxyControl.ViewModels
                 _temporaryBlackListRules.Clear();
                 _temporaryWhiteListRules.Clear();
                 _config = d.Config ?? new AppConfig();
+                NormalizeRoutingMode();
                 IsAutoStart = _settingsService.IsAutoStartEnabled();
                 CheckUpdateOnStartup = d.CheckUpdateOnStartup;
 
@@ -3434,8 +3521,9 @@ namespace ProxyControl.ViewModels
                 OnPropertyChanged(nameof(UseAdvancedLogFilters));
 
                 // Restore state without starting services from inside loading.
-                _isTunMode = _config.IsTunMode;
                 OnPropertyChanged(nameof(IsTunMode));
+                OnPropertyChanged(nameof(RoutingMode));
+                OnPropertyChanged(nameof(IsSystemProxyEnabled));
                 OnPropertyChanged(nameof(TunModeStatus));
 
                 Presets.Clear();
@@ -3476,10 +3564,18 @@ namespace ProxyControl.ViewModels
                     Rules = GetRulesForMode(_config.CurrentMode),
                     ProxyType = (_config.CurrentMode == RuleMode.BlackList) ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http) : ProxyType.Http
                 };
-                var success = await _tunService.StartAsync(tunConfig);
+                _tunRefreshCts?.Cancel();
+                _tunRefreshCts?.Dispose();
+                _tunRefreshCts = new CancellationTokenSource();
+                var token = _tunRefreshCts.Token;
+                var success = await _tunService.StartAsync(tunConfig, token);
+                if (token.IsCancellationRequested || !IsTunMode) return;
                 if (!success)
                 {
-                    MessageBox.Show("Failed to start TUN mode. Ensure 'sing-box.exe' downloads successfully and you are running as Administrator.", "TUN Mode Start Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+                    string detail = string.IsNullOrWhiteSpace(_tunService.LastError)
+                        ? "Unknown sing-box startup error."
+                        : _tunService.LastError;
+                    MessageBox.Show($"TUN could not start.\n\n{detail}\n\nCheck the TUN log for details.", "TUN Mode Start Failed", MessageBoxButton.OK, MessageBoxImage.Error);
                     IsTunMode = false; // Revert
                     TunStatusDescription = "Failed to start";
                 }
@@ -3492,7 +3588,8 @@ namespace ProxyControl.ViewModels
             }
             else
             {
-                _tunService.Stop();
+                _tunRefreshCts?.Cancel();
+                await _tunService.StopAsync();
                 TunStatusDescription = "Inactive";
                 OnPropertyChanged(nameof(TunModeStatus));
                 OnPropertyChanged(nameof(TunStatusDescription));
@@ -3652,6 +3749,7 @@ namespace ProxyControl.ViewModels
                 CurrentMode = _config.CurrentMode,
                 BlackListSelectedProxyId = _config.BlackListSelectedProxyId,
                 TunProxyId = _config.TunProxyId,
+                RoutingMode = _config.RoutingMode,
                 Proxies = DeepClone(Proxies.ToList()),
                 BlackListRules = DeepClone(_config.BlackListRules),
                 WhiteListRules = DeepClone(_config.WhiteListRules),
@@ -3771,6 +3869,11 @@ namespace ProxyControl.ViewModels
                 }
 
                 _config.TunProxyId = Proxies.Any(p => p.Id == profile.TunProxyId) ? profile.TunProxyId : null;
+                // Older profiles did not own the routing mode, so preserve the
+                // currently selected mode when their field is absent.
+                if (profile.RoutingMode.HasValue)
+                    _config.RoutingMode = profile.RoutingMode;
+                NormalizeRoutingMode();
                 _tunProxy = Proxies.FirstOrDefault(p => p.Id == _config.TunProxyId);
 
                 Presets.Clear();
@@ -3796,11 +3899,12 @@ namespace ProxyControl.ViewModels
 
             if (IsTunMode && !CanEnableTunMode)
             {
-                _tunService.Stop();
+                _ = _tunService.StopAsync();
                 _isTunMode = false;
                 _config.IsTunMode = false;
+                _config.RoutingMode = ProxyRoutingMode.SystemProxy;
+                _config.IsSystemProxyEnabled = true;
                 TunStatusDescription = "Inactive";
-                restoreSystemProxy = true;
                 OnPropertyChanged(nameof(IsTunMode));
                 OnPropertyChanged(nameof(TunModeStatus));
                 OnPropertyChanged(nameof(TunStatusDescription));
@@ -3808,20 +3912,12 @@ namespace ProxyControl.ViewModels
 
             ApplyConfig();
 
-            if (restoreSystemProxy && IsProxyRunning)
-            {
-                _proxyService.EnforceSystemProxy();
-            }
+            if (restoreSystemProxy && IsProxyRunning) _proxyService.EnforceSystemProxy();
 
             if (IsTunMode)
             {
-                _tunService.Stop();
-                var tunConfig = new TunService.TunRulesConfig
-                {
-                    Mode = _config.CurrentMode,
-                    Rules = GetRulesForMode(_config.CurrentMode),
-                    ProxyType = IsBlackListMode ? (SelectedBlackListMainProxy?.Type ?? ProxyType.Http) : ProxyType.Http
-                };
+                _ = _tunService.StopAsync();
+                var tunConfig = CreateTunRulesConfig();
                 _ = _tunService.StartAsync(tunConfig);
             }
 

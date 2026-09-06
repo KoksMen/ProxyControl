@@ -1706,32 +1706,63 @@
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="7"
-                                        ToolTip="Route all traffic through a virtual network interface. Available for SOCKS5 in BlackList mode."
-                                        Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
-                                        <StackPanel Orientation="Horizontal">
-                                            <StackPanel Margin="0,0,12,0">
-                                                <TextBlock
-                                                    FontSize="11"
-                                                    FontWeight="SemiBold"
-                                                    Foreground="{DynamicResource ForegroundBrush}"
-                                                    Text="TUN Mode" />
-                                                <TextBlock
-                                                    FontSize="9"
-                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                    Text="Full traffic routing" />
-                                            </StackPanel>
-                                            <CheckBox
-                                                VerticalAlignment="Center"
-                                                IsChecked="{Binding IsTunMode}"
-                                                IsEnabled="{Binding CanEnableTunMode}"
-                                                Style="{StaticResource ToggleSwitchStyle}" />
-                                            <TextBlock
-                                                Margin="9,0,0,0"
-                                                VerticalAlignment="Center"
-                                                FontSize="10"
-                                                FontWeight="SemiBold"
-                                                Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                Text="{Binding TunModeStatus}" />
+                                        ToolTip="Choose how traffic reaches ProxyControl: system HTTP(S) proxy, TUN, or both together.">
+                                        <StackPanel>
+                                            <StackPanel.Resources>
+                                                <Style x:Key="RoutingChoice" TargetType="RadioButton">
+                                                    <Setter Property="Margin" Value="0" />
+                                                    <Setter Property="Padding" Value="10,8" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
+                                                    <Setter Property="Cursor" Value="Hand" />
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="RadioButton">
+                                                                <Border x:Name="Choice" Padding="{TemplateBinding Padding}" Background="{DynamicResource SurfaceMediumBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6">
+                                                                    <ContentPresenter />
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsChecked" Value="True">
+                                                                        <Setter TargetName="Choice" Property="Background" Value="#234A78" />
+                                                                        <Setter TargetName="Choice" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
+                                                                        <Setter Property="Foreground" Value="White" />
+                                                                    </Trigger>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="Choice" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
+                                                                        <Setter Property="Foreground" Value="White" />
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                </Style>
+                                            </StackPanel.Resources>
+                                            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="Traffic routing" />
+                                            <Grid Margin="0,7,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="118" />
+                                                    <ColumnDefinition Width="92" />
+                                                    <ColumnDefinition Width="106" />
+                                                </Grid.ColumnDefinitions>
+                                                <RadioButton Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsSystemProxyMode}" ToolTip="Use Windows HTTP(S) proxy settings.">
+                                                    <StackPanel>
+                                                        <TextBlock FontWeight="SemiBold" Text="System proxy" />
+                                                        <TextBlock Margin="0,2,0,0" FontSize="9" Opacity="0.7" Text="Browsers &amp; apps" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                                <RadioButton Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsTunOnlyMode}" ToolTip="Route all network traffic through the virtual adapter.">
+                                                    <StackPanel>
+                                                        <TextBlock FontWeight="SemiBold" Text="TUN" />
+                                                        <TextBlock Margin="0,2,0,0" FontSize="9" Opacity="0.7" Text="All traffic" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                                <RadioButton Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsMixedMode}" ToolTip="Keep Windows HTTP(S) proxy and TUN active together.">
+                                                    <StackPanel>
+                                                        <TextBlock FontWeight="SemiBold" Text="Mixed" />
+                                                        <TextBlock Margin="0,2,0,0" FontSize="9" Opacity="0.7" Text="Combined" />
+                                                    </StackPanel>
+                                                </RadioButton>
+                                            </Grid>
+                                            <TextBlock Margin="1,6,0,0" FontSize="9" Foreground="{DynamicResource ForegroundMutedBrush}" Text="{Binding TunModeStatus}" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>

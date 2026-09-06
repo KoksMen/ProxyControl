@@ -20,6 +20,13 @@ namespace ProxyControl.Models
         Custom
     }
 
+    public enum ProxyRoutingMode
+    {
+        SystemProxy,
+        Tun,
+        Mixed
+    }
+
     // Корневой класс настроек, сохраняемый в JSON
     public class AppSettings
     {
@@ -43,6 +50,9 @@ namespace ProxyControl.Models
         public bool EnableDnsProtection { get; set; } = false;
         public bool IsWebRtcBlockingEnabled { get; set; } = true;
         public bool IsTunMode { get; set; } = false;
+        public bool IsSystemProxyEnabled { get; set; } = true;
+        // Null indicates a settings file created before explicit routing modes.
+        public ProxyRoutingMode? RoutingMode { get; set; }
         public bool UseAdvancedLogFilters { get; set; } = false;
 
         // Выбранный тип провайдера
@@ -80,6 +90,7 @@ namespace ProxyControl.Models
         public RuleMode CurrentMode { get; set; } = RuleMode.BlackList;
         public Guid? BlackListSelectedProxyId { get; set; }
         public string? TunProxyId { get; set; }
+        public ProxyRoutingMode? RoutingMode { get; set; }
         public List<ProxyItem> Proxies { get; set; } = new List<ProxyItem>();
         public List<TrafficRule> BlackListRules { get; set; } = new List<TrafficRule>();
         public List<TrafficRule> WhiteListRules { get; set; } = new List<TrafficRule>();
