@@ -45,6 +45,33 @@
         <local:StringEqualsConverter x:Key="StringEqualsConverter" />
         <local:ActionToProxyVisConverter x:Key="ActionToProxyVisConverter" />
 
+        <!--  Loading Spinner Rotation Style  -->
+        <Style x:Key="SpinningLoaderStyle" TargetType="Grid">
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <RotateTransform Angle="0" />
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsVisible, RelativeSource={RelativeSource Self}}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard x:Name="SpinningStoryboard">
+                            <Storyboard RepeatBehavior="Forever">
+                                <DoubleAnimation
+                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                    From="0" To="360"
+                                    Duration="0:0:0.85" />
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <StopStoryboard BeginStoryboardName="SpinningStoryboard" />
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!--  TitleBar Window Control Button Style  -->
         <Style x:Key="TitleBarButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
@@ -4619,11 +4646,25 @@
 
                                     <!--  Connection Cards  -->
                                     <ScrollViewer
+                                        x:Name="MonitorConnectionsScrollViewer"
                                         Grid.Row="2"
                                         ScrollChanged="MonitorConnectionsScrollViewer_OnScrollChanged"
                                         VerticalScrollBarVisibility="Auto"
+                                        CanContentScroll="True"
+                                        VirtualizingPanel.IsVirtualizing="True"
+                                        VirtualizingPanel.ScrollUnit="Pixel"
+                                        VirtualizingPanel.CacheLength="2,2"
+                                        VirtualizingPanel.CacheLengthUnit="Page"
+                                        VirtualizingPanel.VirtualizationMode="Recycling"
                                         Visibility="{Binding SelectedMonitorProcess, Converter={StaticResource NullToBool}, ConverterParameter=Visible}">
-                                        <ItemsControl ItemsSource="{Binding MonitorConnectionsView}">
+                                        <ItemsControl ItemsSource="{Binding MonitorConnectionsView}"
+                                                      VirtualizingPanel.IsVirtualizing="True"
+                                                      VirtualizingPanel.ScrollUnit="Pixel">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <VirtualizingStackPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border
@@ -4742,6 +4783,42 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </ScrollViewer>
+
+                                    <!--  Monitor Connections Loading Overlay  -->
+                                    <Border
+                                        Grid.Row="2"
+                                        Background="#E60F0F12"
+                                        CornerRadius="8"
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch"
+                                        Visibility="{Binding IsMonitorConnectionsLoading, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Grid Width="44" Height="44" HorizontalAlignment="Center">
+                                                <Ellipse Width="34" Height="34"
+                                                         Stroke="#27272A"
+                                                         StrokeThickness="3.5"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center" />
+                                                <Grid Style="{StaticResource SpinningLoaderStyle}"
+                                                      Width="38" Height="38"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center">
+                                                    <Path Stroke="{DynamicResource PrimaryAccentBrush}"
+                                                          StrokeThickness="3.5"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          Data="M 19,2 A 17,17 0 0 1 31,31" />
+                                                </Grid>
+                                            </Grid>
+                                            <TextBlock
+                                                Margin="0,14,0,0"
+                                                HorizontalAlignment="Center"
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundSubtleBrush}"
+                                                Text="Loading connections..." />
+                                        </StackPanel>
+                                    </Border>
 
                                     <Border
                                         Grid.Row="2"
@@ -5005,9 +5082,15 @@
                                         Grid.Row="2"
                                         ScrollChanged="ConnectionLogsScrollViewer_OnScrollChanged"
                                         VerticalScrollBarVisibility="Auto"
+                                        CanContentScroll="True"
                                         VirtualizingPanel.IsVirtualizing="True"
+                                        VirtualizingPanel.ScrollUnit="Pixel"
+                                        VirtualizingPanel.CacheLength="2,2"
+                                        VirtualizingPanel.CacheLengthUnit="Page"
                                         VirtualizingPanel.VirtualizationMode="Recycling">
-                                        <ItemsControl ItemsSource="{Binding LogsView}" VirtualizingPanel.IsVirtualizing="True">
+                                        <ItemsControl ItemsSource="{Binding LogsView}"
+                                                      VirtualizingPanel.IsVirtualizing="True"
+                                                      VirtualizingPanel.ScrollUnit="Pixel">
                                             <ItemsControl.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <VirtualizingStackPanel />
@@ -5159,6 +5242,42 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </ScrollViewer>
+
+                                    <!--  Connection Logs Loading Overlay  -->
+                                    <Border
+                                        Grid.Row="2"
+                                        Background="#E60F0F12"
+                                        CornerRadius="8"
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch"
+                                        Visibility="{Binding IsLogsLoading, Converter={StaticResource BoolToVis}}">
+                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Grid Width="44" Height="44" HorizontalAlignment="Center">
+                                                <Ellipse Width="34" Height="34"
+                                                         Stroke="#27272A"
+                                                         StrokeThickness="3.5"
+                                                         HorizontalAlignment="Center"
+                                                         VerticalAlignment="Center" />
+                                                <Grid Style="{StaticResource SpinningLoaderStyle}"
+                                                      Width="38" Height="38"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center">
+                                                    <Path Stroke="{DynamicResource PrimaryAccentBrush}"
+                                                          StrokeThickness="3.5"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          Data="M 19,2 A 17,17 0 0 1 31,31" />
+                                                </Grid>
+                                            </Grid>
+                                            <TextBlock
+                                                Margin="0,14,0,0"
+                                                HorizontalAlignment="Center"
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundSubtleBrush}"
+                                                Text="Loading connection history..." />
+                                        </StackPanel>
+                                    </Border>
                                 </Grid>
                             </Border>
                         </Grid>

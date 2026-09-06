@@ -194,7 +194,61 @@ namespace ProxyControl.ViewModels
         public string CurrentView
         {
             get => _currentView;
-            set { _currentView = value; OnPropertyChanged(); }
+            set
+            {
+                if (_currentView == value) return;
+                _currentView = value;
+                OnPropertyChanged();
+                if (value == "Logs")
+                {
+                    _ = LoadLogsAsync();
+                }
+            }
+        }
+
+        private CancellationTokenSource? _logsLoadCts;
+        private bool _isLogsLoading;
+        public bool IsLogsLoading
+        {
+            get => _isLogsLoading;
+            private set
+            {
+                if (_isLogsLoading == value) return;
+                _isLogsLoading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public async Task LoadLogsAsync()
+        {
+            _logsLoadCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _logsLoadCts = cts;
+
+            IsLogsLoading = true;
+            try
+            {
+                await Task.Delay(100, cts.Token);
+                if (cts.Token.IsCancellationRequested) return;
+
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    if (cts.Token.IsCancellationRequested) return;
+                    LogsView?.Refresh();
+                }, DispatcherPriority.Loaded, cts.Token);
+
+                await Task.Delay(60, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                if (_logsLoadCts == cts)
+                {
+                    IsLogsLoading = false;
+                }
+            }
         }
 
         private string _currentVersion = "3.2.0";
@@ -785,14 +839,79 @@ namespace ProxyControl.ViewModels
         public ObservableCollection<ProcessTrafficData> MonitoredProcesses => _trafficMonitorService.DisplayedProcessList;
 
         private ProcessTrafficData? _selectedMonitorProcess;
+        private CancellationTokenSource? _monitorConnectionsLoadCts;
+        private bool _isMonitorConnectionsLoading;
+
+        public bool IsMonitorConnectionsLoading
+        {
+            get => _isMonitorConnectionsLoading;
+            private set
+            {
+                if (_isMonitorConnectionsLoading == value) return;
+                _isMonitorConnectionsLoading = value;
+                OnPropertyChanged();
+            }
+        }
+
         public ProcessTrafficData? SelectedMonitorProcess
         {
             get => _selectedMonitorProcess;
             set
             {
+                if (ReferenceEquals(_selectedMonitorProcess, value)) return;
                 _selectedMonitorProcess = value;
-                UpdateMonitorConnectionsView();
                 OnPropertyChanged();
+
+                if (value == null)
+                {
+                    _monitorConnectionsLoadCts?.Cancel();
+                    IsMonitorConnectionsLoading = false;
+                    UpdateMonitorConnectionsView();
+                }
+                else
+                {
+                    _ = LoadMonitorConnectionsAsync(value);
+                }
+            }
+        }
+
+        private async Task LoadMonitorConnectionsAsync(ProcessTrafficData process)
+        {
+            _monitorConnectionsLoadCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _monitorConnectionsLoadCts = cts;
+
+            IsMonitorConnectionsLoading = true;
+            try
+            {
+                MonitorConnectionsView = CollectionViewSource.GetDefaultView(_emptyMonitorConnections);
+                OnPropertyChanged(nameof(MonitorConnectionsView));
+
+                await Task.Delay(100, cts.Token);
+                if (cts.Token.IsCancellationRequested) return;
+
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    if (cts.Token.IsCancellationRequested) return;
+                    if (!ReferenceEquals(_selectedMonitorProcess, process)) return;
+
+                    MonitorConnectionsView = CollectionViewSource.GetDefaultView(process.Connections ?? _emptyMonitorConnections);
+                    MonitorConnectionsView.Filter = FilterMonitorConnection;
+                    MonitorConnectionsView.Refresh();
+                    OnPropertyChanged(nameof(MonitorConnectionsView));
+                }, DispatcherPriority.Loaded, cts.Token);
+
+                await Task.Delay(60, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                if (_monitorConnectionsLoadCts == cts)
+                {
+                    IsMonitorConnectionsLoading = false;
+                }
             }
         }
 
