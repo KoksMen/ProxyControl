@@ -11,10 +11,23 @@
     Title="Proxy Control"
     Width="1450"
     Height="900"
+    MinWidth="960"
+    MinHeight="600"
     Background="{DynamicResource SurfaceDarkBrush}"
     Foreground="{DynamicResource ForegroundBrush}"
     WindowStartupLocation="CenterScreen"
+    WindowStyle="None"
+    ResizeMode="CanResize"
     mc:Ignorable="d">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome
+            CaptionHeight="40"
+            CornerRadius="0"
+            GlassFrameThickness="0"
+            ResizeBorderThickness="6"
+            UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
 
     <Window.DataContext>
         <vm:MainViewModel />
@@ -31,6 +44,109 @@
         <local:EqualityConverter x:Key="EqualityConverter" />
         <local:StringEqualsConverter x:Key="StringEqualsConverter" />
         <local:ActionToProxyVisConverter x:Key="ActionToProxyVisConverter" />
+
+        <!--  TitleBar Window Control Button Style  -->
+        <Style x:Key="TitleBarButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="border"
+                            Background="{TemplateBinding Background}">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#22FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#33FFFFFF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--  TitleBar Close Button Style  -->
+        <Style
+            x:Key="TitleBarCloseButtonStyle"
+            BasedOn="{StaticResource TitleBarButtonStyle}"
+            TargetType="Button">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="border"
+                            Background="{TemplateBinding Background}">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E81123" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#C4101F" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--  TitleBar Quick Action Button Style  -->
+        <Style x:Key="TitleBarActionButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="Margin" Value="2,0" />
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="5">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource SurfaceMediumBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
 
 
@@ -906,12 +1022,222 @@
         </Style>
     </Window.Resources>
 
-    <Grid>
+    <Border
+        x:Name="WindowRootBorder"
+        Background="{DynamicResource SurfaceDarkBrush}"
+        BorderBrush="{DynamicResource BorderBrush}"
+        BorderThickness="1">
         <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!--  Custom Modern TitleBar  -->
+            <Border
+                Grid.Row="0"
+                Height="40"
+                Background="{DynamicResource SurfaceDarkBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <!-- Left: Brand, Title, Version, Status Badges -->
+                        <ColumnDefinition Width="Auto" />
+                        <!-- Center: Draggable Caption Area -->
+                        <ColumnDefinition Width="*" />
+                        <!-- Right: Actions & Window Controls -->
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Left: Logo, Title, Version Tag, Quick Status -->
+                    <StackPanel
+                        Margin="12,0,0,0"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal">
+                        <Image
+                            Width="18"
+                            Height="18"
+                            VerticalAlignment="Center"
+                            RenderOptions.BitmapScalingMode="HighQuality"
+                            Source="pack://application:,,,/proxy.ico" />
+                        <TextBlock
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            FontSize="13"
+                            FontWeight="Bold"
+                            Foreground="{DynamicResource ForegroundBrush}"
+                            Text="Proxy Control" />
+
+                        <!-- Version Tag -->
+                        <Border
+                            Margin="8,0,0,0"
+                            Padding="6,1.5"
+                            VerticalAlignment="Center"
+                            Background="#1A382D4B"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                            <TextBlock
+                                FontSize="10"
+                                FontWeight="SemiBold"
+                                Foreground="{DynamicResource PrimaryAccentBrush}"
+                                Text="{Binding CurrentVersion, StringFormat='v{0}'}" />
+                        </Border>
+
+                        <!-- Service Status Indicator -->
+                        <Border
+                            Margin="10,0,0,0"
+                            Padding="8,2"
+                            VerticalAlignment="Center"
+                            Background="{DynamicResource SurfaceLightBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse
+                                    Width="6"
+                                    Height="6"
+                                    Margin="0,0,5,0"
+                                    VerticalAlignment="Center"
+                                    Fill="{Binding ProxyStatusColor}" />
+                                <TextBlock
+                                    FontSize="10.5"
+                                    FontWeight="SemiBold"
+                                    VerticalAlignment="Center"
+                                    Foreground="{DynamicResource ForegroundBrush}"
+                                    Text="{Binding ProxyStatusText}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Mode Badge -->
+                        <Border
+                            Margin="6,0,0,0"
+                            Padding="6,2"
+                            VerticalAlignment="Center"
+                            Background="#1E293B"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                            <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundMutedBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="🛡️ BlackList" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsBlackListMode}" Value="False">
+                                                <Setter Property="Text" Value="🛡️ WhiteList" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Center: Native Draggable Caption Area -->
+                    <Grid Grid.Column="1" Background="Transparent" />
+
+                    <!-- Right: Quick Actions & Window Control Buttons -->
+                    <StackPanel
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal">
+                        <!-- Pin on Top -->
+                        <Button
+                            x:Name="PinButton"
+                            Click="PinButton_Click"
+                            Style="{StaticResource TitleBarActionButtonStyle}"
+                            ToolTip="Keep window always on top">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontSize="11" Text="📌" />
+                                <TextBlock
+                                    Margin="4,0,0,0"
+                                    FontSize="11"
+                                    FontWeight="Medium"
+                                    Text="Pin" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Quick Test Proxies -->
+                        <Button
+                            Command="{Binding CheckAllProxiesCommand}"
+                            Style="{StaticResource TitleBarActionButtonStyle}"
+                            ToolTip="Test speed and ping for all proxies">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontSize="11" Text="⚡" />
+                                <TextBlock
+                                    Margin="4,0,0,0"
+                                    FontSize="11"
+                                    FontWeight="Medium"
+                                    Text="Ping All" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Minimize to Tray -->
+                        <Button
+                            Click="TrayButton_Click"
+                            Style="{StaticResource TitleBarActionButtonStyle}"
+                            ToolTip="Hide to system tray">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontSize="11" Text="📥" />
+                                <TextBlock
+                                    Margin="4,0,0,0"
+                                    FontSize="11"
+                                    FontWeight="Medium"
+                                    Text="To Tray" />
+                            </StackPanel>
+                        </Button>
+
+                        <!-- Subtle Divider -->
+                        <Rectangle
+                            Width="1"
+                            Height="18"
+                            Margin="6,0,4,0"
+                            VerticalAlignment="Center"
+                            Fill="{DynamicResource BorderBrush}" />
+
+                        <!-- Minimize Button -->
+                        <Button
+                            Click="MinimizeButton_Click"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            ToolTip="Minimize">
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{DynamicResource ForegroundBrush}"
+                                Text="🗕" />
+                        </Button>
+
+                        <!-- Maximize / Restore Button -->
+                        <Button
+                            x:Name="MaximizeButton"
+                            Click="MaximizeButton_Click"
+                            Style="{StaticResource TitleBarButtonStyle}"
+                            ToolTip="Maximize">
+                            <TextBlock
+                                x:Name="MaximizeGlyph"
+                                FontSize="12"
+                                Foreground="{DynamicResource ForegroundBrush}"
+                                Text="🗖" />
+                        </Button>
+
+                        <!-- Close Button -->
+                        <Button
+                            Click="CloseButton_Click"
+                            Style="{StaticResource TitleBarCloseButtonStyle}"
+                            ToolTip="Close">
+                            <TextBlock FontSize="12" Text="✕" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Main App Body (Grid Row 1) -->
+            <Grid Grid.Row="1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
 
             <tb:TaskbarIcon
                 x:Name="TrayIcon"
@@ -5291,4 +5617,6 @@
             </Border>
         </Grid>
     </Grid>
+        </Grid>
+    </Border>
 </Window>

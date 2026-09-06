@@ -55,7 +55,59 @@ namespace ProxyControl
             {
                 Hide();
             }
+            else if (WindowState == WindowState.Maximized)
+            {
+                if (WindowRootBorder != null)
+                {
+                    WindowRootBorder.Padding = new Thickness(7);
+                    WindowRootBorder.BorderThickness = new Thickness(0);
+                }
+                if (MaximizeGlyph != null) MaximizeGlyph.Text = "🗗";
+                if (MaximizeButton != null) MaximizeButton.ToolTip = "Restore Down";
+            }
+            else
+            {
+                if (WindowRootBorder != null)
+                {
+                    WindowRootBorder.Padding = new Thickness(0);
+                    WindowRootBorder.BorderThickness = new Thickness(1);
+                }
+                if (MaximizeGlyph != null) MaximizeGlyph.Text = "🗖";
+                if (MaximizeButton != null) MaximizeButton.ToolTip = "Maximize";
+            }
+
             base.OnStateChanged(e);
+        }
+
+        private void PinButton_Click(object sender, RoutedEventArgs e)
+        {
+            Topmost = !Topmost;
+            if (sender is Button btn)
+            {
+                btn.ToolTip = Topmost ? "Window is pinned on top (Click to unpin)" : "Keep window always on top";
+                btn.Opacity = Topmost ? 1.0 : 0.7;
+                btn.BorderBrush = Topmost ? (System.Windows.Media.Brush)FindResource("PrimaryAccentBrush") : System.Windows.Media.Brushes.Transparent;
+            }
+        }
+
+        private void TrayButton_Click(object sender, RoutedEventArgs e)
+        {
+            Hide();
+        }
+
+        private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState.Minimized;
+        }
+
+        private void MaximizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        }
+
+        private void CloseButton_Click(object sender, RoutedEventArgs e)
+        {
+            Close();
         }
 
         private void ConnectionLogsScrollViewer_OnScrollChanged(object sender, ScrollChangedEventArgs e)
