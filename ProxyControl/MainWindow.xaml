@@ -453,7 +453,6 @@
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="6"
-                            Padding="{TemplateBinding Padding}"
                             SnapsToDevicePixels="True"
                             TextElement.Foreground="{TemplateBinding Foreground}">
                             <ScrollViewer
