@@ -197,7 +197,7 @@ namespace ProxyControl.ViewModels
             set { _currentView = value; OnPropertyChanged(); }
         }
 
-        private string _currentVersion = "2.8.0";
+        private string _currentVersion = "3.2.0";
         public string CurrentVersion
         {
             get => _currentVersion;
