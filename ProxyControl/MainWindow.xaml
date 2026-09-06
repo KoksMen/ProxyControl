@@ -9,10 +9,10 @@
     xmlns:tb="http://www.hardcodet.net/taskbar"
     xmlns:vm="clr-namespace:ProxyControl.ViewModels"
     Title="Proxy Control"
-    Width="1450"
-    Height="900"
-    MinWidth="960"
-    MinHeight="600"
+    Width="1200"
+    Height="740"
+    MinWidth="800"
+    MinHeight="480"
     Background="{DynamicResource SurfaceDarkBrush}"
     Foreground="{DynamicResource ForegroundBrush}"
     WindowStartupLocation="CenterScreen"
@@ -2045,24 +2045,16 @@
                             <Border
                                 Grid.Row="0"
                                 Margin="0,0,0,10"
-                                Padding="12,10"
+                                Padding="12,8,4,2"
                                 Background="{DynamicResource SurfaceMediumBrush}"
                                 BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="10">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" MinWidth="12" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
+                                <WrapPanel Orientation="Horizontal">
 
                                     <!-- Card 1: Routing Mode -->
                                     <Border
-                                        Grid.Column="0"
+                                        Margin="0,0,8,6"
                                         Height="68"
                                         Padding="12,7"
                                         VerticalAlignment="Center"
@@ -2135,8 +2127,7 @@
 
                                     <!-- Card 2: Traffic Routing Choices -->
                                     <Border
-                                        Grid.Column="1"
-                                        Margin="8,0,0,0"
+                                        Margin="0,0,8,6"
                                         Height="68"
                                         Padding="12,7"
                                         VerticalAlignment="Center"
@@ -2236,8 +2227,7 @@
 
                                     <!-- Card 3: Proxy Service Toggle -->
                                     <Border
-                                        Grid.Column="2"
-                                        Margin="8,0,0,0"
+                                        Margin="0,0,8,6"
                                         Height="68"
                                         Padding="12,7"
                                         VerticalAlignment="Center"
@@ -2275,16 +2265,14 @@
                                                     Grid.Column="1"
                                                     VerticalAlignment="Center"
                                                     Style="{StaticResource ToggleSwitchStyle}"
-                                                    IsChecked="{Binding IsProxyRunning}"
-                                                    Command="{Binding ToggleProxyCommand}" />
+                                                    IsChecked="{Binding IsProxyRunningToggle}" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>
 
                                     <!-- Card 4: Live Network Stats Pill -->
                                     <Border
-                                        Grid.Column="3"
-                                        Margin="8,0,0,0"
+                                        Margin="0,0,8,6"
                                         Height="68"
                                         Padding="12,7"
                                         VerticalAlignment="Center"
@@ -2340,12 +2328,10 @@
 
                                     <!-- Card 5: Routing Behavior / Default Proxy -->
                                     <Border
-                                        Grid.Column="5"
-                                        Margin="8,0,0,0"
+                                        Margin="0,0,0,6"
                                         Height="68"
                                         Padding="12,7"
                                         VerticalAlignment="Center"
-                                        HorizontalAlignment="Right"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
@@ -2449,7 +2435,7 @@
                                             </StackPanel>
                                         </Grid>
                                     </Border>
-                                </Grid>
+                                </WrapPanel>
                             </Border>
 
                             <!-- Unified Search & Presets Toolbar -->
@@ -2463,7 +2449,7 @@
                                 CornerRadius="8">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" MinWidth="220" />
+                                        <ColumnDefinition Width="*" MinWidth="120" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
@@ -2565,17 +2551,17 @@
                             <!--  Rule Navigation: 3 Independent Scrollable Panels  -->
                             <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="0.8*" MinWidth="170" />
+                                    <ColumnDefinition Width="0.8*" MinWidth="130" />
                                     <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="0.9*" MinWidth="180" />
+                                    <ColumnDefinition Width="0.9*" MinWidth="140" />
                                     <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="1.7*" MinWidth="500" />
+                                    <ColumnDefinition Width="1.7*" MinWidth="280" />
                                 </Grid.ColumnDefinitions>
 
                                 <!--  PANEL 1: Groups (own ScrollViewer)  -->
                                 <Border
                                     Grid.Column="0"
-                                    MinWidth="150"
+                                    MinWidth="120"
                                     Padding="10"
                                     Background="{DynamicResource SurfaceMediumBrush}"
                                     BorderBrush="{DynamicResource BorderBrush}"
@@ -2762,7 +2748,7 @@
                                 <!--  PANEL 2: Apps (own ScrollViewer, appears when group selected)  -->
                                 <Border
                                     Grid.Column="2"
-                                    MinWidth="150"
+                                    MinWidth="120"
                                     Padding="10"
                                     Background="{DynamicResource SurfaceMediumBrush}"
                                     BorderBrush="{DynamicResource BorderBrush}"
@@ -4155,9 +4141,9 @@
                     <TabItem Header="MONITOR" Tag="Monitor">
                         <Grid Margin="10">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="0.9*" MinWidth="320" />
+                                <ColumnDefinition Width="0.9*" MinWidth="200" />
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="1.35*" MinWidth="520" />
+                                <ColumnDefinition Width="1.35*" MinWidth="280" />
                             </Grid.ColumnDefinitions>
 
                             <!--  Left Panel: Process List  -->

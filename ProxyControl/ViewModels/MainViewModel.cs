@@ -1544,10 +1544,24 @@ namespace ProxyControl.ViewModels
                 {
                     _isProxyRunning = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsProxyRunningToggle));
                     OnPropertyChanged(nameof(ToggleProxyMenuText));
                     OnPropertyChanged(nameof(ProxyStatusText));
                     OnPropertyChanged(nameof(ProxyStatusColor));
                     RequestSaveSettings();
+                }
+            }
+        }
+
+        public bool IsProxyRunningToggle
+        {
+            get => IsProxyRunning;
+            set
+            {
+                if (IsProxyRunning != value)
+                {
+                    ToggleService();
+                    OnPropertyChanged();
                 }
             }
         }
@@ -1613,7 +1627,7 @@ namespace ProxyControl.ViewModels
             }
         }
 
-        public double ProxyPanelWidth => IsProxyPanelExpanded ? 340 : 76;
+        public double ProxyPanelWidth => IsProxyPanelExpanded ? 300 : 76;
         public string ProxyPanelToggleGlyph => IsProxyPanelExpanded ? "◀" : "▶";
 
         private bool _isProxyCheckInProgress;
