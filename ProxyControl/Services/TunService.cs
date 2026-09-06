@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +27,8 @@ namespace ProxyControl.Services
         private const string SingBoxExe = "sing-box.exe";
         private const string ConfigFile = "sing-box-config.json";
         private const string DownloadUrl = "https://github.com/SagerNet/sing-box/releases/download/v1.8.0/sing-box-1.8.0-windows-amd64.zip";
+        private const string ExpectedZipSha256 = "E09707157CAA5E6D35E33759D0A5EE188857D6B8C6A711A28087D40A70A39B88";
+        private const string ExpectedExeSha256 = "2C4BC6860D701B8D8F928121D0ED787C09F00C4924A51C1E2E2C8717FCA6996F";
 
         private Process? _singBoxProcess;
         private bool _isRunning;
@@ -149,7 +152,7 @@ namespace ProxyControl.Services
                 _lastError = null;
                 cancellationToken.ThrowIfCancellationRequested();
                 StopOrphanedManagedProcesses();
-                // Ensure sing-box exists
+                // Ensure sing-box exists and verify binary integrity
                 var singBoxPath = Path.Combine(_dataDir, SingBoxExe);
                 if (!File.Exists(singBoxPath))
                 {
@@ -158,6 +161,20 @@ namespace ProxyControl.Services
                     {
                         _logger.Error("TUN", "Failed to download sing-box");
                         return false;
+                    }
+                }
+                else
+                {
+                    var currentExeHash = ComputeFileSha256(singBoxPath);
+                    if (!string.Equals(currentExeHash, ExpectedExeSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.Warning("TUN", $"sing-box.exe checksum mismatch (hash: {currentExeHash}). Re-downloading official binary...");
+                        try { File.Delete(singBoxPath); } catch { }
+                        if (!await DownloadSingBoxAsync())
+                        {
+                            _logger.Error("TUN", "Failed to download sing-box after checksum mismatch");
+                            return false;
+                        }
                     }
                 }
 
@@ -640,6 +657,15 @@ namespace ProxyControl.Services
 
                 _logger.Info("TUN", $"Downloading from {DownloadUrl}");
                 var bytes = await http.GetByteArrayAsync(DownloadUrl);
+
+                // Verify zip checksum
+                var zipHash = ComputeBytesSha256(bytes);
+                if (!string.Equals(zipHash, ExpectedZipSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Error("TUN", $"Integrity check failed for downloaded zip! Expected {ExpectedZipSha256}, got {zipHash}");
+                    return false;
+                }
+
                 await File.WriteAllBytesAsync(zipPath, bytes);
 
                 // Extract
@@ -656,15 +682,47 @@ namespace ProxyControl.Services
                     }
                 }
 
-                File.Delete(zipPath);
-                _logger.Info("TUN", "sing-box downloaded successfully");
-                return File.Exists(Path.Combine(_dataDir, SingBoxExe));
+                try { File.Delete(zipPath); } catch { }
+
+                var targetExe = Path.Combine(_dataDir, SingBoxExe);
+                if (!File.Exists(targetExe))
+                {
+                    _logger.Error("TUN", "sing-box.exe not found after extraction.");
+                    return false;
+                }
+
+                // Verify extracted exe checksum
+                var exeHash = ComputeFileSha256(targetExe);
+                if (!string.Equals(exeHash, ExpectedExeSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.Error("TUN", $"Integrity check failed for extracted sing-box.exe! Expected {ExpectedExeSha256}, got {exeHash}");
+                    try { File.Delete(targetExe); } catch { }
+                    return false;
+                }
+
+                _logger.Info("TUN", "sing-box downloaded and verified successfully (SHA256 OK).");
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.Error("TUN", $"Download failed: {ex.Message}");
                 return false;
             }
+        }
+
+        private static string ComputeFileSha256(string filePath)
+        {
+            using var sha256 = SHA256.Create();
+            using var stream = File.OpenRead(filePath);
+            byte[] hash = sha256.ComputeHash(stream);
+            return Convert.ToHexString(hash);
+        }
+
+        private static string ComputeBytesSha256(byte[] bytes)
+        {
+            using var sha256 = SHA256.Create();
+            byte[] hash = sha256.ComputeHash(bytes);
+            return Convert.ToHexString(hash);
         }
 
         public void Dispose()
