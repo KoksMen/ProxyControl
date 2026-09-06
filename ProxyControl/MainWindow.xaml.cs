@@ -3,6 +3,8 @@ using System;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 
 namespace ProxyControl
 {
@@ -114,6 +116,207 @@ namespace ProxyControl
             }
 
             _preserveMonitorScrollOnInsert = scrollViewer.VerticalOffset > LogAutoFollowThreshold;
+        }
+
+        protected override void OnPreviewKeyDown(KeyEventArgs e)
+        {
+            base.OnPreviewKeyDown(e);
+
+            if (DataContext is not MainViewModel vm) return;
+
+            bool isTypingInTextBox = Keyboard.FocusedElement is TextBox || Keyboard.FocusedElement is TextBoxBase;
+
+            // 1. Esc: Cancel modal / dismiss drill-down / clear search / blur text input
+            if (e.Key == Key.Escape)
+            {
+                if (vm.IsConfirmModalVisible)
+                {
+                    vm.CloseConfirmModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsModalVisible)
+                {
+                    vm.CloseModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsProxyModalVisible)
+                {
+                    vm.CloseProxyModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsDeleteModalVisible)
+                {
+                    vm.CloseDeleteModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+
+                // If drill-down inside an app is active
+                if (!string.IsNullOrEmpty(vm.SelectedAppName))
+                {
+                    vm.SelectedAppName = null;
+                    e.Handled = true;
+                    return;
+                }
+
+                // If monitor drill-down is active
+                if (vm.SelectedMonitorProcess != null)
+                {
+                    vm.SelectedMonitorProcess = null;
+                    e.Handled = true;
+                    return;
+                }
+
+                // If search query is active
+                if (!string.IsNullOrEmpty(vm.SearchText))
+                {
+                    vm.SearchText = string.Empty;
+                    e.Handled = true;
+                    return;
+                }
+
+                // If typing inside a TextBox, unfocus it
+                if (isTypingInTextBox)
+                {
+                    Keyboard.ClearFocus();
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // 2. Enter: Confirm or save modal
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (vm.IsConfirmModalVisible)
+                {
+                    vm.ConfirmActionCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsModalVisible)
+                {
+                    vm.SaveModalRuleCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsProxyModalVisible)
+                {
+                    vm.SaveProxyModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+                if (vm.IsDeleteModalVisible)
+                {
+                    if (vm.IsDeleteAppEnabled)
+                    {
+                        vm.DeleteAppRulesCommand?.Execute(null);
+                        e.Handled = true;
+                        return;
+                    }
+                    if (vm.IsDeleteGroupEnabled)
+                    {
+                        vm.DeleteGroupRulesCommand?.Execute(null);
+                        e.Handled = true;
+                        return;
+                    }
+                }
+            }
+
+            // 3. Ctrl shortcuts
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                // Tab switching with Ctrl + 1..4
+                if (e.Key == Key.D1 || e.Key == Key.NumPad1)
+                {
+                    vm.NavigateCommand?.Execute("Rules");
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.D2 || e.Key == Key.NumPad2)
+                {
+                    vm.NavigateCommand?.Execute("Monitor");
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.D3 || e.Key == Key.NumPad3)
+                {
+                    vm.NavigateCommand?.Execute("Logs");
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Key == Key.D4 || e.Key == Key.NumPad4)
+                {
+                    vm.NavigateCommand?.Execute("Settings");
+                    e.Handled = true;
+                    return;
+                }
+
+                // Tab cycling with Ctrl+Tab / Ctrl+Shift+Tab
+                if (e.Key == Key.Tab)
+                {
+                    string[] tabs = { "Rules", "Monitor", "Logs", "Settings" };
+                    int currentIndex = Array.IndexOf(tabs, vm.CurrentView);
+                    if (currentIndex < 0) currentIndex = 0;
+
+                    int nextIndex;
+                    if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+                    {
+                        nextIndex = (currentIndex - 1 + tabs.Length) % tabs.Length;
+                    }
+                    else
+                    {
+                        nextIndex = (currentIndex + 1) % tabs.Length;
+                    }
+
+                    vm.NavigateCommand?.Execute(tabs[nextIndex]);
+                    e.Handled = true;
+                    return;
+                }
+
+                // Ctrl + N: New rule
+                if (e.Key == Key.N)
+                {
+                    vm.OpenRuleModalCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+
+                // Ctrl + R: Refresh
+                if (e.Key == Key.R)
+                {
+                    vm.RefreshActiveProcessesCommand?.Execute(null);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // 4. F5: Refresh
+            if (e.Key == Key.F5)
+            {
+                vm.RefreshActiveProcessesCommand?.Execute(null);
+                e.Handled = true;
+                return;
+            }
+
+            // 5. Delete: Delete selected rule or app if not in text input
+            if (e.Key == Key.Delete && !isTypingInTextBox)
+            {
+                if (vm.SelectedRule != null)
+                {
+                    vm.RemoveRuleCommand?.Execute(vm.SelectedRule);
+                    e.Handled = true;
+                    return;
+                }
+                if (!string.IsNullOrEmpty(vm.SelectedAppName))
+                {
+                    vm.RemoveAppCommand?.Execute(vm.SelectedAppName);
+                    e.Handled = true;
+                    return;
+                }
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using ProxyControl.Models;
+using ProxyControl.Models;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -37,6 +37,7 @@ namespace ProxyControl.Services
         private RuleMode _currentMode;
         private bool _isWebRtcBlockingEnabled = true;
         private readonly TrafficMonitorService _trafficMonitor;
+        public event Action<ConnectionLog>? OnConnectionLog;
 
         private readonly ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>> _connectionPool
             = new ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>>();
@@ -254,6 +255,15 @@ namespace ProxyControl.Services
                 {
                     AppLoggerService.Instance.Warning("WebRTC", $"DNS blocked STUN/TURN: {domain}");
                     _trafficMonitor.CreateConnectionItem("DNS System", null, domain, "BLOCKED (STUN)", "WebRTC Protection", null, "#FF5555");
+                    OnConnectionLog?.Invoke(new ConnectionLog
+                    {
+                        Time = DateTime.Now.ToString("HH:mm:ss"),
+                        ProcessName = "DNS System",
+                        Host = domain,
+                        Result = "BLOCKED (STUN)",
+                        Color = "#FF5555",
+                        Type = TrafficType.DNS
+                    });
                     // Don't respond - let it timeout (blocks WebRTC ICE candidate gathering)
                     return;
                 }
@@ -289,9 +299,16 @@ namespace ProxyControl.Services
                 }
 
                 // Log to Traffic Monitor
-                // DNS is usually "svchost" or "System", but we can try to find process or just say "DNS"
-                // Ideally we map port to PID but for UDP 53 it's tricky.
                 _trafficMonitor.CreateConnectionItem("DNS System", null, domain, logResult, "UDP 53", null, logColor);
+                OnConnectionLog?.Invoke(new ConnectionLog
+                {
+                    Time = DateTime.Now.ToString("HH:mm:ss"),
+                    ProcessName = "DNS System",
+                    Host = domain,
+                    Result = logResult,
+                    Color = logColor,
+                    Type = TrafficType.DNS
+                });
 
                 // Если правило не прокси или туннелирование не удалось -> отправляем напрямую
                 if (!success && decision.Action != RuleAction.Block)

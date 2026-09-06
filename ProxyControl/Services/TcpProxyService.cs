@@ -1840,6 +1840,17 @@ namespace ProxyControl.Services
             string details = decision.Proxy != null ? $"{decision.Proxy.Name} ({decision.Proxy.Endpoint})" : "";
             historyItem = _trafficMonitor.CreateConnectionItem(processName, null, targetHost, decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(), details, flagUrl, logColor);
 
+            OnConnectionLog?.Invoke(new ConnectionLog
+            {
+                Time = DateTime.Now.ToString("HH:mm:ss"),
+                ProcessName = processName,
+                Host = targetHost,
+                Result = decision.Action == RuleAction.Block ? logResult : decision.Action.ToString(),
+                Color = logColor,
+                CountryFlagUrl = flagUrl,
+                Type = TrafficType.TCP
+            });
+
             if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both)
             {
                 byte[] rep = { 0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0 }; // 0x02 = Not allowed

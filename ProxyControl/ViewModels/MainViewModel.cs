@@ -52,7 +52,7 @@ namespace ProxyControl.ViewModels
         private readonly ConcurrentQueue<ConnectionLog> _pendingConnectionLogs = new();
         private int _pendingConnectionLogCount;
         private readonly DispatcherTimer _connectionLogTimer;
-        private const int MaxPendingConnectionLogs = 2000;
+        private const int MaxPendingConnectionLogs = 10000;
         private readonly CancellationTokenSource _connectionIconCts = new();
         private readonly Channel<ConnectionIconRequest> _connectionIconQueue =
             Channel.CreateBounded<ConnectionIconRequest>(new BoundedChannelOptions(256)
@@ -565,6 +565,8 @@ namespace ProxyControl.ViewModels
                     OnPropertyChanged(nameof(HasSelectedRule));
                     OnPropertyChanged(nameof(SelectedGroupApps));
                     OnPropertyChanged(nameof(SelectedGroupRules));
+                    OnPropertyChanged(nameof(HasSelectedGroupApps));
+                    OnPropertyChanged(nameof(HasSelectedGroupRules));
                     OnPropertyChanged(nameof(IsGroupSelected));
                 }
                 catch (Exception ex)
@@ -574,6 +576,8 @@ namespace ProxyControl.ViewModels
             }
         }
         public bool IsGroupSelected => !string.IsNullOrEmpty(_selectedGroupName);
+        public bool HasSelectedGroupApps => SelectedGroupApps?.Any() == true;
+        public bool HasSelectedGroupRules => SelectedGroupRules?.Any() == true;
 
         public IEnumerable<AppRuleInfo> SelectedGroupApps
         {
@@ -675,6 +679,7 @@ namespace ProxyControl.ViewModels
                     OnPropertyChanged(nameof(SelectedRule));
                     OnPropertyChanged(nameof(HasSelectedRule));
                     OnPropertyChanged(nameof(SelectedGroupRules));
+                    OnPropertyChanged(nameof(HasSelectedGroupRules));
                     OnPropertyChanged(nameof(IsAppSelected));
                 }
                 catch (Exception ex)
@@ -687,9 +692,21 @@ namespace ProxyControl.ViewModels
 
         private void RefreshRuleGroups()
         {
+            if (string.IsNullOrEmpty(_selectedGroupName))
+            {
+                var first = RuleGroups?.FirstOrDefault();
+                if (first != null)
+                {
+                    _selectedGroupName = first.GroupName;
+                    OnPropertyChanged(nameof(SelectedGroupName));
+                    OnPropertyChanged(nameof(IsGroupSelected));
+                }
+            }
             OnPropertyChanged(nameof(RuleGroups));
             OnPropertyChanged(nameof(SelectedGroupApps));
             OnPropertyChanged(nameof(SelectedGroupRules));
+            OnPropertyChanged(nameof(HasSelectedGroupApps));
+            OnPropertyChanged(nameof(HasSelectedGroupRules));
         }
 
         // Application Logs (startup, connections, errors, WebRTC blocks)
@@ -1765,6 +1782,7 @@ namespace ProxyControl.ViewModels
                 CurrentVersion = $"{version.Major}.{version.Minor}.{version.Build}";
 
             _proxyService.OnConnectionLog += OnLogReceived;
+            _dnsProxyService.OnConnectionLog += OnLogReceived;
 
             Proxies.CollectionChanged += OnCollectionChanged;
             RulesList.CollectionChanged += OnCollectionChanged;
@@ -2883,14 +2901,14 @@ namespace ProxyControl.ViewModels
         private void FlushPendingConnectionLogs(object? sender, EventArgs e)
         {
             int processed = 0;
-            while (processed < 250 && _pendingConnectionLogs.TryDequeue(out var log))
+            while (processed < 500 && _pendingConnectionLogs.TryDequeue(out var log))
             {
                 Interlocked.Decrement(ref _pendingConnectionLogCount);
                 Logs.Insert(0, log);
                 processed++;
             }
 
-            while (Logs.Count > 200) Logs.RemoveAt(Logs.Count - 1);
+            while (Logs.Count > 2500) Logs.RemoveAt(Logs.Count - 1);
         }
 
         private void OnMonitorConnectionCreated(ConnectionHistoryItem connection) =>
@@ -4358,6 +4376,7 @@ namespace ProxyControl.ViewModels
                 _monitorPeriodCts = null;
                 _connectionLogTimer.Stop();
                 _proxyService.OnConnectionLog -= OnLogReceived;
+                _dnsProxyService.OnConnectionLog -= OnLogReceived;
                 _trafficMonitorService.ConnectionCreated -= OnMonitorConnectionCreated;
                 _trafficMonitorService.OverallStatsUpdated -= OnOverallStatsUpdated;
                 _tunService.TrafficObserved -= OnTunTrafficObserved;

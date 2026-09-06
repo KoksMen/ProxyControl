@@ -58,7 +58,7 @@ namespace ProxyControl.Services
             _logsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TrafficLogs");
             if (!Directory.Exists(_logsPath)) Directory.CreateDirectory(_logsPath);
 
-            _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(10000)
+            _logChannel = Channel.CreateBounded<ConnectionHistoryItem>(new BoundedChannelOptions(25000)
             {
                 SingleReader = true,
                 SingleWriter = false,
@@ -175,7 +175,7 @@ namespace ProxyControl.Services
                 if (_liveProcessStats.TryGetValue(item.ProcessName, out var stats))
                 {
                     stats.Connections.Insert(0, item);
-                    if (stats.Connections.Count > 200) stats.Connections.RemoveAt(stats.Connections.Count - 1);
+                    if (stats.Connections.Count > 1000) stats.Connections.RemoveAt(stats.Connections.Count - 1);
                 }
             }
 

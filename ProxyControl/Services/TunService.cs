@@ -562,7 +562,7 @@ namespace ProxyControl.Services
 
             var config = new
             {
-                log = new { level = "info", timestamp = true },
+                log = new { level = "trace", timestamp = true },
                 dns = new
                 {
                     servers = new object[]

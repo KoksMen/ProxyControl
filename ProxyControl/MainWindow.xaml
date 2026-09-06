@@ -1559,22 +1559,22 @@
                         <RadioButton
                             Command="{Binding NavigateCommand}"
                             CommandParameter="Rules"
-                            Content="Rules"
+                            Content="📋 Rules"
                             IsChecked="{Binding CurrentView, Converter={StaticResource StringEqualsConverter}, ConverterParameter='Rules', Mode=OneWay}" />
                         <RadioButton
                             Command="{Binding NavigateCommand}"
                             CommandParameter="Monitor"
-                            Content="Monitor"
+                            Content="📈 Monitor"
                             IsChecked="{Binding CurrentView, Converter={StaticResource StringEqualsConverter}, ConverterParameter='Monitor', Mode=OneWay}" />
                         <RadioButton
                             Command="{Binding NavigateCommand}"
                             CommandParameter="Logs"
-                            Content="Logs"
+                            Content="📜 Logs"
                             IsChecked="{Binding CurrentView, Converter={StaticResource StringEqualsConverter}, ConverterParameter='Logs', Mode=OneWay}" />
                         <RadioButton
                             Command="{Binding NavigateCommand}"
                             CommandParameter="Settings"
-                            Content="Settings"
+                            Content="⚙️ Settings"
                             IsChecked="{Binding CurrentView, Converter={StaticResource StringEqualsConverter}, ConverterParameter='Settings', Mode=OneWay}" />
                     </StackPanel>
                 </Border>
@@ -1601,7 +1601,6 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
@@ -1622,134 +1621,199 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock
-                                            FontSize="11"
-                                            FontWeight="SemiBold"
-                                            Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="🧭 ROUTING MODE" />
-                                        <Border
-                                            Margin="0,6,0,0"
-                                            Padding="2"
-                                            Background="#1B1F29"
-                                            BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="8">
-                                            <Grid>
-                                                <Grid.Resources>
-                                                    <Style TargetType="RadioButton">
-                                                        <Setter Property="Width" Value="94" />
-                                                        <Setter Property="Height" Value="28" />
-                                                        <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
-                                                        <Setter Property="Cursor" Value="Hand" />
-                                                        <Setter Property="Template">
-                                                            <Setter.Value>
-                                                                <ControlTemplate TargetType="RadioButton">
-                                                                    <Border
-                                                                        x:Name="ModeBackground"
-                                                                        Background="Transparent"
-                                                                        CornerRadius="6">
-                                                                        <ContentPresenter
-                                                                            HorizontalAlignment="Center"
-                                                                            VerticalAlignment="Center"
-                                                                            TextElement.FontSize="11"
-                                                                            TextElement.FontWeight="SemiBold" />
-                                                                    </Border>
-                                                                    <ControlTemplate.Triggers>
-                                                                        <Trigger Property="IsChecked" Value="True">
-                                                                            <Setter TargetName="ModeBackground" Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
-                                                                            <Setter Property="Foreground" Value="White" />
-                                                                        </Trigger>
-                                                                        <Trigger Property="IsMouseOver" Value="True">
-                                                                            <Setter Property="Foreground" Value="White" />
-                                                                        </Trigger>
-                                                                    </ControlTemplate.Triggers>
-                                                                </ControlTemplate>
-                                                            </Setter.Value>
-                                                        </Setter>
-                                                    </Style>
-                                                </Grid.Resources>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <RadioButton
-                                                    Content="BlackList"
-                                                    IsChecked="{Binding IsBlackListMode}" />
-                                                <RadioButton
-                                                    Grid.Column="1"
-                                                    Content="WhiteList"
-                                                    IsChecked="{Binding IsBlackListMode, Converter={StaticResource InvBool}}" />
-                                            </Grid>
-                                        </Border>
-                                    </StackPanel>
-                                    <StackPanel
-                                        Grid.Column="1"
-                                        Margin="20,0,0,0"
+
+                                    <!-- Card 1: Routing Mode -->
+                                    <Border
+                                        Grid.Column="0"
+                                        Padding="12,8"
                                         VerticalAlignment="Center"
-                                        Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock
-                                            Margin="0,0,0,5"
-                                            FontSize="11"
-                                            FontWeight="SemiBold"
-                                            Foreground="{DynamicResource ForegroundMutedBrush}"
-                                            Text="🛡️ DEFAULT PROXY" />
-                                        <ComboBox
-                                            Width="210"
-                                            HorizontalAlignment="Left"
-                                            ItemsSource="{Binding Proxies}"
-                                            SelectedItem="{Binding SelectedBlackListMainProxy}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Grid Margin="2,1">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="Auto" />
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock
+                                                FontSize="11"
+                                                FontWeight="SemiBold"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                Text="🧭 ROUTING MODE" />
+                                            <Border
+                                                Margin="0,6,0,0"
+                                                Padding="2"
+                                                Background="#1B1F29"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="8">
+                                                <Grid>
+                                                    <Grid.Resources>
+                                                        <Style TargetType="RadioButton">
+                                                            <Setter Property="Width" Value="94" />
+                                                            <Setter Property="Height" Value="28" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
+                                                            <Setter Property="Cursor" Value="Hand" />
+                                                            <Setter Property="Template">
+                                                                <Setter.Value>
+                                                                    <ControlTemplate TargetType="RadioButton">
+                                                                        <Border
+                                                                            x:Name="ModeBackground"
+                                                                            Background="Transparent"
+                                                                            CornerRadius="6">
+                                                                            <ContentPresenter
+                                                                                HorizontalAlignment="Center"
+                                                                                VerticalAlignment="Center"
+                                                                                TextElement.FontSize="11"
+                                                                                TextElement.FontWeight="SemiBold" />
+                                                                        </Border>
+                                                                        <ControlTemplate.Triggers>
+                                                                            <Trigger Property="IsChecked" Value="True">
+                                                                                <Setter TargetName="ModeBackground" Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
+                                                                                <Setter Property="Foreground" Value="White" />
+                                                                            </Trigger>
+                                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                                <Setter Property="Foreground" Value="White" />
+                                                                            </Trigger>
+                                                                        </ControlTemplate.Triggers>
+                                                                    </ControlTemplate>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                        </Style>
+                                                    </Grid.Resources>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton
+                                                        Content="BlackList"
+                                                        IsChecked="{Binding IsBlackListMode}" />
+                                                    <RadioButton
+                                                        Grid.Column="1"
+                                                        Content="WhiteList"
+                                                        IsChecked="{Binding IsBlackListMode, Converter={StaticResource InvBool}}" />
+                                                </Grid>
+                                            </Border>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Card 2: Default Proxy / Whitelist Status -->
+                                    <Border
+                                        Grid.Column="1"
+                                        Margin="10,0,0,0"
+                                        Padding="12,8"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource SurfaceLightBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                        <Grid>
+                                            <!-- BlackList Mode: Default Proxy dropdown -->
+                                            <StackPanel
+                                                VerticalAlignment="Center"
+                                                Visibility="{Binding IsBlackListMode, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock
+                                                    Margin="0,0,0,5"
+                                                    FontSize="11"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="🛡️ DEFAULT PROXY" />
+                                                <ComboBox
+                                                    Width="210"
+                                                    HorizontalAlignment="Left"
+                                                    ItemsSource="{Binding Proxies}"
+                                                    SelectedItem="{Binding SelectedBlackListMainProxy}">
+                                                    <ComboBox.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Margin="2,1">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock
+                                                                    Grid.Column="0"
+                                                                    Margin="0,0,6,0"
+                                                                    VerticalAlignment="Center"
+                                                                    FontSize="12"
+                                                                    Text="{Binding TypeIcon}" />
+                                                                <TextBlock
+                                                                    Grid.Column="1"
+                                                                    VerticalAlignment="Center"
+                                                                    FontWeight="SemiBold"
+                                                                    TextTrimming="CharacterEllipsis"
+                                                                    Foreground="{DynamicResource ForegroundBrush}"
+                                                                    Text="{Binding Name}" />
+                                                                <Border
+                                                                    Grid.Column="2"
+                                                                    Margin="6,0,0,0"
+                                                                    Padding="5,1"
+                                                                    VerticalAlignment="Center"
+                                                                    Background="#252A36"
+                                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="4">
+                                                                    <TextBlock
+                                                                        FontSize="9"
+                                                                        FontWeight="Bold"
+                                                                        Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                                        Text="{Binding Type}" />
+                                                                </Border>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ComboBox.ItemTemplate>
+                                                </ComboBox>
+                                            </StackPanel>
+
+                                            <!-- WhiteList Mode: Informational badge keeping the card stable -->
+                                            <StackPanel
+                                                Width="210"
+                                                VerticalAlignment="Center"
+                                                Visibility="{Binding IsBlackListMode, Converter={StaticResource InvBoolToVis}}">
+                                                <TextBlock
+                                                    Margin="0,0,0,5"
+                                                    FontSize="11"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="🛡️ ROUTING BEHAVIOR" />
+                                                <Border
+                                                    Height="32"
+                                                    Padding="8,4"
+                                                    Background="#1B1F29"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6">
+                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                         <TextBlock
-                                                            Grid.Column="0"
+                                                            FontSize="13"
                                                             Margin="0,0,6,0"
                                                             VerticalAlignment="Center"
-                                                            FontSize="12"
-                                                            Text="{Binding TypeIcon}" />
-                                                        <TextBlock
-                                                            Grid.Column="1"
-                                                            VerticalAlignment="Center"
-                                                            FontWeight="SemiBold"
-                                                            TextTrimming="CharacterEllipsis"
-                                                            Foreground="{DynamicResource ForegroundBrush}"
-                                                            Text="{Binding Name}" />
-                                                        <Border
-                                                            Grid.Column="2"
-                                                            Margin="6,0,0,0"
-                                                            Padding="5,1"
-                                                            VerticalAlignment="Center"
-                                                            Background="#252A36"
-                                                            BorderBrush="{DynamicResource BorderBrush}"
-                                                            BorderThickness="1"
-                                                            CornerRadius="4">
+                                                            Text="🔒" />
+                                                        <StackPanel VerticalAlignment="Center">
+                                                            <TextBlock
+                                                                FontSize="11"
+                                                                FontWeight="SemiBold"
+                                                                Foreground="{DynamicResource PrimaryAccentBrush}"
+                                                                Text="Rules-Only Routing" />
                                                             <TextBlock
                                                                 FontSize="9"
-                                                                FontWeight="Bold"
                                                                 Foreground="{DynamicResource ForegroundMutedBrush}"
-                                                                Text="{Binding Type}" />
-                                                        </Border>
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                    </StackPanel>
+                                                                Text="Unmatched traffic is Direct" />
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- Card 3: Proxy Service Toggle -->
                                     <Border
                                         Grid.Column="2"
-                                        Margin="16,0,0,0"
-                                        Padding="12,7"
+                                        Margin="10,0,0,0"
+                                        Padding="12,8"
                                         HorizontalAlignment="Left"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="7"
+                                        CornerRadius="8"
                                         ToolTip="Master toggle for local proxy and routing service">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <StackPanel Margin="0,0,12,0" VerticalAlignment="Center">
@@ -1778,13 +1842,15 @@
                                                 Command="{Binding ToggleProxyCommand}" />
                                         </StackPanel>
                                     </Border>
+
+                                    <!-- Card 4: Quick Stats Pill -->
                                     <Border
                                         Grid.Column="3"
-                                        Margin="12,0"
-                                        Padding="14,7"
+                                        Margin="10,0"
+                                        Padding="14,8"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center"
-                                        Background="#1B1F29"
+                                        Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
                                         CornerRadius="8"
@@ -1817,20 +1883,22 @@
                                                 Text="{Binding HeaderActiveConnectionsText}" />
                                         </StackPanel>
                                     </Border>
+
+                                    <!-- Card 5: Traffic Routing Choices -->
                                     <Border
                                         Grid.Column="4"
-                                        Padding="10,7"
+                                        Padding="12,8"
                                         VerticalAlignment="Center"
                                         Background="{DynamicResource SurfaceLightBrush}"
                                         BorderBrush="{DynamicResource BorderBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="7"
+                                        CornerRadius="8"
                                         ToolTip="Choose how traffic reaches ProxyControl: system HTTP(S) proxy, TUN, or both together.">
                                         <StackPanel>
                                             <StackPanel.Resources>
                                                 <Style x:Key="RoutingChoice" TargetType="RadioButton">
                                                     <Setter Property="Margin" Value="0" />
-                                                    <Setter Property="Padding" Value="10,8" />
+                                                    <Setter Property="Padding" Value="10,6" />
                                                     <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
                                                     <Setter Property="Cursor" Value="Hand" />
                                                     <Setter Property="Template">
@@ -1856,7 +1924,7 @@
                                                 </Style>
                                             </StackPanel.Resources>
                                             <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundBrush}" Text="📡 Traffic routing" />
-                                            <Grid Margin="0,7,0,0">
+                                            <Grid Margin="0,5,0,0">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="118" />
                                                     <ColumnDefinition Width="92" />
@@ -1865,129 +1933,142 @@
                                                 <RadioButton Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsSystemProxyMode}" ToolTip="Use Windows HTTP(S) proxy settings.">
                                                     <StackPanel>
                                                         <TextBlock FontWeight="SemiBold" Text="System proxy" />
-                                                        <TextBlock Margin="0,2,0,0" FontSize="9" Opacity="0.7" Text="Browsers &amp; apps" />
+                                                        <TextBlock Margin="0,1,0,0" FontSize="9" Opacity="0.7" Text="Browsers &amp; apps" />
                                                     </StackPanel>
                                                 </RadioButton>
                                                 <RadioButton Grid.Column="1" Margin="6,0,0,0" Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsTunOnlyMode}" ToolTip="Route all network traffic through the virtual adapter.">
                                                     <StackPanel>
                                                         <TextBlock FontWeight="SemiBold" Text="TUN" />
-                                                        <TextBlock Margin="0,2,0,0" FontSize="9" Opacity="0.7" Text="All traffic" />
+                                                        <TextBlock Margin="0,1,0,0" FontSize="9" Opacity="0.7" Text="All traffic" />
                                                     </StackPanel>
                                                 </RadioButton>
                                                 <RadioButton Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource RoutingChoice}" GroupName="RoutingMode" IsChecked="{Binding IsMixedMode}" ToolTip="Keep Windows HTTP(S) proxy and TUN active together.">
                                                     <StackPanel>
                                                         <TextBlock FontWeight="SemiBold" Text="Mixed" />
-                                                        <TextBlock Margin="0,2,0,0" FontSize="9" Opacity="0.7" Text="Combined" />
+                                                        <TextBlock Margin="0,1,0,0" FontSize="9" Opacity="0.7" Text="Combined" />
                                                     </StackPanel>
                                                 </RadioButton>
                                             </Grid>
-                                            <TextBlock Margin="1,6,0,0" FontSize="9" Foreground="{DynamicResource ForegroundMutedBrush}" Text="{Binding TunModeStatus}" />
+                                            <TextBlock Margin="1,4,0,0" FontSize="9" Foreground="{DynamicResource ForegroundMutedBrush}" Text="{Binding TunModeStatus}" />
                                         </StackPanel>
                                     </Border>
                                 </Grid>
                             </Border>
 
+                            <!-- Unified Search & Presets Toolbar -->
                             <Border
                                 Grid.Row="1"
                                 Margin="0,0,0,10"
-                                Padding="10,8"
+                                Padding="10,7"
                                 Background="{DynamicResource SurfaceMediumBrush}"
                                 BorderBrush="{DynamicResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="8">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock
-                                    Margin="0,0,10,0"
-                                    VerticalAlignment="Center"
-                                    Foreground="#AAA"
-                                    Text="🔎  Search rules" />
-                                <TextBox
-                                    Grid.Column="1"
-                                    Padding="8,5"
-                                    Background="{DynamicResource SurfaceLightBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" />
-                            </Grid>
-                            </Border>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" MinWidth="220" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
 
-                            <!--  Presets Toolbar  -->
-                            <Border
-                                Grid.Row="2"
-                                Margin="0,0,0,10"
-                                Padding="8,5"
-                                HorizontalAlignment="Left"
-                                Background="{DynamicResource SurfaceMediumBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="8">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
+                                    <!-- Search Input -->
+                                    <Grid Grid.Column="0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock
+                                            Margin="4,0,8,0"
+                                            VerticalAlignment="Center"
+                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                            Text="🔍" />
+                                        <TextBox
+                                            Grid.Column="1"
+                                            Padding="8,5"
+                                            VerticalContentAlignment="Center"
+                                            Background="{DynamicResource SurfaceLightBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                                            ToolTip="Search rules by application name or host/domain (Esc to clear)" />
+                                    </Grid>
 
-                                <TextBlock
-                                    Margin="0,0,10,0"
-                                    VerticalAlignment="Center"
-                                    Foreground="#AAA"
-                                    Text="⚡ Presets" />
-                                <ComboBox
-                                    Grid.Column="1"
-                                    MinHeight="26"
-                                    Margin="0,0,5,0"
-                                    Padding="6,4"
-                                    DisplayMemberPath="Name"
-                                    ItemsSource="{Binding Presets}"
-                                    SelectedItem="{Binding SelectedPreset}" />
-                                <StackPanel
-                                    Grid.Column="2"
-                                    Margin="0,0,15,0"
-                                    Orientation="Horizontal">
-                                    <Button
-                                        Margin="0,0,5,0"
-                                        Padding="8,3"
-                                        Command="{Binding LoadPresetCommand}"
-                                        Content="Load"
-                                        FontSize="11"
-                                        ToolTip="Load Selected Preset" />
-                                    <Button
-                                        Padding="7,3"
-                                        Background="#7F1D1D"
-                                        Command="{Binding DeletePresetCommand}"
-                                        CommandParameter="{Binding SelectedPreset}"
-                                        Content="🗑️"
-                                        FontSize="11"
-                                        ToolTip="Delete Preset" />
-                                </StackPanel>
+                                    <!-- Divider -->
+                                    <Border
+                                        Grid.Column="1"
+                                        Width="1"
+                                        Margin="14,2"
+                                        Background="{DynamicResource BorderBrush}" />
 
-                                <StackPanel Grid.Column="4" Orientation="Horizontal">
-                                    <TextBox
-                                        Width="120"
-                                        Margin="0,0,5,0"
-                                        VerticalContentAlignment="Center"
-                                        Text="{Binding PresetName, UpdateSourceTrigger=PropertyChanged}"
-                                        ToolTip="Name for New Preset" />
-                                    <Button
-                                        Padding="8,3"
-                                        Command="{Binding SavePresetCommand}"
-                                        Content="Save"
-                                        FontSize="11"
-                                        Style="{StaticResource AccentBtn}" />
-                                </StackPanel>
-                            </Grid>
+                                    <!-- Presets Controls -->
+                                    <Grid Grid.Column="2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock
+                                            Margin="0,0,8,0"
+                                            VerticalAlignment="Center"
+                                            Foreground="{DynamicResource ForegroundMutedBrush}"
+                                            Text="⚡ Presets" />
+                                        <ComboBox
+                                            Grid.Column="1"
+                                            MinHeight="26"
+                                            Margin="0,0,6,0"
+                                            Padding="6,4"
+                                            DisplayMemberPath="Name"
+                                            ItemsSource="{Binding Presets}"
+                                            SelectedItem="{Binding SelectedPreset}" />
+                                        <StackPanel
+                                            Grid.Column="2"
+                                            Margin="0,0,12,0"
+                                            Orientation="Horizontal">
+                                            <Button
+                                                Margin="0,0,4,0"
+                                                Padding="8,4"
+                                                Command="{Binding LoadPresetCommand}"
+                                                Content="Load"
+                                                FontSize="11"
+                                                ToolTip="Load Selected Preset" />
+                                            <Button
+                                                Padding="7,4"
+                                                Background="#7F1D1D"
+                                                Command="{Binding DeletePresetCommand}"
+                                                CommandParameter="{Binding SelectedPreset}"
+                                                Content="🗑️"
+                                                FontSize="11"
+                                                ToolTip="Delete Preset" />
+                                        </StackPanel>
+
+                                        <TextBox
+                                            Grid.Column="3"
+                                            Width="120"
+                                            Margin="0,0,5,0"
+                                            Padding="6,4"
+                                            VerticalContentAlignment="Center"
+                                            Background="{DynamicResource SurfaceLightBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            Text="{Binding PresetName, UpdateSourceTrigger=PropertyChanged}"
+                                            ToolTip="Name for New Preset" />
+                                        <Button
+                                            Grid.Column="4"
+                                            Padding="10,4"
+                                            Command="{Binding SavePresetCommand}"
+                                            Content="💾 Save"
+                                            FontSize="11"
+                                            Style="{StaticResource AccentBtn}" />
+                                    </Grid>
+                                </Grid>
                             </Border>
 
 
                             <!--  Rule Navigation: 3 Independent Scrollable Panels  -->
-                            <Grid Grid.Row="3">
+                            <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="0.8*" MinWidth="170" />
                                     <ColumnDefinition Width="Auto" />
@@ -2212,8 +2293,9 @@
                                                 Text="{Binding SelectedGroupName, StringFormat='({0})'}" />
 
                                         </StackPanel>
-                                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                            <ItemsControl ItemsSource="{Binding SelectedGroupApps}">
+                                        <Grid Grid.Row="1">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                <ItemsControl ItemsSource="{Binding SelectedGroupApps}">
                                                 <ItemsControl.ItemTemplate>
                                                     <DataTemplate>
                                                         <Border
@@ -2347,6 +2429,34 @@
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
                                         </ScrollViewer>
+                                        <Border
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Padding="16"
+                                            Visibility="{Binding HasSelectedGroupApps, Converter={StaticResource InvBoolToVis}}">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock
+                                                    Margin="0,0,0,8"
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="26"
+                                                    Opacity="0.4"
+                                                    Text="💻" />
+                                                <TextBlock
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="12"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="No applications found" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Opacity="0.7"
+                                                    Text="Select a group or add a rule" />
+                                            </StackPanel>
+                                        </Border>
+                                        </Grid>
                                         <Grid Grid.Row="2" Margin="0,8,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -2406,8 +2516,9 @@
                                                 Text="{Binding SelectedAppName, StringFormat='({0})', TargetNullValue='(All in group)'}" />
 
                                         </StackPanel>
-                                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                            <ItemsControl
+                                        <Grid Grid.Row="1">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                <ItemsControl
                                                 ItemsSource="{Binding SelectedGroupRules}"
                                                 VirtualizingPanel.IsVirtualizing="True"
                                                 VirtualizingPanel.VirtualizationMode="Recycling">
@@ -2552,6 +2663,34 @@
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
                                         </ScrollViewer>
+                                        <Border
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Padding="16"
+                                            Visibility="{Binding HasSelectedGroupRules, Converter={StaticResource InvBoolToVis}}">
+                                            <StackPanel HorizontalAlignment="Center">
+                                                <TextBlock
+                                                    Margin="0,0,0,8"
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="26"
+                                                    Opacity="0.4"
+                                                    Text="📋" />
+                                                <TextBlock
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="12"
+                                                    FontWeight="SemiBold"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Text="No rules match your view" />
+                                                <TextBlock
+                                                    Margin="0,3,0,0"
+                                                    HorizontalAlignment="Center"
+                                                    FontSize="11"
+                                                    Foreground="{DynamicResource ForegroundMutedBrush}"
+                                                    Opacity="0.7"
+                                                    Text="Click '+ Add Rule' below to create one" />
+                                            </StackPanel>
+                                        </Border>
+                                        </Grid>
                                         <Grid Grid.Row="2" Margin="0,8,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -2580,7 +2719,7 @@
                             </Grid>
 
                             <Border
-                                Grid.Row="4"
+                                Grid.Row="3"
                                 Margin="0,10,0,0"
                                 Padding="10,8"
                                 Background="{DynamicResource SurfaceMediumBrush}"
