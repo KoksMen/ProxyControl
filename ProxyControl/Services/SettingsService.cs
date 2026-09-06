@@ -35,22 +35,72 @@ namespace ProxyControl.Services
             try
             {
                 string targetPath = path ?? _filePath;
+                string tempPath = targetPath + ".tmp";
+                string backupPath = targetPath + ".bak";
+
                 var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(targetPath, json);
+                File.WriteAllText(tempPath, json);
+
+                if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
+                {
+                    try { File.Copy(targetPath, backupPath, overwrite: true); } catch { }
+                }
+
+                File.Move(tempPath, targetPath, overwrite: true);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                AppLoggerService.Instance.Error("Settings", $"Failed to save settings: {ex.Message}");
+            }
         }
 
         public AppSettings Load(string? path = null)
         {
             string targetPath = path ?? _filePath;
-            if (!File.Exists(targetPath)) return new AppSettings();
-            try
+            string backupPath = targetPath + ".bak";
+
+            // 1. Try loading from primary file
+            if (File.Exists(targetPath))
             {
-                var json = File.ReadAllText(targetPath);
-                return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                try
+                {
+                    var json = File.ReadAllText(targetPath);
+                    if (!string.IsNullOrWhiteSpace(json))
+                    {
+                        var settings = JsonSerializer.Deserialize<AppSettings>(json);
+                        if (settings != null) return settings;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLoggerService.Instance.Warning("Settings", $"Failed to load settings.json: {ex.Message}. Attempting backup recovery...");
+                }
             }
-            catch { return new AppSettings(); }
+
+            // 2. Fallback to backup file
+            if (File.Exists(backupPath))
+            {
+                try
+                {
+                    var backupJson = File.ReadAllText(backupPath);
+                    if (!string.IsNullOrWhiteSpace(backupJson))
+                    {
+                        var backupSettings = JsonSerializer.Deserialize<AppSettings>(backupJson);
+                        if (backupSettings != null)
+                        {
+                            AppLoggerService.Instance.Info("Settings", "Successfully recovered configuration from settings.json.bak");
+                            try { File.Copy(backupPath, targetPath, overwrite: true); } catch { }
+                            return backupSettings;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLoggerService.Instance.Error("Settings", $"Backup settings.json.bak recovery also failed: {ex.Message}");
+                }
+            }
+
+            return new AppSettings();
         }
 
         public void SetAutoStart(bool enable)
@@ -99,6 +149,7 @@ namespace ProxyControl.Services
         {
             string targetPath = path ?? _filePath;
             string tempPath = targetPath + ".tmp";
+            string backupPath = targetPath + ".bak";
             await _saveLock.WaitAsync(token);
             try
             {
@@ -106,15 +157,22 @@ namespace ProxyControl.Services
                     () => JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }),
                     token);
                 await File.WriteAllTextAsync(tempPath, json, token);
-                File.Move(tempPath, targetPath, true);
+
+                if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
+                {
+                    try { File.Copy(targetPath, backupPath, overwrite: true); } catch { }
+                }
+
+                File.Move(tempPath, targetPath, overwrite: true);
                 return true;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 return false;
             }
-            catch
+            catch (Exception ex)
             {
+                AppLoggerService.Instance.Error("Settings", $"SaveAsync failed: {ex.Message}");
                 return false;
             }
             finally
@@ -126,6 +184,7 @@ namespace ProxyControl.Services
         public async Task<bool> SaveDnsAsync(AppConfig dnsConfig, CancellationToken token = default)
         {
             string tempPath = _filePath + ".tmp";
+            string backupPath = _filePath + ".bak";
             await _saveLock.WaitAsync(token);
             try
             {
@@ -145,15 +204,22 @@ namespace ProxyControl.Services
 
                 var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 await File.WriteAllTextAsync(tempPath, json, token);
-                File.Move(tempPath, _filePath, true);
+
+                if (File.Exists(_filePath) && new FileInfo(_filePath).Length > 0)
+                {
+                    try { File.Copy(_filePath, backupPath, overwrite: true); } catch { }
+                }
+
+                File.Move(tempPath, _filePath, overwrite: true);
                 return true;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 return false;
             }
-            catch
+            catch (Exception ex)
             {
+                AppLoggerService.Instance.Error("Settings", $"SaveDnsAsync failed: {ex.Message}");
                 return false;
             }
             finally
