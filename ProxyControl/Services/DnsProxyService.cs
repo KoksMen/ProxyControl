@@ -30,9 +30,9 @@ namespace ProxyControl.Services
         private List<TrafficRule> _localBlackList = new List<TrafficRule>();
         private List<TrafficRule> _localWhiteList = new List<TrafficRule>();
 
-        // Optimization: Fast lookup
-        private Dictionary<string, TrafficRule> _fastBlackListRules = new Dictionary<string, TrafficRule>(StringComparer.OrdinalIgnoreCase);
-        private Dictionary<string, TrafficRule> _fastWhiteListRules = new Dictionary<string, TrafficRule>(StringComparer.OrdinalIgnoreCase);
+        // High-performance compiled rule indices
+        private FastRuleIndex _fastBlackIndex = FastRuleIndex.Empty;
+        private FastRuleIndex _fastWhiteIndex = FastRuleIndex.Empty;
         private string? _blackListProxyId;
         private RuleMode _currentMode;
         private bool _isWebRtcBlockingEnabled = true;
@@ -97,35 +97,8 @@ namespace ProxyControl.Services
             _localBlackList = config.BlackListRules?.ToList() ?? new List<TrafficRule>();
             _localWhiteList = config.WhiteListRules?.ToList() ?? new List<TrafficRule>();
 
-            _fastBlackListRules.Clear();
-            foreach (var rule in _localBlackList)
-            {
-                if (rule.IsEnabled)
-                {
-                    foreach (var host in rule.TargetHosts)
-                    {
-                        if (host != "*" && !_fastBlackListRules.ContainsKey(host))
-                        {
-                            _fastBlackListRules[host] = rule;
-                        }
-                    }
-                }
-            }
-
-            _fastWhiteListRules.Clear();
-            foreach (var rule in _localWhiteList)
-            {
-                if (rule.IsEnabled)
-                {
-                    foreach (var host in rule.TargetHosts)
-                    {
-                        if (host != "*" && !_fastWhiteListRules.ContainsKey(host))
-                        {
-                            _fastWhiteListRules[host] = rule;
-                        }
-                    }
-                }
-            }
+            _fastBlackIndex = new FastRuleIndex(_localBlackList);
+            _fastWhiteIndex = new FastRuleIndex(_localWhiteList);
 
             _blackListProxyId = config.BlackListSelectedProxyId.ToString();
             _currentMode = config.CurrentMode;
@@ -704,38 +677,17 @@ namespace ProxyControl.Services
             {
                 var mainProxy = GetMainProxy();
 
-                // Trusted 1: Exact Host Match (O(1))
-                if (_fastBlackListRules.TryGetValue(host, out var fastRule))
+                if (_fastBlackIndex.MatchDns(host, DateTime.Now, out var matchedRule))
                 {
-                        if (IsDnsApplicableRule(fastRule) && IsHostMatch(fastRule, host))
+                    if (matchedRule!.Action == RuleAction.Block) return (RuleAction.Block, null);
+                    if (matchedRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
+                    if (matchedRule.ProxyId != null)
                     {
-                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Block, null);
-                        if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
-                        if (fastRule.ProxyId != null)
-                        {
-                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(fastRule.ProxyId, StringComparison.OrdinalIgnoreCase));
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
-                            return (RuleAction.Direct, null);
-                        }
-                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
+                        var p = _localProxies.FirstOrDefault(x => x.Id.Equals(matchedRule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                        if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+                        return (RuleAction.Direct, null);
                     }
-                }
-
-                foreach (var rule in _localBlackList)
-                {
-                    if (!IsDnsApplicableRule(rule)) continue;
-                    if (IsHostMatch(rule, host))
-                    {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
-                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
-                        if (rule.ProxyId != null)
-                        {
-                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
-                            return (RuleAction.Direct, null);
-                        }
-                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
-                    }
+                    if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                 }
 
                 // System DNS cannot identify the originating application. Keep the
@@ -744,46 +696,23 @@ namespace ProxyControl.Services
             }
             else // White List
             {
-                // Trusted 1: Exact Host Match (O(1))
-                if (_fastWhiteListRules.TryGetValue(host, out var fastRule))
+                if (_fastWhiteIndex.MatchDns(host, DateTime.Now, out var matchedRule))
                 {
-                    if (IsDnsApplicableRule(fastRule) && IsHostMatch(fastRule, host))
+                    if (matchedRule!.Action == RuleAction.Block) return (RuleAction.Block, null);
+                    if (matchedRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
+                    if (matchedRule.ProxyId != null)
                     {
-                        if (fastRule.Action == RuleAction.Block) return (RuleAction.Block, null);
-                        if (fastRule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
-                        if (fastRule.ProxyId != null)
-                        {
-                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(fastRule.ProxyId, StringComparison.OrdinalIgnoreCase));
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
+                        var p = _localProxies.FirstOrDefault(x => x.Id.Equals(matchedRule.ProxyId, StringComparison.OrdinalIgnoreCase));
+                        if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
 
-                            var mainProxyFallback = GetMainProxy();
-                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
-                        }
-                        var mainProxy = GetMainProxy();
-                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
+                        var mainProxyFallback = GetMainProxy();
+                        if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
                     }
+
+                    var mainProxy = GetMainProxy();
+                    if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
                 }
 
-                foreach (var rule in _localWhiteList)
-                {
-                    if (!IsDnsApplicableRule(rule)) continue;
-                    if (IsHostMatch(rule, host))
-                    {
-                        if (rule.Action == RuleAction.Block) return (RuleAction.Block, null);
-                        if (rule.Action == RuleAction.Direct) return (RuleAction.Direct, null);
-                        if (rule.ProxyId != null)
-                        {
-                            var p = _localProxies.FirstOrDefault(x => x.Id.Equals(rule.ProxyId, StringComparison.OrdinalIgnoreCase));
-                            if (p != null && p.IsEnabled) return (RuleAction.Proxy, p);
-
-                            var mainProxyFallback = GetMainProxy();
-                            if (mainProxyFallback != null) return (RuleAction.Proxy, mainProxyFallback);
-                        }
-
-                        var mainProxy = GetMainProxy();
-                        if (mainProxy != null) return (RuleAction.Proxy, mainProxy);
-                    }
-                }
                 return (RuleAction.Direct, null);
             }
         }
@@ -795,48 +724,7 @@ namespace ProxyControl.Services
                    ?? _localProxies.FirstOrDefault(p => p.IsEnabled);
         }
 
-        private static bool IsDnsApplicableRule(TrafficRule rule)
-        {
-            if (!rule.IsEnabled || !IsInSchedule(rule)) return false;
-            // App-scoped DNS rules cannot be evaluated reliably because Windows
-            // forwards requests through the DNS Client service.
-            return rule.TargetApps.Count == 0 || rule.TargetApps.Contains("*");
-        }
 
-        private static bool IsInSchedule(TrafficRule rule)
-        {
-            if (!rule.IsScheduleEnabled) return true;
-
-            var now = DateTime.Now;
-            if (rule.ScheduleDays is { Length: > 0 } && !rule.ScheduleDays.Contains(now.DayOfWeek))
-            {
-                return false;
-            }
-
-            if (rule.ScheduleStart is not TimeSpan start || rule.ScheduleEnd is not TimeSpan end)
-            {
-                return true;
-            }
-
-            var time = now.TimeOfDay;
-            return start <= end
-                ? time >= start && time <= end
-                : time >= start || time <= end;
-        }
-
-        private bool IsHostMatch(TrafficRule rule, string host)
-        {
-            if (rule.TargetHosts.Count > 0)
-            {
-                for (int i = 0; i < rule.TargetHosts.Count; i++)
-                {
-                    if (RoutingMatchHelper.HostMatches(host, rule.TargetHosts[i]))
-                        return true;
-                }
-                return false;
-            }
-            return true;
-        }
 
         public RuleAction ResolveDnsActionForHost(string host)
         {
