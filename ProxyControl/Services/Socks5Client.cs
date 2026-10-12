@@ -376,7 +376,24 @@ namespace ProxyControl.Services
             try
             {
                 client.NoDelay = true;
-                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                client.ReceiveBufferSize = 131072; // 128KB for high network throughput
+                client.SendBufferSize = 131072;    // 128KB
+                var socket = client.Client;
+                if (socket != null)
+                {
+                    socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                    socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                    try
+                    {
+                        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+                        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 3);
+                        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+                    }
+                    catch
+                    {
+                        // Best-effort platform fallback
+                    }
+                }
             }
             catch
             {

@@ -42,6 +42,60 @@ namespace ProxyControl.Services
         private readonly ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>> _connectionPool
             = new ConcurrentDictionary<string, ConcurrentBag<PooledTcpClient>>();
 
+        private sealed class DnsCacheEntry
+        {
+            public byte[] ResponseData { get; }
+            public DateTime ExpiresUtc { get; }
+
+            public DnsCacheEntry(byte[] responseData, DateTime expiresUtc)
+            {
+                ResponseData = responseData;
+                ExpiresUtc = expiresUtc;
+            }
+        }
+
+        private readonly ConcurrentDictionary<string, DnsCacheEntry> _dnsCache
+            = new ConcurrentDictionary<string, DnsCacheEntry>(StringComparer.OrdinalIgnoreCase);
+
+        private sealed class Socks5UdpSession : IDisposable
+        {
+            public TcpClient ControlClient { get; }
+            public IPEndPoint RelayEp { get; }
+            public UdpClient UdpClient { get; }
+            public DateTime LastUsed { get; set; }
+            public SemaphoreSlim Lock { get; } = new SemaphoreSlim(1, 1);
+
+            public Socks5UdpSession(TcpClient controlClient, IPEndPoint relayEp, UdpClient udpClient)
+            {
+                ControlClient = controlClient;
+                RelayEp = relayEp;
+                UdpClient = udpClient;
+                LastUsed = DateTime.UtcNow;
+            }
+
+            public bool IsAlive()
+            {
+                try
+                {
+                    return ControlClient.Connected &&
+                           !(ControlClient.Client.Poll(1, SelectMode.SelectRead) && ControlClient.Client.Available == 0);
+                }
+                catch { return false; }
+            }
+
+            public void Dispose()
+            {
+                try { UdpClient?.Close(); } catch { }
+                try { UdpClient?.Dispose(); } catch { }
+                try { ControlClient?.Close(); } catch { }
+                try { ControlClient?.Dispose(); } catch { }
+                try { Lock?.Dispose(); } catch { }
+            }
+        }
+
+        private readonly ConcurrentDictionary<string, Socks5UdpSession> _socks5UdpPool
+            = new ConcurrentDictionary<string, Socks5UdpSession>();
+
         private class PooledTcpClient : IDisposable
         {
             public TcpClient Client { get; }
@@ -126,6 +180,14 @@ namespace ProxyControl.Services
                 }
             }
             _connectionPool.Clear();
+
+            foreach (var session in _socks5UdpPool.Values)
+            {
+                session.Dispose();
+            }
+            _socks5UdpPool.Clear();
+
+            _dnsCache.Clear();
         }
 
         public void Start()
@@ -192,6 +254,26 @@ namespace ProxyControl.Services
                     foreach (var c in active) bag.Add(c);
                 }
             }
+
+            foreach (var kvp in _socks5UdpPool)
+            {
+                if ((DateTime.UtcNow - kvp.Value.LastUsed).TotalSeconds > 60 || !kvp.Value.IsAlive())
+                {
+                    if (_socks5UdpPool.TryRemove(kvp.Key, out var staleSession))
+                    {
+                        staleSession.Dispose();
+                    }
+                }
+            }
+
+            var now = DateTime.UtcNow;
+            foreach (var kvp in _dnsCache)
+            {
+                if (now >= kvp.Value.ExpiresUtc)
+                {
+                    _dnsCache.TryRemove(kvp.Key, out _);
+                }
+            }
         }
 
         private async Task ListenLoop()
@@ -214,12 +296,30 @@ namespace ProxyControl.Services
         {
             try
             {
-                string domain = ParseDomainFromQuery(dnsQuery);
-
-                // Fallback: Если парсер не справился, пробуем отправить "как есть"
-                if (string.IsNullOrEmpty(domain))
+                if (!TryParseQuestion(dnsQuery, out string domain, out ushort qtype, out int questionEndOffset))
                 {
-                    await ForwardDnsDirectly(dnsQuery, clientEndpoint);
+                    await ForwardDnsDirectly(dnsQuery, clientEndpoint, cacheKey: null);
+                    return;
+                }
+
+                // 1.3 Fast AAAA Drop (IPv4-Only): eliminate 2-3s timeouts when IPv6 is blocked or unavailable
+                if (_config.DisableIpv6Dns && qtype == 28)
+                {
+                    byte[] aaaaDrop = BuildEmptyDnsResponse(dnsQuery, questionEndOffset, rcode: 0);
+                    if (_udpListener != null)
+                    {
+                        await _udpListener.SendAsync(aaaaDrop, aaaaDrop.Length, clientEndpoint);
+                    }
+                    _trafficMonitor.CreateConnectionItem("DNS System", null, domain, "IPv6 Drop (AAAA)", "Fast Drop", null, "#888888");
+                    OnConnectionLog?.Invoke(new ConnectionLog
+                    {
+                        Time = DateTime.Now.ToString("HH:mm:ss"),
+                        ProcessName = "DNS System",
+                        Host = domain,
+                        Result = "IPv6 Drop (AAAA)",
+                        Color = "#888888",
+                        Type = TrafficType.DNS
+                    });
                     return;
                 }
 
@@ -241,6 +341,13 @@ namespace ProxyControl.Services
                     return;
                 }
 
+                // 1.1 Local TTL DNS Cache
+                string cacheKey = $"{qtype}:{domain.TrimEnd('.').ToLowerInvariant()}";
+                if (TryServeFromDnsCache(cacheKey, dnsQuery, clientEndpoint, domain))
+                {
+                    return;
+                }
+
                 var decision = ResolveDnsAction(domain);
 
                 bool success = false;
@@ -258,12 +365,12 @@ namespace ProxyControl.Services
                 {
                     logResult = $"Proxy: {decision.Proxy.Name}";
                     logColor = "#55FF55";
-                    success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy);
+                    success = await TunnelDnsOverProxy(dnsQuery, clientEndpoint, decision.Proxy, cacheKey);
                 }
 
                 if (!success && decision.Action != RuleAction.Block && _config.EnableDoh)
                 {
-                    success = await ForwardDnsOverHttpsAsync(dnsQuery, clientEndpoint, _cts?.Token ?? CancellationToken.None);
+                    success = await ForwardDnsOverHttpsAsync(dnsQuery, clientEndpoint, _cts?.Token ?? CancellationToken.None, cacheKey);
                     if (success)
                     {
                         logResult = "DoH";
@@ -286,7 +393,7 @@ namespace ProxyControl.Services
                 // Если правило не прокси или туннелирование не удалось -> отправляем напрямую
                 if (!success && decision.Action != RuleAction.Block)
                 {
-                    await ForwardDnsDirectly(dnsQuery, clientEndpoint);
+                    await ForwardDnsDirectly(dnsQuery, clientEndpoint, cacheKey);
                 }
             }
             catch (Exception ex)
@@ -295,7 +402,7 @@ namespace ProxyControl.Services
             }
         }
 
-        private async Task<bool> ForwardDnsOverHttpsAsync(byte[] dnsQuery, IPEndPoint clientEndpoint, CancellationToken token)
+        private async Task<bool> ForwardDnsOverHttpsAsync(byte[] dnsQuery, IPEndPoint clientEndpoint, CancellationToken token, string? cacheKey)
         {
             var endpoints = new List<string>(2);
             if (DnsOverHttpsClient.TryGetEndpoint(_config, out var primary, out _)) endpoints.Add(primary);
@@ -314,6 +421,7 @@ namespace ProxyControl.Services
                     if (response is { Length: > 0 } && _udpListener != null)
                     {
                         await _udpListener.SendAsync(response, response.Length, clientEndpoint);
+                        if (cacheKey != null) CacheDnsResponse(cacheKey, response);
                         return true;
                     }
                 }
@@ -351,7 +459,6 @@ namespace ProxyControl.Services
 
             return false;
         }
-
 
         private async Task<PooledTcpClient> GetConnectionAsync(ProxyItem proxy, string dnsHost)
         {
@@ -426,19 +533,19 @@ namespace ProxyControl.Services
         }
 
         // Возвращает true, если успешно
-        private async Task<bool> TunnelDnsOverProxy(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy)
+        private async Task<bool> TunnelDnsOverProxy(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string cacheKey)
         {
             foreach (var dnsHost in GetConfiguredDnsHosts())
             {
                 if (proxy.Type == ProxyType.Socks5)
                 {
                     // Для SOCKS5 используем UDP Associate (лучше для DNS)
-                    if (await TunnelDnsSocks5Udp(dnsQuery, clientEndpoint, proxy, dnsHost))
+                    if (await TunnelDnsSocks5Udp(dnsQuery, clientEndpoint, proxy, dnsHost, cacheKey))
                     {
                         return true;
                     }
                 }
-                else if (await TunnelDnsHttpTcp(dnsQuery, clientEndpoint, proxy, dnsHost))
+                else if (await TunnelDnsHttpTcp(dnsQuery, clientEndpoint, proxy, dnsHost, cacheKey))
                 {
                     return true;
                 }
@@ -447,31 +554,58 @@ namespace ProxyControl.Services
             return false;
         }
 
-        private async Task<bool> TunnelDnsSocks5Udp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string dnsHost)
+        private async Task<bool> TunnelDnsSocks5Udp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string dnsHost, string cacheKey)
         {
-            try
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                // UDP Associate требует TCP контрольного соединения
-                // В идеале мы должны кэшировать это соединение (Client + RelayEndpoint)
-                // Но для простоты пока создаем на каждый запрос (можно оптимизировать позже, если будет медленно)
-                // TODO: Optimize by pooling SOCKS5 control connections
-
-                using (var cts = new CancellationTokenSource(3000)) // 3 сек таймаут
+                Socks5UdpSession? session = null;
+                if (!_socks5UdpPool.TryGetValue(proxy.Id, out session) || !session.IsAlive())
                 {
-                    var (controlClient, relayEp) = await Socks5Client.UdpAssociateAsync(proxy, cts.Token);
-
-                    using (controlClient)
-                    using (var udpClient = new UdpClient())
+                    if (session != null)
                     {
+                        _socks5UdpPool.TryRemove(proxy.Id, out _);
+                        session.Dispose();
+                    }
+
+                    try
+                    {
+                        using var cts = new CancellationTokenSource(3000);
+                        var (controlClient, relayEp) = await Socks5Client.UdpAssociateAsync(proxy, cts.Token);
+                        var udpClient = new UdpClient();
                         udpClient.Client.ReceiveTimeout = 2000;
                         udpClient.Client.SendTimeout = 2000;
+                        session = new Socks5UdpSession(controlClient, relayEp, udpClient);
+                        _socks5UdpPool[proxy.Id] = session;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"SOCKS5 UDP Associate creation failed: {ex.Message}");
+                        return false;
+                    }
+                }
 
-                        // Pack DNS query into SOCKS5 UDP header. dnsHost may be an IP address or domain name.
+                if (session != null)
+                {
+                    bool lockAcquired = false;
+                    try
+                    {
+                        lockAcquired = await session.Lock.WaitAsync(2000);
+                        if (!lockAcquired)
+                        {
+                            continue;
+                        }
+
+                        if (!session.IsAlive())
+                        {
+                            _socks5UdpPool.TryRemove(proxy.Id, out _);
+                            session.Dispose();
+                            continue;
+                        }
+
                         byte[] packed = Socks5Client.PackUdp(dnsQuery, dnsHost, RemoteDnsPort);
+                        await session.UdpClient.SendAsync(packed, packed.Length, session.RelayEp);
 
-                        await udpClient.SendAsync(packed, packed.Length, relayEp);
-
-                        var recvTask = udpClient.ReceiveAsync();
+                        var recvTask = session.UdpClient.ReceiveAsync();
                         if (await Task.WhenAny(recvTask, Task.Delay(2000)) == recvTask)
                         {
                             var result = await recvTask;
@@ -480,20 +614,38 @@ namespace ProxyControl.Services
                             if (unpacked.Length > 0 && _udpListener != null)
                             {
                                 await _udpListener.SendAsync(unpacked, unpacked.Length, clientEndpoint);
+                                CacheDnsResponse(cacheKey, unpacked);
+                                session.LastUsed = DateTime.UtcNow;
                                 return true;
                             }
+                        }
+                        else
+                        {
+                            // Relay timeout, drop session to recreate on retry
+                            _socks5UdpPool.TryRemove(proxy.Id, out _);
+                            session.Dispose();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"SOCKS5 UDP DNS Error: {ex.Message}");
+                        _socks5UdpPool.TryRemove(proxy.Id, out _);
+                        session?.Dispose();
+                    }
+                    finally
+                    {
+                        if (lockAcquired && session != null)
+                        {
+                            try { session.Lock.Release(); } catch { }
                         }
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"SOCKS5 UDP DNS Error: {ex.Message}");
-            }
+
             return false;
         }
 
-        private async Task<bool> TunnelDnsHttpTcp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string dnsHost)
+        private async Task<bool> TunnelDnsHttpTcp(byte[] dnsQuery, IPEndPoint clientEndpoint, ProxyItem proxy, string dnsHost, string cacheKey)
         {
             PooledTcpClient? conn = null;
             bool retry = false;
@@ -501,8 +653,9 @@ namespace ProxyControl.Services
             try
             {
                 conn = await GetConnectionAsync(proxy, dnsHost);
-                await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
+                var resp = await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
                 ReturnConnection(proxy, dnsHost, conn);
+                if (resp != null) CacheDnsResponse(cacheKey, resp);
                 return true;
             }
             catch
@@ -516,8 +669,9 @@ namespace ProxyControl.Services
                 try
                 {
                     conn = await GetConnectionAsync(proxy, dnsHost);
-                    await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
+                    var resp = await PerformDnsTransaction(conn, dnsQuery, clientEndpoint);
                     ReturnConnection(proxy, dnsHost, conn);
+                    if (resp != null) CacheDnsResponse(cacheKey, resp);
                     return true;
                 }
                 catch
@@ -529,7 +683,7 @@ namespace ProxyControl.Services
             return false;
         }
 
-        private async Task PerformDnsTransaction(PooledTcpClient conn, byte[] dnsQuery, IPEndPoint clientEndpoint)
+        private async Task<byte[]?> PerformDnsTransaction(PooledTcpClient conn, byte[] dnsQuery, IPEndPoint clientEndpoint)
         {
             var stream = conn.Stream;
 
@@ -553,10 +707,12 @@ namespace ProxyControl.Services
             if (dataRead == responseLength && _udpListener != null)
             {
                 await _udpListener.SendAsync(responseData, responseData.Length, clientEndpoint);
+                return responseData;
             }
+            return null;
         }
 
-        private async Task ForwardDnsDirectly(byte[] dnsQuery, IPEndPoint clientEndpoint)
+        private async Task ForwardDnsDirectly(byte[] dnsQuery, IPEndPoint clientEndpoint, string? cacheKey = null)
         {
             if (_config.PreferPrimaryDns)
             {
@@ -568,6 +724,7 @@ namespace ProxyControl.Services
                     if (IsUsableDnsResponse(response) && _udpListener != null)
                     {
                         await _udpListener.SendAsync(response!, response!.Length, clientEndpoint);
+                        if (cacheKey != null) CacheDnsResponse(cacheKey, response!);
                         return;
                     }
                 }
@@ -591,6 +748,7 @@ namespace ProxyControl.Services
                 {
                     timeoutCts.Cancel();
                     await _udpListener.SendAsync(response!, response!.Length, clientEndpoint);
+                    if (cacheKey != null) CacheDnsResponse(cacheKey, response!);
                     return;
                 }
             }
@@ -745,7 +903,136 @@ namespace ProxyControl.Services
             }
         }
 
-        private string ParseName(byte[] data, ref int offset)
+        private static bool TryParseQuestion(byte[] data, out string domain, out ushort qtype, out int questionEndOffset)
+        {
+            domain = string.Empty;
+            qtype = 0;
+            questionEndOffset = 0;
+
+            if (data == null || data.Length < 12) return false;
+
+            try
+            {
+                int offset = 12;
+                domain = ParseName(data, ref offset);
+                if (string.IsNullOrEmpty(domain) || offset + 4 > data.Length)
+                {
+                    return false;
+                }
+
+                qtype = (ushort)((data[offset] << 8) | data[offset + 1]);
+                questionEndOffset = offset + 4;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static byte[] BuildEmptyDnsResponse(byte[] query, int questionEndOffset, int rcode = 0)
+        {
+            int length = Math.Min(questionEndOffset, query.Length);
+            byte[] resp = new byte[length];
+            Buffer.BlockCopy(query, 0, resp, 0, length);
+
+            byte rd = (byte)(query[2] & 0x01); // Preserve Recursion Desired bit
+            resp[2] = (byte)(0x80 | rd);        // QR=1 (Response), Opcode=0, RD preserved
+            resp[3] = (byte)(0x80 | (rcode & 0x0F)); // RA=1 (Recursion Available), Z=0, RCODE
+
+            // QDCOUNT = 1, ANCOUNT = 0, NSCOUNT = 0, ARCOUNT = 0
+            resp[4] = 0x00; resp[5] = 0x01;
+            resp[6] = 0x00; resp[7] = 0x00;
+            resp[8] = 0x00; resp[9] = 0x00;
+            resp[10] = 0x00; resp[11] = 0x00;
+
+            return resp;
+        }
+
+        private static uint ExtractDnsTtl(byte[] response)
+        {
+            try
+            {
+                if (response.Length < 12) return 60;
+                int qdCount = (response[4] << 8) | response[5];
+                int anCount = (response[6] << 8) | response[7];
+                if (anCount <= 0) return 60;
+
+                int offset = 12;
+                for (int i = 0; i < qdCount; i++)
+                {
+                    ParseName(response, ref offset);
+                    offset += 4; // QTYPE + QCLASS
+                    if (offset >= response.Length) return 60;
+                }
+
+                // First Answer RR: NAME
+                ParseName(response, ref offset);
+                // TYPE (2), CLASS (2), TTL (4)
+                if (offset + 8 <= response.Length)
+                {
+                    uint ttl = ((uint)response[offset + 4] << 24) |
+                               ((uint)response[offset + 5] << 16) |
+                               ((uint)response[offset + 6] << 8) |
+                               ((uint)response[offset + 7]);
+                    return Math.Clamp(ttl, 10u, 3600u);
+                }
+            }
+            catch { }
+            return 60;
+        }
+
+        private void CacheDnsResponse(string cacheKey, byte[]? response)
+        {
+            if (response == null || !IsUsableDnsResponse(response)) return;
+
+            int anCount = (response[6] << 8) | response[7];
+            int rcode = response[3] & 0x0F;
+            if (anCount <= 0 || rcode != 0) return;
+
+            uint ttl = ExtractDnsTtl(response);
+            _dnsCache[cacheKey] = new DnsCacheEntry(response, DateTime.UtcNow.AddSeconds(ttl));
+        }
+
+        private bool TryServeFromDnsCache(string cacheKey, byte[] dnsQuery, IPEndPoint clientEndpoint, string domain)
+        {
+            if (_dnsCache.TryGetValue(cacheKey, out var entry))
+            {
+                if (DateTime.UtcNow < entry.ExpiresUtc)
+                {
+                    byte[] resp = (byte[])entry.ResponseData.Clone();
+                    resp[0] = dnsQuery[0];
+                    resp[1] = dnsQuery[1];
+                    if (_udpListener != null)
+                    {
+                        try
+                        {
+                            _ = _udpListener.SendAsync(resp, resp.Length, clientEndpoint);
+                        }
+                        catch { }
+                    }
+
+                    _trafficMonitor.CreateConnectionItem("DNS System", null, domain, "Cache", "Memory (TTL)", null, "#33CC99");
+                    OnConnectionLog?.Invoke(new ConnectionLog
+                    {
+                        Time = DateTime.Now.ToString("HH:mm:ss"),
+                        ProcessName = "DNS System",
+                        Host = domain,
+                        Result = "Cache",
+                        Color = "#33CC99",
+                        Type = TrafficType.DNS
+                    });
+                    return true;
+                }
+                else
+                {
+                    _dnsCache.TryRemove(cacheKey, out _);
+                }
+            }
+            return false;
+        }
+
+        private static string ParseName(byte[] data, ref int offset)
         {
             StringBuilder sb = new StringBuilder();
             int jumpOffset = -1;

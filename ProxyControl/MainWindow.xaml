@@ -3902,10 +3902,16 @@
                                                 </Grid>
 
                                                 <CheckBox
-                                                    Margin="0,4,0,10"
+                                                    Margin="0,4,0,6"
                                                     VerticalAlignment="Center"
                                                     Content="Use alternative DNS only when primary server fails or times out"
                                                     IsChecked="{Binding PreferPrimaryDns}" />
+
+                                                <CheckBox
+                                                    Margin="0,0,0,10"
+                                                    VerticalAlignment="Center"
+                                                    Content="Disable IPv6 in DNS (IPv4-Only / Fast AAAA Drop to eliminate timeouts)"
+                                                    IsChecked="{Binding DisableIpv6Dns}" />
 
                                                 <!-- Status Cards -->
                                                 <Grid Margin="0,0,0,10">

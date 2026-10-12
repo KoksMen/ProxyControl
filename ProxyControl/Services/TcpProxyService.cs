@@ -189,10 +189,24 @@ namespace ProxyControl.Services
             _activeClients.Clear();
         }
 
-        private void ForceClose(TcpClient client)
+        private void ForceClose(TcpClient? client)
+        {
+            SafeClose(client);
+        }
+
+        private static void SafeClose(TcpClient? client)
         {
             if (client == null) return;
-            try { client.Close(); client.Dispose(); } catch { }
+            try
+            {
+                if (client.Connected && client.Client != null)
+                {
+                    try { client.Client.Shutdown(SocketShutdown.Both); } catch { }
+                }
+                client.Close();
+                client.Dispose();
+            }
+            catch { }
         }
 
         private void ConfigureTcpClient(TcpClient client)
@@ -202,7 +216,23 @@ namespace ProxyControl.Services
                 client.NoDelay = true;
                 client.ReceiveBufferSize = 131072; // 128KB for high network throughput
                 client.SendBufferSize = 131072;    // 128KB
-                client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                var socket = client.Client;
+                if (socket != null)
+                {
+                    socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                    socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                    // Low-level TCP Keep-Alive timer tuning (15s idle, 3s interval, 3 retries)
+                    try
+                    {
+                        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 15);
+                        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 3);
+                        socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+                    }
+                    catch
+                    {
+                        // Fallback on platforms/OS that don't support granular keepalive options
+                    }
+                }
             }
             catch
             {
@@ -480,6 +510,77 @@ namespace ProxyControl.Services
             return -1;
         }
 
+        private async Task<TcpClient> CreateAndConnectTcpAsync(string host, int port, CancellationToken token)
+        {
+            TcpClient client = new TcpClient();
+            ConfigureTcpClient(client);
+            try
+            {
+                await client.ConnectAsync(host, port, token);
+                return client;
+            }
+            catch (Exception ex) when (ex is SocketException || ex is IOException)
+            {
+                SafeClose(client);
+                if (token.IsCancellationRequested) throw;
+                // 2.2 Fast Retry: 1 retry after 250ms
+                await Task.Delay(250, token);
+                TcpClient retryClient = new TcpClient();
+                ConfigureTcpClient(retryClient);
+                await retryClient.ConnectAsync(host, port, token);
+                return retryClient;
+            }
+            catch
+            {
+                SafeClose(client);
+                throw;
+            }
+        }
+
+        private async Task<TcpClient> CreateAndConnectSocks5Async(ProxyItem proxy, string targetHost, int targetPort, CancellationToken token)
+        {
+            TcpClient client = new TcpClient();
+            ConfigureTcpClient(client);
+            try
+            {
+                await Socks5Client.ConnectAsync(client, proxy, targetHost, targetPort, token);
+                return client;
+            }
+            catch (Exception ex) when (ex is SocketException || ex is IOException)
+            {
+                SafeClose(client);
+                if (token.IsCancellationRequested) throw;
+                // 2.2 Fast Retry: 1 retry after 250ms
+                await Task.Delay(250, token);
+                TcpClient retryClient = new TcpClient();
+                ConfigureTcpClient(retryClient);
+                await Socks5Client.ConnectAsync(retryClient, proxy, targetHost, targetPort, token);
+                return retryClient;
+            }
+            catch
+            {
+                SafeClose(client);
+                throw;
+            }
+        }
+
+        private static async Task SendHttpErrorResponseAsync(NetworkStream clientStream, int statusCode, string statusText, string message, CancellationToken token)
+        {
+            try
+            {
+                byte[] body = Encoding.UTF8.GetBytes($"{statusCode} {statusText}\r\n\r\n{message}\r\n");
+                string responseHeader = $"HTTP/1.1 {statusCode} {statusText}\r\n" +
+                                       $"Content-Type: text/plain; charset=utf-8\r\n" +
+                                       $"Content-Length: {body.Length}\r\n" +
+                                       "Connection: close\r\n\r\n";
+                byte[] headerBytes = Encoding.ASCII.GetBytes(responseHeader);
+                await clientStream.WriteAsync(headerBytes, 0, headerBytes.Length, token);
+                await clientStream.WriteAsync(body, 0, body.Length, token);
+                await clientStream.FlushAsync(token);
+            }
+            catch { }
+        }
+
         private async Task HandleClientAsync(TcpClient client)
         {
             Guid connectionId = Guid.NewGuid();
@@ -487,11 +588,15 @@ namespace ProxyControl.Services
             _activeClients.TryAdd(connectionId, ctx);
 
             ConnectionHistoryItem? historyItem = null;
+            NetworkStream? clientStream = null;
+            string targetHost = string.Empty;
+            int targetPort = 0;
+            bool isConnectMethod = false;
 
             try
             {
                 ConfigureTcpClient(client);
-                NetworkStream clientStream = client.GetStream();
+                clientStream = client.GetStream();
 
                 int clientPort = ((IPEndPoint)client.Client.RemoteEndPoint).Port;
                 // PID table lookup and icon extraction run concurrently with header I/O without blocking threads.
@@ -513,7 +618,7 @@ namespace ProxyControl.Services
                     return;
                 }
 
-                if (!TryGetTargetHost(headerStr, out string targetHost, out int targetPort, out bool isConnectMethod))
+                if (!TryGetTargetHost(headerStr, out targetHost, out targetPort, out isConnectMethod))
                 {
                     return;
                 }
@@ -583,23 +688,14 @@ namespace ProxyControl.Services
                 if (decision.Action == RuleAction.Block && decision.BlockDir == BlockDirection.Both) return;
 
                 ProxyItem? targetProxy = decision.Proxy;
-                var remoteServer = new TcpClient();
-                ConfigureTcpClient(remoteServer);
-                ctx.Remote = remoteServer;
+                TcpClient? remoteServer = null;
 
                 if (targetProxy != null)
                 {
                     if (targetProxy.Type == ProxyType.Socks5)
                     {
-                        try
-                        {
-                            await Socks5Client.ConnectAsync(remoteServer, targetProxy, targetHost, targetPort, ctx.Cts.Token);
-                        }
-                        catch
-                        {
-                            return;
-                        }
-
+                        remoteServer = await CreateAndConnectSocks5Async(targetProxy, targetHost, targetPort, ctx.Cts.Token);
+                        ctx.Remote = remoteServer;
                         Stream remoteStream = remoteServer.GetStream();
 
                         if (isConnectMethod)
@@ -623,27 +719,15 @@ namespace ProxyControl.Services
                     }
                     else // HTTP Proxy
                     {
-                        // Existing HTTP Proxy Logic
-                        await remoteServer.ConnectAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
-
+                        remoteServer = await CreateAndConnectTcpAsync(targetProxy.IpAddress, targetProxy.Port, ctx.Cts.Token);
+                        ctx.Remote = remoteServer;
                         Stream remoteStream = remoteServer.GetStream();
 
                         if (targetProxy.UseTls || targetProxy.UseSsl)
                         {
-                            // Use the platform trust store and hostname verification.
-                            // SslProtocols.None lets Windows negotiate a currently
-                            // supported secure protocol without enabling legacy TLS.
                             var sslStream = new SslStream(remoteStream, false, ProxyTlsValidator.Validate);
-
-                            try
-                            {
-                                await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, SslProtocols.None, false);
-                                remoteStream = sslStream;
-                            }
-                            catch
-                            {
-                                return;
-                            }
+                            await sslStream.AuthenticateAsClientAsync(targetProxy.IpAddress, null, SslProtocols.None, false);
+                            remoteStream = sslStream;
                         }
 
                         string auth = "";
@@ -657,7 +741,7 @@ namespace ProxyControl.Services
                         byte[] reqBytes = Encoding.ASCII.GetBytes(connectReq);
 
                         await remoteStream.WriteAsync(reqBytes, 0, reqBytes.Length, ctx.Cts.Token);
-                        await remoteStream.FlushAsync(); // Ensure request is sent
+                        await remoteStream.FlushAsync(ctx.Cts.Token);
 
                         byte[] proxyRespBuffer = ArrayPool<byte>.Shared.Rent(4096);
                         try
@@ -665,7 +749,10 @@ namespace ProxyControl.Services
                             int respLen = await remoteStream.ReadAsync(proxyRespBuffer, 0, proxyRespBuffer.Length, ctx.Cts.Token);
                             string proxyResp = Encoding.ASCII.GetString(proxyRespBuffer, 0, respLen);
 
-                            if (!proxyResp.Contains("200")) return;
+                            if (!proxyResp.Contains("200"))
+                            {
+                                throw new Exception($"Upstream HTTP proxy returned non-200: {proxyResp.Split('\r')[0]}");
+                            }
                         }
                         finally
                         {
@@ -694,7 +781,8 @@ namespace ProxyControl.Services
                 }
                 else
                 {
-                    await remoteServer.ConnectAsync(targetHost, targetPort, ctx.Cts.Token);
+                    remoteServer = await CreateAndConnectTcpAsync(targetHost, targetPort, ctx.Cts.Token);
+                    ctx.Remote = remoteServer;
                     var remoteStream = remoteServer.GetStream();
 
                     if (isConnectMethod)
@@ -714,16 +802,37 @@ namespace ProxyControl.Services
                             }
                         }
                     }
-                    await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
+                    if (clientStream != null)
+                    {
+                        await BridgeStreams(clientStream, remoteStream, processName, historyItem, decision.BlockDir, ctx.Cts.Token);
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                if (!string.IsNullOrEmpty(targetHost))
+                {
+                    _logger.Warning("Proxy", $"Connection to {targetHost}:{targetPort} failed: {ex.Message}");
+                }
+                if (clientStream != null)
+                {
+                    // 2.1 Send HTTP 504 / 502 Bad Gateway response to client
+                    if (ex is TimeoutException || (ex is OperationCanceledException && ctx.Cts.IsCancellationRequested))
+                    {
+                        await SendHttpErrorResponseAsync(clientStream, 504, "Gateway Timeout", $"ProxyControl: Gateway Timeout while connecting to {targetHost}:{targetPort}.", CancellationToken.None);
+                    }
+                    else
+                    {
+                        await SendHttpErrorResponseAsync(clientStream, 502, "Bad Gateway", $"ProxyControl: Bad Gateway ({ex.Message}) while connecting to {targetHost}:{targetPort}.", CancellationToken.None);
+                    }
+                }
+            }
             finally
             {
                 if (historyItem != null) _trafficMonitor.CompleteConnection(historyItem);
                 _activeClients.TryRemove(connectionId, out _);
-                ForceClose(client);
-                ForceClose(ctx.Remote);
+                SafeClose(client);
+                SafeClose(ctx.Remote);
                 ctx.Cts?.Dispose();
             }
         }
@@ -1698,10 +1807,8 @@ namespace ProxyControl.Services
             }
 
             // Establish Upstream Connection FIRST
-            TcpClient remote = new TcpClient();
+            TcpClient? remote = null;
             Stream? remoteStream = null;
-            ConfigureTcpClient(remote);
-            ctx.Remote = remote;
 
             try
             {
@@ -1709,13 +1816,21 @@ namespace ProxyControl.Services
                 {
                     if (decision.Proxy.Type == ProxyType.Socks5)
                     {
-                        await Socks5Client.ConnectAsync(remote, decision.Proxy, targetHost, targetPort, token);
+                        remote = await CreateAndConnectSocks5Async(decision.Proxy, targetHost, targetPort, token);
+                        ctx.Remote = remote;
                         remoteStream = remote.GetStream();
+
+                        // Upstream ready -> Send success to SOCKS5 client
+                        byte[] successRep = { 0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                        await stream.WriteAsync(successRep, 0, successRep.Length, token);
+
+                        await BridgeStreams(stream, remoteStream, processName, historyItem, decision.BlockDir, token);
                     }
                     else
                     {
                         // HTTP Proxy Upstream
-                        await remote.ConnectAsync(decision.Proxy.IpAddress, decision.Proxy.Port, token);
+                        remote = await CreateAndConnectTcpAsync(decision.Proxy.IpAddress, decision.Proxy.Port, token);
+                        ctx.Remote = remote;
                         remoteStream = remote.GetStream();
 
                         if (decision.Proxy.UseTls || decision.Proxy.UseSsl)
@@ -1746,7 +1861,8 @@ namespace ProxyControl.Services
                 else
                 {
                     // Direct Connection
-                    await remote.ConnectAsync(targetHost, targetPort, token);
+                    remote = await CreateAndConnectTcpAsync(targetHost, targetPort, token);
+                    ctx.Remote = remote;
                     remoteStream = remote.GetStream();
 
                     // If we reached here, upstream is ready. Send Success to Client.
@@ -1762,20 +1878,25 @@ namespace ProxyControl.Services
             catch (Exception ex)
             {
                 _logger.Error("Socks5", $"Upstream failed: {ex.Message}");
-                // Try to send failure if stream is still open
+                // Send specific SOCKS5 error code
                 try
                 {
-                    byte[] failRep = { 0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
+                    byte repCode = (ex is TimeoutException || (ex is OperationCanceledException && token.IsCancellationRequested))
+                        ? (byte)0x04 // Host unreachable / timeout
+                        : (ex is SocketException se && se.SocketErrorCode == SocketError.ConnectionRefused)
+                            ? (byte)0x05 // Connection refused
+                            : (byte)0x01; // General SOCKS failure
+                    byte[] failRep = { 0x05, repCode, 0x00, 0x01, 0, 0, 0, 0, 0, 0 };
                     await stream.WriteAsync(failRep, 0, failRep.Length, token);
                 }
                 catch { }
 
-                remote?.Dispose();
+                SafeClose(remote);
             }
             finally
             {
                 if (historyItem != null) _trafficMonitor.CompleteConnection(historyItem);
-                ForceClose(remote);
+                SafeClose(remote);
             }
         }
 

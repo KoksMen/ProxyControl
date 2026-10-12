@@ -1473,6 +1473,21 @@ namespace ProxyControl.ViewModels
             }
         }
 
+        public bool DisableIpv6Dns
+        {
+            get => _config.DisableIpv6Dns;
+            set
+            {
+                if (_config.DisableIpv6Dns != value)
+                {
+                    _config.DisableIpv6Dns = value;
+                    OnPropertyChanged();
+                    ApplyConfig();
+                    RequestSaveSettings();
+                }
+            }
+        }
+
         public bool IsDohEnabled
         {
             get => _config.EnableDoh;
@@ -3646,6 +3661,7 @@ namespace ProxyControl.ViewModels
                 DnsHost = _config.DnsHost,
                 DnsFallbackHost = _config.DnsFallbackHost,
                 PreferPrimaryDns = _config.PreferPrimaryDns,
+                DisableIpv6Dns = _config.DisableIpv6Dns,
                 EnableDoh = _config.EnableDoh,
                 DohProvider = _config.DohProvider,
                 AutoDetectDohEndpoint = _config.AutoDetectDohEndpoint,
