@@ -303,7 +303,7 @@ namespace ProxyControl.ViewModels
 
         public async Task LoadLogsAsync() => await NavigateToViewAsync("Logs");
 
-        private string _currentVersion = "3.2.0";
+        private string _currentVersion = "3.5.0";
         public string CurrentVersion
         {
             get => _currentVersion;
@@ -685,7 +685,7 @@ namespace ProxyControl.ViewModels
             set { _isWhatsNewModalVisible = value; OnPropertyChanged(); }
         }
 
-        private string _whatsNewVersion = "3.2.0";
+        private string _whatsNewVersion = "3.5.0";
         public string WhatsNewVersion
         {
             get => _whatsNewVersion;
