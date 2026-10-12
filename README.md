@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/KoksMen/ProxyControl/releases"><img src="https://img.shields.io/badge/Version-v3.2.0-6366f1?style=for-the-badge&logo=github&logoColor=white" alt="ProxyControl v3.2.0" /></a>
+  <a href="https://github.com/KoksMen/ProxyControl/releases"><img src="https://img.shields.io/badge/Version-v3.5.0-6366f1?style=for-the-badge&logo=github&logoColor=white" alt="ProxyControl v3.5.0" /></a>
   <img src="https://img.shields.io/badge/.NET-8.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 8.0" />
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 10/11" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20WPF-00B4D8?style=for-the-badge" alt="MVVM | WPF" />

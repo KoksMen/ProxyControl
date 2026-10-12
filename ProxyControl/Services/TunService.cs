@@ -26,9 +26,9 @@ namespace ProxyControl.Services
     {
         private const string SingBoxExe = "sing-box.exe";
         private const string ConfigFile = "sing-box-config.json";
-        private const string DownloadUrl = "https://github.com/SagerNet/sing-box/releases/download/v1.8.0/sing-box-1.8.0-windows-amd64.zip";
-        private const string ExpectedZipSha256 = "E09707157CAA5E6D35E33759D0A5EE188857D6B8C6A711A28087D40A70A39B88";
-        private const string ExpectedExeSha256 = "2C4BC6860D701B8D8F928121D0ED787C09F00C4924A51C1E2E2C8717FCA6996F";
+        private const string DownloadUrl = "https://github.com/SagerNet/sing-box/releases/download/v1.11.4/sing-box-1.11.4-windows-amd64.zip";
+        private const string ExpectedZipSha256 = "8A681DBD6FA84F03D41E9E8637A8FF4DF3D1D209556585EBF004B48325F9D70E";
+        private const string ExpectedExeSha256 = "6A96A3EC33560EDA6C9D3260722C67838DD348D69A14C0E88108C29AEF71397C";
 
         private Process? _singBoxProcess;
         private bool _isRunning;
@@ -492,7 +492,9 @@ namespace ProxyControl.Services
                     // Match Hosts (Domains)
                     if (rule.TargetHosts != null && rule.TargetHosts.Count > 0)
                     {
-                        var domains = rule.TargetHosts.Where(h => h != "*").ToArray();
+                        var domains = rule.TargetHosts.Where(h => h != "*")
+                            .Select(h => h.StartsWith("*.") ? h.Substring(2) : h)
+                            .ToArray();
                         if (domains.Length > 0)
                         {
                             matchObject["domain_suffix"] = domains;
@@ -600,7 +602,7 @@ namespace ProxyControl.Services
                         type = "tun",
                         tag = "tun-in",
                         interface_name = TunInterfaceName,
-                        inet4_address = "172.19.0.1/30",
+                        address = new[] { "172.19.0.1/30" },
                         mtu = 1400,
                         auto_route = true,
                         strict_route = true,

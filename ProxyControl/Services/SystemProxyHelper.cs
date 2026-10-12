@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using ProxyControl.Models;
 using System;
 using System.Collections.Generic;
@@ -65,9 +65,9 @@ namespace ProxyControl.Services
         // Task coalescing: If multiple threads request refresh, they await the SAME task.
         private static Task<Dictionary<int, int>>? _refreshTask;
 
-        public static int GetPidByPort(int port, bool forceRefresh = false)
+        public static async ValueTask<int> GetPidByPortAsync(int port, bool forceRefresh = false)
         {
-            Dictionary<int, int>? cacheSnapshot = null;
+            Task<Dictionary<int, int>> refreshTask;
 
             lock (_cacheLock)
             {
@@ -83,14 +83,16 @@ namespace ProxyControl.Services
                 // Get or start the refresh task
                 if (_refreshTask == null || _refreshTask.IsCompleted)
                 {
-                    _refreshTask = Task.Run(() => BuildTcpTableSnapshot());
+                    _refreshTask = Task.Run(BuildTcpTableSnapshot);
                 }
+                refreshTask = _refreshTask;
             }
 
+            Dictionary<int, int> cacheSnapshot;
             try
             {
-                // Await the shared refresh task
-                cacheSnapshot = _refreshTask.GetAwaiter().GetResult();
+                // Non-blocking await of shared refresh task
+                cacheSnapshot = await refreshTask.ConfigureAwait(false);
             }
             catch
             {
@@ -106,7 +108,12 @@ namespace ProxyControl.Services
 
             // A shared refresh may have started just before this connection was
             // accepted. One coalesced retry captures ports created during it.
-            return forceRefresh ? 0 : GetPidByPort(port, forceRefresh: true);
+            return forceRefresh ? 0 : await GetPidByPortAsync(port, forceRefresh: true).ConfigureAwait(false);
+        }
+
+        public static int GetPidByPort(int port, bool forceRefresh = false)
+        {
+            return GetPidByPortAsync(port, forceRefresh).AsTask().GetAwaiter().GetResult();
         }
 
         public static int GetPidByDestAddress(IPAddress destIp, int destPort)

@@ -303,7 +303,7 @@ namespace ProxyControl.ViewModels
 
         public async Task LoadLogsAsync() => await NavigateToViewAsync("Logs");
 
-        private string _currentVersion = "3.2.0";
+        private string _currentVersion = "3.5.0";
         public string CurrentVersion
         {
             get => _currentVersion;
@@ -685,7 +685,7 @@ namespace ProxyControl.ViewModels
             set { _isWhatsNewModalVisible = value; OnPropertyChanged(); }
         }
 
-        private string _whatsNewVersion = "3.2.0";
+        private string _whatsNewVersion = "3.5.0";
         public string WhatsNewVersion
         {
             get => _whatsNewVersion;
@@ -1469,6 +1469,21 @@ namespace ProxyControl.ViewModels
                     _config.PreferPrimaryDns = value;
                     OnPropertyChanged();
                     MarkDohSettingsChanged();
+                }
+            }
+        }
+
+        public bool DisableIpv6Dns
+        {
+            get => _config.DisableIpv6Dns;
+            set
+            {
+                if (_config.DisableIpv6Dns != value)
+                {
+                    _config.DisableIpv6Dns = value;
+                    OnPropertyChanged();
+                    ApplyConfig();
+                    RequestSaveSettings();
                 }
             }
         }
@@ -3646,6 +3661,7 @@ namespace ProxyControl.ViewModels
                 DnsHost = _config.DnsHost,
                 DnsFallbackHost = _config.DnsFallbackHost,
                 PreferPrimaryDns = _config.PreferPrimaryDns,
+                DisableIpv6Dns = _config.DisableIpv6Dns,
                 EnableDoh = _config.EnableDoh,
                 DohProvider = _config.DohProvider,
                 AutoDetectDohEndpoint = _config.AutoDetectDohEndpoint,
