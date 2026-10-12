@@ -676,9 +676,9 @@
         <Style x:Key="ActionButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource AccentGradient}" />
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="11.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Padding" Value="12,5" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -687,15 +687,15 @@
                         <Border
                             x:Name="Border"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="4">
+                            CornerRadius="6">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Opacity" Value="0.85" />
+                                <Setter TargetName="Border" Property="Opacity" Value="0.9" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Border" Property="Opacity" Value="0.7" />
+                                <Setter TargetName="Border" Property="Opacity" Value="0.75" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -706,9 +706,9 @@
         <!--  Card Style  -->
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource SurfaceMediumBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource SurfaceLightBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="CornerRadius" Value="10" />
             <Setter Property="Padding" Value="16" />
         </Style>
 
@@ -730,8 +730,8 @@
             <Setter Property="CornerRadius" Value="8" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#292F3B" />
-                    <Setter Property="BorderBrush" Value="#4C6FB8" />
+                    <Setter Property="Background" Value="#222533" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -739,7 +739,7 @@
         <Style x:Key="FilterCardStyle" TargetType="Border">
             <Setter Property="Margin" Value="0,0,0,12" />
             <Setter Property="Padding" Value="10,9" />
-            <Setter Property="Background" Value="#1B1F29" />
+            <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
@@ -747,7 +747,7 @@
 
         <Style x:Key="FilterModeButtonStyle" TargetType="CheckBox">
             <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
-            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontSize" Value="10.5" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -756,7 +756,7 @@
                         <Border
                             x:Name="ModeBorder"
                             MinWidth="118"
-                            Height="29"
+                            Height="30"
                             Padding="12,0"
                             Background="{DynamicResource SurfaceLightBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
@@ -781,13 +781,13 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="#4C6FB8" />
+                                <Setter TargetName="ModeBorder" Property="BorderBrush" Value="{DynamicResource ForegroundDisabledBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="ModeBorder" Property="Background" Value="#243A70" />
+                                <Setter TargetName="ModeBorder" Property="Background" Value="#21273C" />
                                 <Setter TargetName="ModeBorder" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
-                                <Setter TargetName="ModeIndicator" Property="Fill" Value="#60A5FA" />
+                                <Setter TargetName="ModeIndicator" Property="Fill" Value="{DynamicResource PrimaryAccentBrush}" />
                                 <Setter Property="Foreground" Value="White" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -935,18 +935,20 @@
                             </Grid.ColumnDefinitions>
                             <Border
                                 x:Name="SwitchBorder"
-                                Width="44"
-                                Height="24"
-                                Background="{DynamicResource BorderBrush}"
-                                CornerRadius="12"
+                                Width="42"
+                                Height="22"
+                                Background="{DynamicResource SurfaceLightBrush}"
+                                BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="11"
                                 Cursor="Hand">
                                 <Ellipse
                                     x:Name="SwitchThumb"
-                                    Width="18"
-                                    Height="18"
+                                    Width="14"
+                                    Height="14"
                                     Margin="3,0,0,0"
                                     HorizontalAlignment="Left"
-                                    Fill="White" />
+                                    Fill="#E4E4E7" />
                             </Border>
                             <ContentPresenter
                                 Grid.Column="1"
@@ -957,7 +959,9 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="SwitchBorder" Property="Background" Value="{DynamicResource PrimaryAccentBrush}" />
+                                <Setter TargetName="SwitchBorder" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
                                 <Setter TargetName="SwitchThumb" Property="Margin" Value="23,0,0,0" />
+                                <Setter TargetName="SwitchThumb" Property="Fill" Value="White" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="SwitchBorder" Property="Opacity" Value="0.9" />
@@ -982,11 +986,11 @@
                             </Grid.ColumnDefinitions>
                             <Border
                                 x:Name="CheckBorder"
-                                Width="20"
-                                Height="20"
+                                Width="18"
+                                Height="18"
                                 Background="{DynamicResource SurfaceLightBrush}"
                                 BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1.5"
+                                BorderThickness="1.2"
                                 CornerRadius="4"
                                 Cursor="Hand">
                                 <Path
@@ -996,7 +1000,7 @@
                                     Data="M2,5 L5,8 L10,2"
                                     Opacity="0"
                                     Stroke="White"
-                                    StrokeThickness="2" />
+                                    StrokeThickness="1.8" />
                             </Border>
                             <ContentPresenter
                                 Grid.Column="1"
@@ -1031,9 +1035,9 @@
         <Style TargetType="TabItem">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="Medium" />
-            <Setter Property="Padding" Value="16,10" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="16,8" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
@@ -1054,7 +1058,7 @@
                                 <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Foreground" Value="#A1A1AA" />
+                                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -1146,12 +1150,12 @@
                         <!-- Version Tag -->
                         <Border
                             Margin="8,0,0,0"
-                            Padding="6,1.5"
+                            Padding="7,2"
                             VerticalAlignment="Center"
-                            Background="#1A382D4B"
+                            Background="{DynamicResource SurfaceLightBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="4">
+                            CornerRadius="6">
                             <TextBlock
                                 FontSize="10"
                                 FontWeight="SemiBold"
@@ -1161,13 +1165,13 @@
 
                         <!-- Service Status Indicator -->
                         <Border
-                            Margin="10,0,0,0"
-                            Padding="8,2"
+                            Margin="8,0,0,0"
+                            Padding="9,3"
                             VerticalAlignment="Center"
                             Background="{DynamicResource SurfaceLightBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="10">
+                            CornerRadius="12">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                 <Ellipse
                                     Width="6"
@@ -1187,12 +1191,12 @@
                         <!-- Mode Badge -->
                         <Border
                             Margin="6,0,0,0"
-                            Padding="6,2"
+                            Padding="8,3"
                             VerticalAlignment="Center"
-                            Background="#1E293B"
+                            Background="{DynamicResource SurfaceLightBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
-                            CornerRadius="4">
+                            CornerRadius="6">
                             <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource ForegroundMutedBrush}">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
@@ -1717,11 +1721,12 @@
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                                                     <Setter Property="BorderBrush" Value="{DynamicResource ForegroundDisabledBrush}" />
+                                                    <Setter Property="Background" Value="#202330" />
                                                 </DataTrigger>
                                                 <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
-                                                    <Setter Property="Background" Value="#252B3A" />
+                                                    <Setter Property="Background" Value="#1B1E2B" />
                                                     <Setter Property="BorderBrush" Value="{DynamicResource PrimaryAccentBrush}" />
-                                                    <Setter Property="BorderThickness" Value="2" />
+                                                    <Setter Property="BorderThickness" Value="1.5" />
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -1755,15 +1760,17 @@
                                                 <ColumnDefinition Width="*" MinWidth="0" />
                                             </Grid.ColumnDefinitions>
                                             <Border
-                                                Margin="0,0,5,0"
-                                                Padding="3,0"
+                                                Margin="0,0,6,0"
+                                                Padding="5,1"
                                                 VerticalAlignment="Center"
-                                                Background="#444"
-                                                CornerRadius="2">
+                                                Background="{DynamicResource SurfaceDarkBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="4">
                                                 <TextBlock
                                                     FontSize="9"
                                                     FontWeight="Bold"
-                                                    Foreground="#EEE"
+                                                    Foreground="{DynamicResource PrimaryAccentBrush}"
                                                     Text="{Binding Type}" />
                                             </Border>
                                             <TextBlock
@@ -1781,7 +1788,7 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock
                                                 FontSize="10"
-                                                Foreground="#AAA"
+                                                Foreground="{DynamicResource ForegroundMutedBrush}"
                                                 Text="{Binding Endpoint}"
                                                 TextTrimming="CharacterEllipsis"
                                                 ToolTip="{Binding Endpoint}" />
@@ -1789,7 +1796,7 @@
                                                 Grid.Column="1"
                                                 Margin="6,0,0,0"
                                                 FontSize="10"
-                                                Foreground="#55AAFF"
+                                                Foreground="#38BDF8"
                                                 Text="{Binding PingFormatted}" />
                                             <Grid
                                                 Grid.Column="2"
@@ -1797,7 +1804,7 @@
                                                 VerticalAlignment="Center">
                                                 <TextBlock
                                                     FontSize="10"
-                                                    Foreground="#55FF55"
+                                                    Foreground="#34D399"
                                                     Text="{Binding SpeedFormatted}"
                                                     Visibility="{Binding IsSpeedChecking, Converter={StaticResource InvBoolToVis}}" />
                                                 <TextBlock
@@ -1984,26 +1991,34 @@
                     Padding="4"
                     HorizontalAlignment="Center"
                     Background="{DynamicResource SurfaceMediumBrush}"
-                    CornerRadius="8">
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="10">
                     <StackPanel Orientation="Horizontal">
                         <StackPanel.Resources>
                             <Style BasedOn="{StaticResource {x:Type ToggleButton}}" TargetType="RadioButton">
-                                <Setter Property="Width" Value="100" />
-                                <Setter Property="Height" Value="32" />
+                                <Setter Property="Width" Value="112" />
+                                <Setter Property="Height" Value="34" />
                                 <Setter Property="Margin" Value="2,0" />
                                 <Setter Property="Background" Value="Transparent" />
-                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="BorderBrush" Value="Transparent" />
                                 <Setter Property="Foreground" Value="{DynamicResource ForegroundMutedBrush}" />
                                 <Setter Property="Cursor" Value="Hand" />
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="RadioButton">
-                                            <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                                            <Border
+                                                x:Name="PillBorder"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="7">
                                                 <ContentPresenter
                                                     HorizontalAlignment="Center"
                                                     VerticalAlignment="Center"
-                                                    TextElement.FontSize="13"
-                                                    TextElement.FontWeight="Medium" />
+                                                    TextElement.FontSize="12.5"
+                                                    TextElement.FontWeight="SemiBold" />
                                             </Border>
                                         </ControlTemplate>
                                     </Setter.Value>
@@ -2011,11 +2026,17 @@
                                 <Style.Triggers>
                                     <Trigger Property="IsChecked" Value="True">
                                         <Setter Property="Background" Value="{DynamicResource SurfaceLightBrush}" />
-                                        <Setter Property="Foreground" Value="White" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
                                     </Trigger>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Foreground" Value="#D4D4D8" />
-                                    </Trigger>
+                                    <MultiTrigger>
+                                        <MultiTrigger.Conditions>
+                                            <Condition Property="IsMouseOver" Value="True" />
+                                            <Condition Property="IsChecked" Value="False" />
+                                        </MultiTrigger.Conditions>
+                                        <Setter Property="Background" Value="#1A1C25" />
+                                        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+                                    </MultiTrigger>
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Resources>
@@ -5800,19 +5821,20 @@
             Background="#CC000000"
             Visibility="{Binding IsProxyModalVisible, Converter={StaticResource BoolToVis}}">
             <Border
-                Width="350"
-                Padding="25"
+                Width="420"
+                Padding="26"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                Background="#252526"
-                BorderBrush="#007ACC"
+                Background="{DynamicResource SurfaceMediumBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
-                CornerRadius="8">
+                CornerRadius="14">
                 <Border.Effect>
                     <DropShadowEffect
-                        BlurRadius="20"
-                        Opacity="0.5"
-                        ShadowDepth="5" />
+                        BlurRadius="35"
+                        Opacity="0.6"
+                        ShadowDepth="0"
+                        Color="Black" />
                 </Border.Effect>
                 <Grid>
                     <Grid.RowDefinitions>
@@ -5824,29 +5846,33 @@
                     <TextBlock
                         Margin="0,0,0,20"
                         HorizontalAlignment="Center"
-                        FontSize="20"
+                        FontSize="18"
                         FontWeight="Bold"
-                        Foreground="White"
+                        Foreground="{DynamicResource ForegroundBrush}"
                         Text="{Binding ProxyModalTitle}" />
 
                     <StackPanel Grid.Row="1">
                         <TextBlock
-                            Margin="0,0,0,5"
-                            Foreground="#AAA"
+                            Margin="0,0,0,6"
+                            FontSize="11.5"
+                            FontWeight="SemiBold"
+                            Foreground="{DynamicResource ForegroundMutedBrush}"
                             Text="Proxy Name" />
                         <TextBox
                             Margin="0,0,0,15"
-                            Padding="5"
+                            Padding="8,6"
                             Text="{Binding ProxyModalName, UpdateSourceTrigger=PropertyChanged}"
                             ToolTip="Leave empty to use the proxy ID as its name" />
 
                         <TextBlock
-                            Margin="0,0,0,5"
-                            Foreground="#AAA"
+                            Margin="0,0,0,6"
+                            FontSize="11.5"
+                            FontWeight="SemiBold"
+                            Foreground="{DynamicResource ForegroundMutedBrush}"
                             Text="Proxy Type" />
                         <ComboBox
                             Margin="0,0,0,15"
-                            Padding="5"
+                            Padding="8,6"
                             ItemsSource="{Binding ProxyTypes}"
                             SelectedItem="{Binding ProxyModalType}" />
 
@@ -5858,66 +5884,79 @@
                             </Grid.ColumnDefinitions>
                             <StackPanel>
                                 <TextBlock
-                                    Margin="0,0,0,5"
-                                    Foreground="#AAA"
+                                    Margin="0,0,0,6"
+                                    FontSize="11.5"
+                                    FontWeight="SemiBold"
+                                    Foreground="{DynamicResource ForegroundMutedBrush}"
                                     Text="IP Address" />
-                                <TextBox Padding="5" Text="{Binding ProxyModalIp}" />
+                                <TextBox Padding="8,6" Text="{Binding ProxyModalIp}" />
                             </StackPanel>
                             <StackPanel Grid.Column="2">
                                 <TextBlock
-                                    Margin="0,0,0,5"
-                                    Foreground="#AAA"
+                                    Margin="0,0,0,6"
+                                    FontSize="11.5"
+                                    FontWeight="SemiBold"
+                                    Foreground="{DynamicResource ForegroundMutedBrush}"
                                     Text="Port" />
-                                <TextBox Padding="5" Text="{Binding ProxyModalPort}" />
+                                <TextBox Padding="8,6" Text="{Binding ProxyModalPort}" />
                             </StackPanel>
                         </Grid>
 
                         <TextBlock
-                            Margin="0,0,0,5"
-                            Foreground="#AAA"
+                            Margin="0,0,0,6"
+                            FontSize="11.5"
+                            FontWeight="SemiBold"
+                            Foreground="{DynamicResource ForegroundMutedBrush}"
                             Text="Username (Optional)" />
                         <TextBox
                             Margin="0,0,0,15"
-                            Padding="5"
+                            Padding="8,6"
                             Text="{Binding ProxyModalUser}" />
 
                         <TextBlock
-                            Margin="0,0,0,5"
-                            Foreground="#AAA"
+                            Margin="0,0,0,6"
+                            FontSize="11.5"
+                            FontWeight="SemiBold"
+                            Foreground="{DynamicResource ForegroundMutedBrush}"
                             Text="Password (Optional)" />
                         <TextBox
                             Margin="0,0,0,15"
-                            Padding="5"
+                            Padding="8,6"
                             Text="{Binding ProxyModalPass}" />
 
                         <CheckBox
-                            Margin="0,0,0,5"
+                            Margin="0,0,0,7"
                             Content="Use TLS (Modern Secure Proxy)"
-                            Foreground="White"
+                            Foreground="{DynamicResource ForegroundBrush}"
                             IsChecked="{Binding ProxyModalUseTls}" />
                         <CheckBox
                             Margin="0,0,0,15"
                             Content="Use SSL (Legacy/Compat Mode)"
-                            Foreground="White"
+                            Foreground="{DynamicResource ForegroundBrush}"
                             IsChecked="{Binding ProxyModalUseSsl}" />
 
                     </StackPanel>
 
                     <StackPanel
                         Grid.Row="2"
-                        Margin="0,25,0,0"
+                        Margin="0,20,0,0"
                         HorizontalAlignment="Right"
                         Orientation="Horizontal">
                         <Button
-                            Width="80"
-                            Height="30"
+                            Width="90"
+                            Height="32"
                             Margin="0,0,10,0"
-                            Background="#444"
+                            Padding="12,0"
+                            Background="{DynamicResource SurfaceLightBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            Foreground="{DynamicResource ForegroundBrush}"
                             Command="{Binding CloseProxyModalCommand}"
                             Content="Cancel" />
                         <Button
-                            Width="100"
-                            Height="30"
+                            Width="110"
+                            Height="32"
+                            Padding="14,0"
                             Command="{Binding SaveProxyModalCommand}"
                             Content="Save Proxy"
                             Style="{StaticResource AccentBtn}" />
@@ -5939,7 +5978,7 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Background="{DynamicResource SurfaceMediumBrush}"
-                BorderBrush="#27272A"
+                BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="16">
                 <Border.Effect>
@@ -6035,22 +6074,23 @@
             Grid.RowSpan="2"
             Panel.ZIndex="2000"
             d:IsHidden="True"
-            Background="#CC000000"
+            Background="#D9000000"
             Visibility="{Binding IsUpdateModalVisible, Converter={StaticResource BoolToVis}}">
             <Border
-                Width="400"
-                Padding="30"
+                Width="420"
+                Padding="32,28"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
-                Background="#252526"
-                BorderBrush="#007ACC"
+                Background="{DynamicResource SurfaceMediumBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
                 BorderThickness="1"
-                CornerRadius="8">
+                CornerRadius="16">
                 <Border.Effect>
                     <DropShadowEffect
-                        BlurRadius="20"
-                        Opacity="0.5"
-                        ShadowDepth="5" />
+                        BlurRadius="40"
+                        Opacity="0.6"
+                        ShadowDepth="0"
+                        Color="Black" />
                 </Border.Effect>
                 <Grid>
                     <Grid.RowDefinitions>
@@ -6067,30 +6107,30 @@
                         <TextBlock
                             Margin="0,0,10,0"
                             VerticalAlignment="Center"
-                            FontSize="24"
+                            FontSize="22"
                             Text="♻️" />
                         <TextBlock
                             VerticalAlignment="Center"
-                            FontSize="20"
-                            FontWeight="Bold"
-                            Foreground="White"
+                            FontSize="18"
+                            FontWeight="SemiBold"
+                            Foreground="{DynamicResource ForegroundBrush}"
                             Text="Updating Application" />
                     </StackPanel>
 
-                    <Grid Grid.Row="1" Margin="0,0,0,5">
+                    <Grid Grid.Row="1" Margin="0,0,0,10">
                         <ProgressBar
-                            Height="20"
-                            Background="#333"
+                            Height="14"
+                            Background="{DynamicResource SurfaceDarkBrush}"
                             BorderThickness="0"
-                            Foreground="#007ACC"
+                            Foreground="{DynamicResource PrimaryAccentBrush}"
                             Maximum="100"
                             Value="{Binding UpdateProgress}" />
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            FontSize="12"
+                            FontSize="11"
                             FontWeight="Bold"
-                            Foreground="White"
+                            Foreground="{DynamicResource ForegroundBrush}"
                             Text="{Binding UpdateProgress, StringFormat='{}{0}%'}">
                             <TextBlock.Effect>
                                 <DropShadowEffect
@@ -6103,18 +6143,18 @@
 
                     <TextBlock
                         Grid.Row="2"
-                        Margin="0,0,0,15"
+                        Margin="0,0,0,12"
                         HorizontalAlignment="Center"
-                        FontSize="11"
-                        Foreground="#888"
+                        FontSize="12"
+                        Foreground="{DynamicResource ForegroundMutedBrush}"
                         Text="{Binding UpdateDetailText}" />
 
                     <TextBlock
                         Grid.Row="3"
                         HorizontalAlignment="Center"
-                        FontSize="14"
-                        FontWeight="SemiBold"
-                        Foreground="#AAA"
+                        FontSize="13"
+                        FontWeight="Medium"
+                        Foreground="{DynamicResource ForegroundBrush}"
                         Text="{Binding UpdateStatusText}" />
 
                 </Grid>
